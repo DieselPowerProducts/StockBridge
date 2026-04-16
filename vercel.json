@@ -1,20 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "builds": [
-    {
-      "src": "api/index.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "backorder-app/public/**"
-        ]
-      }
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "backorder-app/src/**"
     }
-  ],
+  },
   "routes": [
     {
-      "src": "/(.*)",
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(backorders|status|import|notes|vendors)(.*)",
       "dest": "api/index.js"
     }
   ]
