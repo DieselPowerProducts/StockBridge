@@ -1,5 +1,5 @@
 const http = require("http");
-const handler = require("./index");
+const handler = require("../api");
 
 const port = Number.parseInt(process.env.API_PORT || "3000", 10);
 

@@ -4,7 +4,7 @@ const commands = [
   {
     name: "api",
     command: process.execPath,
-    args: ["api/dev-server.js"]
+    args: ["scripts/api-dev-server.js"]
   },
   {
     name: "web",

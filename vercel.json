@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
-      "includeFiles": "api/server/**"
+      "includeFiles": "server/**"
     }
   },
   "routes": [

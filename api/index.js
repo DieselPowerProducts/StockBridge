@@ -1,5 +1,5 @@
-const app = require("./server/app");
-const { initializeSchema } = require("./server/db/schema");
+const app = require("../server/app");
+const { initializeSchema } = require("../server/db/schema");
 
 let schemaReady;
 
