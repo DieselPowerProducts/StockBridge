@@ -13,7 +13,7 @@
       "handle": "filesystem"
     },
     {
-      "src": "/(backorders|status|import|notes|vendors)(.*)",
+      "src": "/(backorders|status|import|notes|products|vendors)(.*)",
       "dest": "api/index.js"
     }
   ]

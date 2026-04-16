@@ -1,57 +1,40 @@
-import type { Backorder } from "../../types";
+import type { Product } from "../../types";
 
 type ProductsTableProps = {
-  backorders: Backorder[];
-  onOpenNotes: (sku: string) => void;
-  onStatusChange: (id: number, status: string) => void;
+  products: Product[];
 };
 
-const statusOptions = ["Backordered", "Available"];
-
-export function ProductsTable({
-  backorders,
-  onOpenNotes,
-  onStatusChange
-}: ProductsTableProps) {
+export function ProductsTable({ products }: ProductsTableProps) {
   return (
     <table>
       <thead>
         <tr>
           <th>SKU</th>
-          <th>Vendor</th>
-          <th>Status</th>
+          <th>Name</th>
+          <th>Availability</th>
         </tr>
       </thead>
       <tbody>
-        {backorders.length === 0 ? (
+        {products.length === 0 ? (
           <tr>
             <td colSpan={3}>No products found yet.</td>
           </tr>
         ) : (
-          backorders.map((item) => (
-            <tr key={item.id}>
+          products.map((product) => (
+            <tr key={product.id}>
+              <td>{product.sku}</td>
+              <td>{product.name}</td>
               <td>
-                <button
-                  type="button"
-                  className="sku-link"
-                  onClick={() => onOpenNotes(item.sku)}
+                <span
+                  className={`availability-badge ${
+                    product.availability === "Available"
+                      ? "availability-available"
+                      : "availability-backorder"
+                  }`}
+                  title={`Quantity available: ${product.qtyAvailable}`}
                 >
-                  {item.sku}
-                </button>
-              </td>
-              <td>{item.vendor || ""}</td>
-              <td>
-                <select
-                  value={item.status}
-                  aria-label={`Status for ${item.sku}`}
-                  onChange={(event) => onStatusChange(item.id, event.target.value)}
-                >
-                  {statusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
+                  {product.availability}
+                </span>
               </td>
             </tr>
           ))

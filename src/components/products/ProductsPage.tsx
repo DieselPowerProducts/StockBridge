@@ -1,23 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-import { getBackorders, updateStatus } from "../../services/api";
-import type { Backorder } from "../../types";
+import { useEffect, useState } from "react";
+import { getProducts } from "../../services/api";
+import type { Product } from "../../types";
 import { Pagination } from "./Pagination";
 import { ProductsTable } from "./ProductsTable";
 
-type ProductsPageProps = {
-  dataVersion: number;
-  onOpenNotes: (sku: string) => void;
-  onStatusChanged: () => void;
-};
-
 const pageSize = 30;
 
-export function ProductsPage({
-  dataVersion,
-  onOpenNotes,
-  onStatusChanged
-}: ProductsPageProps) {
-  const [backorders, setBackorders] = useState<Backorder[]>([]);
+export function ProductsPage() {
+  const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,56 +24,61 @@ export function ProductsPage({
     return () => window.clearTimeout(timeout);
   }, [searchInput]);
 
-  const loadBackorders = useCallback(async () => {
-    setIsLoading(true);
-    setError("");
-
-    try {
-      const result = await getBackorders({
-        page: currentPage,
-        limit: pageSize,
-        search: searchQuery
-      });
-
-      setBackorders(result.data);
-      setTotalItems(result.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load products.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentPage, searchQuery]);
-
   useEffect(() => {
-    loadBackorders();
-  }, [loadBackorders, dataVersion]);
+    let ignore = false;
 
-  async function handleStatusChange(id: number, status: string) {
-    await updateStatus(id, status);
-    onStatusChanged();
-  }
+    async function loadProducts() {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        const result = await getProducts({
+          page: currentPage,
+          limit: pageSize,
+          search: searchQuery
+        });
+
+        if (!ignore) {
+          setProducts(result.data);
+          setTotalItems(result.total);
+        }
+      } catch (err) {
+        if (!ignore) {
+          setError(
+            err instanceof Error ? err.message : "Unable to load products."
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadProducts();
+
+    return () => {
+      ignore = true;
+    };
+  }, [currentPage, searchQuery]);
 
   return (
     <section className="page" aria-labelledby="productsHeading">
-      <h1 id="productsHeading">Product Availability</h1>
+      <h1 id="productsHeading">Products</h1>
 
       <input
         type="text"
         value={searchInput}
-        placeholder="Search SKU..."
+        placeholder="Search SKU or name..."
         className="search-bar"
-        aria-label="Search SKU"
+        aria-label="Search products"
         onChange={(event) => setSearchInput(event.target.value)}
       />
 
       {error && <p className="status-message error-message">{error}</p>}
       {isLoading && <p className="status-message">Loading products...</p>}
 
-      <ProductsTable
-        backorders={backorders}
-        onOpenNotes={onOpenNotes}
-        onStatusChange={handleStatusChange}
-      />
+      <ProductsTable products={products} />
 
       <Pagination
         currentPage={currentPage}

@@ -6,6 +6,7 @@ const apiRoutes = [
   "/status",
   "/import",
   "/notes",
+  "/products",
   "/vendors"
 ];
 

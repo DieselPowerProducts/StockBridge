@@ -1,6 +1,7 @@
 import type {
   BackordersResponse,
   Note,
+  ProductsResponse,
   VendorBackorder,
   VendorSummary
 } from "../types";
@@ -31,6 +32,24 @@ export function getBackorders({
   });
 
   return request<BackordersResponse>(`/backorders?${params.toString()}`);
+}
+
+export function getProducts({
+  page,
+  limit,
+  search
+}: {
+  page: number;
+  limit: number;
+  search: string;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search
+  });
+
+  return request<ProductsResponse>(`/products?${params.toString()}`);
 }
 
 export function importBackorders(formData: FormData) {

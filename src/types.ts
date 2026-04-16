@@ -1,4 +1,4 @@
-export type PageName = "products" | "import" | "vendors";
+export type PageName = "products" | "vendors";
 
 export type AppRoute = {
   page: PageName;
@@ -17,6 +17,23 @@ export type Backorder = {
 export type BackordersResponse = {
   data: Backorder[];
   total: number;
+};
+
+export type ProductAvailability = "Available" | "Backorder";
+
+export type Product = {
+  id: string;
+  sku: string;
+  name: string;
+  qtyAvailable: number;
+  availability: ProductAvailability;
+};
+
+export type ProductsResponse = {
+  data: Product[];
+  total: number;
+  totalPages: number;
+  isLastPage: boolean;
 };
 
 export type Note = {

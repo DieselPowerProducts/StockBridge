@@ -155,6 +155,25 @@ th {
   text-decoration: underline;
 }
 
+.availability-badge {
+  border-radius: 8px;
+  display: inline-block;
+  font-size: 13px;
+  min-width: 96px;
+  padding: 4px 8px;
+  text-align: center;
+}
+
+.availability-available {
+  background: #1f6f4a;
+  color: #e9fff4;
+}
+
+.availability-backorder {
+  background: #7a2830;
+  color: #ffecee;
+}
+
 select {
   background: #333333;
   border: 0;
