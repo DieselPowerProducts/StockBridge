@@ -37,10 +37,11 @@ export type ProductsResponse = {
 };
 
 export type Note = {
-  id: number;
+  id: string;
   sku: string;
   note: string;
   created_at: string;
+  updated_at?: string;
 };
 
 export type VendorSummary = {

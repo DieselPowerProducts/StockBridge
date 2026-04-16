@@ -44,7 +44,7 @@ export function NotesModal({ sku, onClose }: NotesModalProps) {
     loadNotes();
   }
 
-  async function handleDeleteNote(id: number) {
+  async function handleDeleteNote(id: string) {
     await deleteNote(id);
     loadNotes();
   }

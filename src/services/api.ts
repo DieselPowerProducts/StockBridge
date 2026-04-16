@@ -64,7 +64,7 @@ export function getNotes(sku: string) {
 }
 
 export function createNote({ sku, note }: { sku: string; note: string }) {
-  return request<{ id: number }>("/notes", {
+  return request<{ id: string }>("/notes", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -73,13 +73,13 @@ export function createNote({ sku, note }: { sku: string; note: string }) {
   });
 }
 
-export function deleteNote(id: number) {
+export function deleteNote(id: string) {
   return request<{ deleted: number }>(`/notes/${id}`, {
     method: "DELETE"
   });
 }
 
-export function updateNote(id: number, note: string) {
+export function updateNote(id: string, note: string) {
   return request<{ updated: number }>(`/notes/${id}`, {
     method: "PUT",
     headers: {

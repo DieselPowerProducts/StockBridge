@@ -10,9 +10,10 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check": "tsc --noEmit",
-    "test": "npm run check && node --check api/index.js && node --check scripts/api-dev-server.js && node -e \"require('./server/app'); require('./server/db/schema'); require('./server/services/products.service')\""
+    "test": "npm run check && node --check api/index.js && node --check scripts/api-dev-server.js && node -e \"require('./server/app'); require('./server/db/schema'); require('./server/services/products.service'); require('./server/services/notes.service')\""
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "cors": "^2.8.6",
     "csv-parser": "^3.2.0",
     "express": "^5.2.1",

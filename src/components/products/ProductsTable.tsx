@@ -2,9 +2,10 @@ import type { Product } from "../../types";
 
 type ProductsTableProps = {
   products: Product[];
+  onOpenNotes: (sku: string) => void;
 };
 
-export function ProductsTable({ products }: ProductsTableProps) {
+export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
   return (
     <table>
       <thead>
@@ -22,7 +23,15 @@ export function ProductsTable({ products }: ProductsTableProps) {
         ) : (
           products.map((product) => (
             <tr key={product.id}>
-              <td>{product.sku}</td>
+              <td>
+                <button
+                  type="button"
+                  className="sku-link"
+                  onClick={() => onOpenNotes(product.sku)}
+                >
+                  {product.sku}
+                </button>
+              </td>
               <td>{product.name}</td>
               <td>
                 <span

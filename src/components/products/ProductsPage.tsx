@@ -4,9 +4,13 @@ import type { Product } from "../../types";
 import { Pagination } from "./Pagination";
 import { ProductsTable } from "./ProductsTable";
 
+type ProductsPageProps = {
+  onOpenNotes: (sku: string) => void;
+};
+
 const pageSize = 30;
 
-export function ProductsPage() {
+export function ProductsPage({ onOpenNotes }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -78,7 +82,7 @@ export function ProductsPage() {
       {error && <p className="status-message error-message">{error}</p>}
       {isLoading && <p className="status-message">Loading products...</p>}
 
-      <ProductsTable products={products} />
+      <ProductsTable products={products} onOpenNotes={onOpenNotes} />
 
       <Pagination
         currentPage={currentPage}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
+import { NotesModal } from "./components/notes/NotesModal";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
 import type { AppRoute } from "./types";
@@ -32,6 +33,7 @@ function setHashRoute(page: AppRoute["page"], vendor = "") {
 
 export function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
+  const [selectedSku, setSelectedSku] = useState("");
 
   useEffect(() => {
     const handleHashChange = () => setRoute(parseRoute());
@@ -51,7 +53,7 @@ export function App() {
 
       <main className="main">
         {route.page === "products" && (
-          <ProductsPage />
+          <ProductsPage onOpenNotes={setSelectedSku} />
         )}
 
         {route.page === "vendors" && (
@@ -63,6 +65,10 @@ export function App() {
           />
         )}
       </main>
+
+      {selectedSku && (
+        <NotesModal sku={selectedSku} onClose={() => setSelectedSku("")} />
+      )}
     </div>
   );
 }
