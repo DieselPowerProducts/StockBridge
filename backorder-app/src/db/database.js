@@ -3,7 +3,8 @@ const { databasePath } = require("../config/paths");
 if (process.env.VERCEL && !process.env.DATABASE_PATH) {
   module.exports = require("./memoryDatabase");
 } else {
-  const sqlite3 = require("sqlite3").verbose();
+  const sqlite3Module = "sqlite3";
+  const sqlite3 = require(sqlite3Module).verbose();
   const db = new sqlite3.Database(databasePath);
 
   function run(sql, params = []) {
