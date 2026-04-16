@@ -1,5 +1,5 @@
-const app = require("../backorder-app/src/app");
-const { initializeSchema } = require("../backorder-app/src/db/schema");
+const app = require("./server/app");
+const { initializeSchema } = require("./server/db/schema");
 
 let schemaReady;
 

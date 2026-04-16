@@ -136,6 +136,5 @@ dist
 .pnp.*
 
 # DPP Backorder app local/generated files
-backorder-app/node_modules/
-backorder-app/uploads/
-backorder-app/*.db
+uploads/
+*.db

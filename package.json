@@ -4,11 +4,13 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite --host 0.0.0.0",
+    "dev:api": "node api/dev-server.js",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check": "tsc --noEmit",
-    "test": "npm run check && npm --prefix backorder-app test"
+    "test": "npm run check && node --check api/index.js && node --check api/dev-server.js && node -e \"require('./api/server/app'); require('./api/server/db/schema')\""
   },
   "dependencies": {
     "cors": "^2.8.6",

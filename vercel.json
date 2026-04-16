@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
-      "includeFiles": "backorder-app/src/**"
+      "includeFiles": "api/server/**"
     }
   },
   "routes": [
