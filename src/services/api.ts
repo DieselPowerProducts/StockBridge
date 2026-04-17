@@ -1,4 +1,6 @@
 import type {
+  AuthSession,
+  AuthUser,
   BackordersResponse,
   Note,
   ProductDetails,
@@ -7,14 +9,67 @@ import type {
   VendorsResponse
 } from "../types";
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    ...options
+  });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let message = `Request failed: ${response.status}`;
+
+    try {
+      const body = (await response.json()) as { message?: string };
+
+      if (body.message) {
+        message = body.message;
+      }
+    } catch (err) {
+      // Keep the status-based message when the response is not JSON.
+    }
+
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function getCurrentUser(): Promise<AuthSession> {
+  try {
+    return await request<AuthSession>("/auth/me");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      return { user: null };
+    }
+
+    throw err;
+  }
+}
+
+export function signInWithGoogle(credential: string) {
+  return request<{ user: AuthUser }>("/auth/google", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ credential })
+  });
+}
+
+export function signOut() {
+  return request<{ ok: boolean }>("/auth/logout", {
+    method: "POST"
+  });
 }
 
 export function getBackorders({

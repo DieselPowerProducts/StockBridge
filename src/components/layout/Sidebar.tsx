@@ -1,9 +1,11 @@
 import { useState } from "react";
-import type { PageName } from "../../types";
+import type { AuthUser, PageName } from "../../types";
 
 type SidebarProps = {
   currentPage: PageName;
+  user: AuthUser;
   onNavigate: (page: PageName) => void;
+  onLogout: () => void;
 };
 
 const navItems: Array<{ page: PageName; label: string }> = [
@@ -12,7 +14,12 @@ const navItems: Array<{ page: PageName; label: string }> = [
   { page: "vendors", label: "Vendors" }
 ];
 
-export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
+export function Sidebar({
+  currentPage,
+  onNavigate,
+  onLogout,
+  user
+}: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -46,6 +53,19 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           </li>
         </ul>
       </nav>
+
+      <div className="sidebar-user">
+        {user.picture && (
+          <img src={user.picture} alt="" className="sidebar-user-avatar" />
+        )}
+        <div className="sidebar-user-copy">
+          <span>{user.name}</span>
+          <small>{user.email}</small>
+        </div>
+        <button type="button" className="logout-button" onClick={onLogout}>
+          Sign out
+        </button>
+      </div>
     </aside>
   );
 }

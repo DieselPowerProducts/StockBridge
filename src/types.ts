@@ -5,6 +5,18 @@ export type AppRoute = {
   vendor: string;
 };
 
+export type AuthUser = {
+  sub: string;
+  email: string;
+  name: string;
+  picture: string;
+  hd: string;
+};
+
+export type AuthSession = {
+  user: AuthUser | null;
+};
+
 export type Backorder = {
   id: number;
   sku: string;

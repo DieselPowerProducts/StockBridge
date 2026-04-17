@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { LoginPage } from "./components/auth/LoginPage";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
-import type { AppRoute } from "./types";
+import { getCurrentUser, signOut } from "./services/api";
+import type { AppRoute, AuthUser } from "./types";
 
 function parseRoute(): AppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -34,6 +36,10 @@ function setHashRoute(page: AppRoute["page"], vendor = "") {
 
 export function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authStatus, setAuthStatus] = useState<"checking" | "ready">(
+    "checking"
+  );
   const [selectedSku, setSelectedSku] = useState("");
   const [productRefreshKey, setProductRefreshKey] = useState(0);
 
@@ -49,9 +55,67 @@ export function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadSession() {
+      try {
+        const session = await getCurrentUser();
+
+        if (!ignore) {
+          setAuthUser(session.user);
+        }
+      } catch (err) {
+        if (!ignore) {
+          console.error("Unable to check the current session.", err);
+          setAuthUser(null);
+        }
+      } finally {
+        if (!ignore) {
+          setAuthStatus("ready");
+        }
+      }
+    }
+
+    loadSession();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  async function handleLogout() {
+    try {
+      await signOut();
+    } finally {
+      setAuthUser(null);
+      setSelectedSku("");
+    }
+  }
+
+  if (authStatus === "checking") {
+    return (
+      <main className="auth-page" aria-label="Loading StockBridge">
+        <section className="auth-panel">
+          <p className="eyebrow">StockBridge</p>
+          <h1>Loading...</h1>
+        </section>
+      </main>
+    );
+  }
+
+  if (!authUser) {
+    return <LoginPage onLogin={setAuthUser} />;
+  }
+
   return (
     <div className="container">
-      <Sidebar currentPage={route.page} onNavigate={(page) => setHashRoute(page)} />
+      <Sidebar
+        currentPage={route.page}
+        user={authUser}
+        onNavigate={(page) => setHashRoute(page)}
+        onLogout={handleLogout}
+      />
 
       <main className="main">
         {route.page === "products" && (

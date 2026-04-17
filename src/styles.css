@@ -32,6 +32,49 @@ button:disabled {
   opacity: 0.45;
 }
 
+.auth-page {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-panel {
+  background: #222222;
+  border: 1px solid #555555;
+  border-radius: 8px;
+  max-width: 420px;
+  padding: 32px;
+  text-align: center;
+  width: 100%;
+}
+
+.auth-panel h1 {
+  font-size: 32px;
+  margin: 0 0 12px;
+}
+
+.eyebrow {
+  color: #72b8ff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+}
+
+.auth-copy {
+  color: #cccccc;
+  margin: 0 0 24px;
+}
+
+.google-button-wrap {
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+}
+
 .container {
   display: flex;
   min-height: 100vh;
@@ -41,6 +84,8 @@ button:disabled {
 .sidebar {
   background-color: #1e1e1e;
   color: white;
+  display: flex;
+  flex-direction: column;
   flex: 0 0 250px;
   min-height: 100vh;
   padding: 20px;
@@ -82,6 +127,52 @@ button:disabled {
 
 .sidebar.collapsed nav {
   display: none;
+}
+
+.sidebar.collapsed .sidebar-user-copy,
+.sidebar.collapsed .logout-button {
+  display: none;
+}
+
+.sidebar-user {
+  border-top: 1px solid #444444;
+  margin-top: auto;
+  min-width: 0;
+  padding-top: 16px;
+}
+
+.sidebar-user-avatar {
+  border-radius: 8px;
+  display: block;
+  height: 36px;
+  margin-bottom: 8px;
+  width: 36px;
+}
+
+.sidebar-user-copy {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.sidebar-user-copy span,
+.sidebar-user-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-copy small {
+  color: #cccccc;
+}
+
+.logout-button {
+  background: #444444;
+  border: 0;
+  color: white;
+  padding: 6px 10px;
+  width: 100%;
 }
 
 .main {
@@ -477,6 +568,26 @@ select {
 
   .sidebar.collapsed nav {
     display: block;
+  }
+
+  .sidebar-user {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .sidebar-user-avatar {
+    margin-bottom: 0;
+  }
+
+  .sidebar-user-copy {
+    flex: 1;
+    margin-bottom: 0;
+  }
+
+  .logout-button {
+    width: auto;
   }
 
   .sidebar ul {

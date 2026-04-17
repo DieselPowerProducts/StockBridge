@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const apiRoutes = [
+  "/auth",
   "/backorders",
   "/status",
   "/import",

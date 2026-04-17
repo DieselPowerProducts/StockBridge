@@ -1,16 +1,39 @@
 const express = require("express");
 const cors = require("cors");
+const authRoutes = require("./routes/auth.routes");
 const backordersRoutes = require("./routes/backorders.routes");
 const importRoutes = require("./routes/import.routes");
 const notesRoutes = require("./routes/notes.routes");
 const productsRoutes = require("./routes/products.routes");
 const vendorsRoutes = require("./routes/vendors.routes");
+const { requireAuth } = require("./middleware/auth");
 
 const app = express();
 
+app.set("trust proxy", 1);
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
 
+      const allowedOrigins = new Set([
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://stockbridgedpp.vercel.app"
+      ]);
+
+      callback(null, allowedOrigins.has(origin));
+    }
+  })
+);
+
+app.use(authRoutes);
+app.use(requireAuth);
 app.use(backordersRoutes);
 app.use(importRoutes);
 app.use(notesRoutes);
