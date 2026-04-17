@@ -59,9 +59,8 @@ export function App() {
         {route.page === "vendors" && (
           <VendorsPage
             selectedVendor={route.vendor}
-            dataVersion={0}
             onBackToVendors={() => setHashRoute("vendors")}
-            onSelectVendor={(vendor) => setHashRoute("vendors", vendor)}
+            onSelectVendor={(vendorId) => setHashRoute("vendors", vendorId)}
           />
         )}
       </main>

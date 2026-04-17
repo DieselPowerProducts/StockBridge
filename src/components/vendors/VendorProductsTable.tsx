@@ -1,14 +1,16 @@
-import type { VendorBackorder } from "../../types";
+import type { VendorProduct } from "../../types";
 
 type VendorProductsTableProps = {
   vendor: string;
-  products: VendorBackorder[];
+  products: VendorProduct[];
+  totalItems: number;
   onBackToVendors: () => void;
 };
 
 export function VendorProductsTable({
   vendor,
   products,
+  totalItems,
   onBackToVendors
 }: VendorProductsTableProps) {
   return (
@@ -24,7 +26,7 @@ export function VendorProductsTable({
       <div className="vendor-products-header">
         <h1>{vendor}</h1>
         <p>
-          {products.length} product{products.length === 1 ? "" : "s"}
+          {totalItems} product{totalItems === 1 ? "" : "s"}
         </p>
       </div>
 
@@ -32,8 +34,8 @@ export function VendorProductsTable({
         <thead>
           <tr>
             <th>SKU</th>
-            <th>Status</th>
-            <th>Last Updated</th>
+            <th>Name</th>
+            <th>Availability</th>
           </tr>
         </thead>
         <tbody>
@@ -45,8 +47,19 @@ export function VendorProductsTable({
             products.map((product) => (
               <tr key={product.id}>
                 <td>{product.sku}</td>
-                <td>{product.status || ""}</td>
-                <td>{product.updated_at || ""}</td>
+                <td>{product.name}</td>
+                <td>
+                  <span
+                    className={`availability-badge ${
+                      product.availability === "Available"
+                        ? "availability-available"
+                        : "availability-backorder"
+                    }`}
+                    title={`Quantity available: ${product.qtyAvailable}`}
+                  >
+                    {product.availability}
+                  </span>
+                </td>
               </tr>
             ))
           )}

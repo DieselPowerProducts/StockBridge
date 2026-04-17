@@ -9,11 +9,11 @@ async function listVendors(req, res, next) {
   }
 }
 
-async function listVendorBackorders(req, res, next) {
+async function listVendorProducts(req, res, next) {
   try {
-    const vendor = req.params.vendor || req.params[0];
-    const backorders = await vendorsService.listVendorBackorders(vendor);
-    res.send(backorders);
+    const vendorId = req.params.vendorId || req.params[0];
+    const products = await vendorsService.listVendorProducts(vendorId, req.query);
+    res.send(products);
   } catch (err) {
     next(err);
   }
@@ -21,5 +21,5 @@ async function listVendorBackorders(req, res, next) {
 
 module.exports = {
   listVendors,
-  listVendorBackorders
+  listVendorProducts
 };

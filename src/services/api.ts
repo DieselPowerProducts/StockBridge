@@ -2,7 +2,7 @@ import type {
   BackordersResponse,
   Note,
   ProductsResponse,
-  VendorBackorder,
+  VendorProductsResponse,
   VendorSummary
 } from "../types";
 
@@ -103,8 +103,21 @@ export function getVendors() {
   return request<VendorSummary[]>("/vendors");
 }
 
-export function getVendorBackorders(vendor: string) {
-  return request<VendorBackorder[]>(
-    `/vendors/${encodeURIComponent(vendor)}/backorders`
+export function getVendorProducts({
+  vendorId,
+  page,
+  limit
+}: {
+  vendorId: string;
+  page: number;
+  limit: number;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit)
+  });
+
+  return request<VendorProductsResponse>(
+    `/vendors/${encodeURIComponent(vendorId)}/products?${params.toString()}`
   );
 }

@@ -13,30 +13,26 @@ export function VendorsTable({ vendors, onSelectVendor }: VendorsTableProps) {
           <tr>
             <th>Vendor</th>
             <th>Products</th>
-            <th>Available</th>
-            <th>Backordered</th>
           </tr>
         </thead>
         <tbody>
           {vendors.length === 0 ? (
             <tr>
-              <td colSpan={4}>No vendors found yet.</td>
+              <td colSpan={2}>No vendors found yet.</td>
             </tr>
           ) : (
             vendors.map((vendor) => (
-              <tr key={vendor.vendor}>
+              <tr key={vendor.id}>
                 <td>
                   <button
                     type="button"
                     className="vendor-link"
-                    onClick={() => onSelectVendor(vendor.vendor)}
+                    onClick={() => onSelectVendor(vendor.id)}
                   >
                     {vendor.vendor}
                   </button>
                 </td>
                 <td>{vendor.productCount}</td>
-                <td>{vendor.availableCount || 0}</td>
-                <td>{vendor.backorderedCount || 0}</td>
               </tr>
             ))
           )}

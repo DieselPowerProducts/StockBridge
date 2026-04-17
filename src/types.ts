@@ -45,16 +45,23 @@ export type Note = {
 };
 
 export type VendorSummary = {
+  id: string;
   vendor: string;
   productCount: number;
-  availableCount: number;
-  backorderedCount: number;
 };
 
-export type VendorBackorder = {
-  id: number;
+export type VendorProduct = {
+  id: string;
+  vendorProductId: string;
   sku: string;
-  vendor: string | null;
-  status: string;
-  updated_at: string;
+  name: string;
+  qtyAvailable: number;
+  availability: ProductAvailability;
+};
+
+export type VendorProductsResponse = {
+  data: VendorProduct[];
+  total: number;
+  totalPages: number;
+  isLastPage: boolean;
 };

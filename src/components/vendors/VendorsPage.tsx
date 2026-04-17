@@ -1,24 +1,27 @@
 import { useEffect, useState } from "react";
-import { getVendorBackorders, getVendors } from "../../services/api";
-import type { VendorBackorder, VendorSummary } from "../../types";
+import { getVendorProducts, getVendors } from "../../services/api";
+import type { VendorProduct, VendorSummary } from "../../types";
+import { Pagination } from "../products/Pagination";
 import { VendorProductsTable } from "./VendorProductsTable";
 import { VendorsTable } from "./VendorsTable";
 
 type VendorsPageProps = {
   selectedVendor: string;
-  dataVersion: number;
   onBackToVendors: () => void;
   onSelectVendor: (vendor: string) => void;
 };
 
+const pageSize = 30;
+
 export function VendorsPage({
   selectedVendor,
-  dataVersion,
   onBackToVendors,
   onSelectVendor
 }: VendorsPageProps) {
   const [vendors, setVendors] = useState<VendorSummary[]>([]);
-  const [products, setProducts] = useState<VendorBackorder[]>([]);
+  const [products, setProducts] = useState<VendorProduct[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -51,7 +54,11 @@ export function VendorsPage({
     return () => {
       ignore = true;
     };
-  }, [dataVersion]);
+  }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedVendor]);
 
   useEffect(() => {
     let ignore = false;
@@ -66,10 +73,15 @@ export function VendorsPage({
       setError("");
 
       try {
-        const result = await getVendorBackorders(selectedVendor);
+        const result = await getVendorProducts({
+          vendorId: selectedVendor,
+          page: currentPage,
+          limit: pageSize
+        });
 
         if (!ignore) {
-          setProducts(result);
+          setProducts(result.data);
+          setTotalItems(result.total);
         }
       } catch (err) {
         if (!ignore) {
@@ -89,7 +101,12 @@ export function VendorsPage({
     return () => {
       ignore = true;
     };
-  }, [selectedVendor, dataVersion]);
+  }, [selectedVendor, currentPage]);
+
+  const selectedVendorSummary = vendors.find(
+    (vendor) => vendor.id === selectedVendor
+  );
+  const selectedVendorName = selectedVendorSummary?.vendor || selectedVendor;
 
   return (
     <section className="page" aria-labelledby="vendorsHeading">
@@ -97,11 +114,21 @@ export function VendorsPage({
       {isLoading && <p className="status-message">Loading vendors...</p>}
 
       {selectedVendor ? (
-        <VendorProductsTable
-          vendor={selectedVendor}
-          products={products}
-          onBackToVendors={onBackToVendors}
-        />
+        <>
+          <VendorProductsTable
+            vendor={selectedVendorName}
+            products={products}
+            totalItems={totalItems}
+            onBackToVendors={onBackToVendors}
+          />
+
+          <Pagination
+            currentPage={currentPage}
+            limit={pageSize}
+            totalItems={totalItems}
+            onPageChange={setCurrentPage}
+          />
+        </>
       ) : (
         <>
           <h1 id="vendorsHeading">Vendors</h1>
