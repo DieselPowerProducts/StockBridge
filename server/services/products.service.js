@@ -218,7 +218,7 @@ function mapProduct(row, productIdsWithActiveVendors, followUpsBySku) {
     qtyAvailable,
     availability,
     followUpDate:
-      availability === "Backorder" ? followUpsBySku.get(sku) || "" : ""
+      availability === "Backorder" ? followUpsBySku?.get(sku) || "" : ""
   };
 }
 
@@ -395,13 +395,10 @@ async function listProducts(queryParams) {
   const productIdsWithActiveVendors = await fetchProductIdsWithActiveVendors(
     rows.map((product) => product.id).filter(Boolean)
   );
-  const followUpsBySku = await followUpsService.getFollowUpsForSkus(
-    rows.map((product) => product.sku).filter(Boolean)
-  );
 
   return {
     data: rows.map((product) =>
-      mapProduct(product, productIdsWithActiveVendors, followUpsBySku)
+      mapProduct(product, productIdsWithActiveVendors)
     ),
     total: Number(grid.totalSize || 0),
     totalPages: Number(grid.totalPages || 0),

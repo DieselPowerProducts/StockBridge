@@ -55,10 +55,7 @@ export function App() {
 
       <main className="main">
         {route.page === "products" && (
-          <ProductsPage
-            refreshKey={productRefreshKey}
-            onOpenNotes={setSelectedSku}
-          />
+          <ProductsPage onOpenNotes={setSelectedSku} />
         )}
 
         {route.page === "vendors" && (

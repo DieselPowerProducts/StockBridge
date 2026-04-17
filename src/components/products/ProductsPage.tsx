@@ -6,12 +6,11 @@ import { ProductsTable } from "./ProductsTable";
 
 type ProductsPageProps = {
   onOpenNotes: (sku: string) => void;
-  refreshKey: number;
 };
 
 const pageSize = 30;
 
-export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
+export function ProductsPage({ onOpenNotes }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -76,7 +75,7 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
     return () => {
       ignore = true;
     };
-  }, [currentPage, refreshKey, searchQuery]);
+  }, [currentPage, searchQuery]);
 
   const hasSearch = Boolean(searchQuery.trim());
 
@@ -104,6 +103,7 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
             emptyMessage="No products found."
             products={products}
             onOpenNotes={onOpenNotes}
+            showFollowUp={false}
           />
 
           <Pagination

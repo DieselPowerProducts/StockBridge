@@ -4,6 +4,7 @@ type ProductsTableProps = {
   emptyMessage?: string;
   products: Product[];
   onOpenNotes: (sku: string) => void;
+  showFollowUp?: boolean;
 };
 
 function getAvailabilityClass(product: Product) {
@@ -31,7 +32,8 @@ function formatFollowUpDate(value: string) {
 export function ProductsTable({
   emptyMessage = "No products found yet.",
   products,
-  onOpenNotes
+  onOpenNotes,
+  showFollowUp = true
 }: ProductsTableProps) {
   return (
     <table>
@@ -40,13 +42,13 @@ export function ProductsTable({
           <th>SKU</th>
           <th>Name</th>
           <th>Availability</th>
-          <th>Follow Up</th>
+          {showFollowUp && <th>Follow Up</th>}
         </tr>
       </thead>
       <tbody>
         {products.length === 0 ? (
           <tr>
-            <td colSpan={4}>{emptyMessage}</td>
+            <td colSpan={showFollowUp ? 4 : 3}>{emptyMessage}</td>
           </tr>
         ) : (
           products.map((product) => (
@@ -69,11 +71,13 @@ export function ProductsTable({
                   {product.availability}
                 </span>
               </td>
-              <td>
-                {product.availability === "Backorder"
-                  ? formatFollowUpDate(product.followUpDate)
-                  : ""}
-              </td>
+              {showFollowUp && (
+                <td>
+                  {product.availability === "Backorder"
+                    ? formatFollowUpDate(product.followUpDate)
+                    : ""}
+                </td>
+              )}
             </tr>
           ))
         )}
