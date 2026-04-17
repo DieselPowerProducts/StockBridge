@@ -81,10 +81,7 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
   const hasSearch = Boolean(searchQuery.trim());
 
   return (
-    <section
-      className={`page products-page${hasSearch ? "" : " products-page-empty"}`}
-      aria-labelledby="productsHeading"
-    >
+    <section className="page products-page" aria-labelledby="productsHeading">
       <div className="products-search-panel">
         <h1 id="productsHeading">Products</h1>
 
