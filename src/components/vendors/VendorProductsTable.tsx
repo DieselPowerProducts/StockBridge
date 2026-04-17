@@ -9,6 +9,18 @@ type VendorProductsTableProps = {
   onBackToVendors: () => void;
 };
 
+function getAvailabilityClass(product: VendorProduct) {
+  if (product.availability === "Available") {
+    return "availability-available";
+  }
+
+  if (product.availability === "Backorder") {
+    return "availability-backorder";
+  }
+
+  return "availability-not-ordered";
+}
+
 export function VendorProductsTable({
   vendor,
   products,
@@ -63,11 +75,7 @@ export function VendorProductsTable({
                 <td>{product.name}</td>
                 <td>
                   <span
-                    className={`availability-badge ${
-                      product.availability === "Available"
-                        ? "availability-available"
-                        : "availability-backorder"
-                    }`}
+                    className={`availability-badge ${getAvailabilityClass(product)}`}
                     title={`Quantity available: ${product.qtyAvailable}`}
                   >
                     {product.availability}

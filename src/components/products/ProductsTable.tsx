@@ -5,6 +5,18 @@ type ProductsTableProps = {
   onOpenNotes: (sku: string) => void;
 };
 
+function getAvailabilityClass(product: Product) {
+  if (product.availability === "Available") {
+    return "availability-available";
+  }
+
+  if (product.availability === "Backorder") {
+    return "availability-backorder";
+  }
+
+  return "availability-not-ordered";
+}
+
 export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
   return (
     <table>
@@ -35,11 +47,7 @@ export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
               <td>{product.name}</td>
               <td>
                 <span
-                  className={`availability-badge ${
-                    product.availability === "Available"
-                      ? "availability-available"
-                      : "availability-backorder"
-                  }`}
+                  className={`availability-badge ${getAvailabilityClass(product)}`}
                   title={`Quantity available: ${product.qtyAvailable}`}
                 >
                   {product.availability}
