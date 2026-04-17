@@ -5,11 +5,42 @@ const vendorProductPageSize = 10000;
 const vendorProductFetchConcurrency = 4;
 
 let vendorCache;
+const vendorProductsCache = new Map();
 
 function normalizePaging({ page = 1, limit = 50 } = {}) {
   return {
     page: Math.max(Number.parseInt(page, 10) || 1, 1),
     limit: Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 100)
+  };
+}
+
+function normalizeSearch(search) {
+  return String(search || "").trim().toLowerCase();
+}
+
+function matchesSearch(values, search) {
+  if (!search) {
+    return true;
+  }
+
+  const terms = search.split(/\s+/).filter(Boolean);
+  const haystack = values
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+
+  return terms.every((term) => haystack.includes(term));
+}
+
+function paginateRows(rows, { page, limit }) {
+  const total = rows.length;
+  const totalPages = Math.ceil(total / limit);
+  const start = (page - 1) * limit;
+
+  return {
+    data: rows.slice(start, start + limit),
+    total,
+    totalPages,
+    isLastPage: totalPages === 0 || page >= totalPages
   };
 }
 
@@ -177,7 +208,7 @@ async function fetchAllVendors() {
   return data?.vendor?.grid?.rows || [];
 }
 
-async function listVendors() {
+async function getVendorSummaries() {
   if (vendorCache && Date.now() - vendorCache.createdAt < vendorCacheTtlMs) {
     return vendorCache.data;
   }
@@ -211,6 +242,17 @@ async function listVendors() {
   return data;
 }
 
+async function listVendors(queryParams = {}) {
+  const { page, limit } = normalizePaging(queryParams);
+  const search = normalizeSearch(queryParams.search);
+  const vendors = await getVendorSummaries();
+  const filteredVendors = vendors.filter((vendor) =>
+    matchesSearch([vendor.vendor], search)
+  );
+
+  return paginateRows(filteredVendors, { page, limit });
+}
+
 async function fetchProductAvailabilityById(productIds) {
   if (productIds.length === 0) {
     return new Map();
@@ -238,33 +280,100 @@ async function fetchProductAvailabilityById(productIds) {
   return new Map(rows.map((product) => [product.id, product]));
 }
 
+async function fetchAllVendorProducts(vendorId) {
+  const cached = vendorProductsCache.get(vendorId);
+
+  if (cached && Date.now() - cached.createdAt < vendorCacheTtlMs) {
+    return cached.data;
+  }
+
+  const firstPage = await fetchVendorProductsPage({
+    page: 1,
+    limit: vendorProductPageSize,
+    vendorId
+  });
+  const totalPages = Number(firstPage.totalPages || 1);
+  const rows = [...(firstPage.rows || [])];
+
+  if (totalPages > 1) {
+    const remainingPages = Array.from(
+      { length: totalPages - 1 },
+      (_, index) => index + 2
+    );
+    const remainingGrids = await mapWithConcurrency(
+      remainingPages,
+      vendorProductFetchConcurrency,
+      (page) =>
+        fetchVendorProductsPage({
+          page,
+          limit: vendorProductPageSize,
+          vendorId
+        })
+    );
+
+    for (const grid of remainingGrids) {
+      rows.push(...(grid.rows || []));
+    }
+  }
+
+  vendorProductsCache.set(vendorId, {
+    createdAt: Date.now(),
+    data: rows
+  });
+
+  return rows;
+}
+
+async function mapVendorProducts(rows) {
+  const productIds = Array.from(
+    new Set(rows.map((row) => row.product_id).filter(Boolean))
+  );
+  const productsById = await fetchProductAvailabilityById(productIds);
+
+  return rows.map((row) => {
+    const product = productsById.get(row.product_id) || row.product || {};
+    const qtyAvailable = Number(product.qty_available || 0);
+
+    return {
+      id: row.product_id || row.id,
+      vendorProductId: row.id,
+      sku: product.sku || row.product?.sku || row.sku || row.label || "",
+      name: product.name || row.product?.name || "",
+      qtyAvailable,
+      availability: mapAvailability(qtyAvailable)
+    };
+  });
+}
+
 async function listVendorProducts(vendorId, queryParams = {}) {
   const { page, limit } = normalizePaging(queryParams);
+  const search = normalizeSearch(queryParams.search);
+
+  if (search) {
+    const rows = await fetchAllVendorProducts(vendorId);
+    const filteredRows = rows.filter((row) =>
+      matchesSearch(
+        [row.sku, row.label, row.product?.sku, row.product?.name],
+        search
+      )
+    );
+    const pageResult = paginateRows(filteredRows, { page, limit });
+
+    return {
+      ...pageResult,
+      data: await mapVendorProducts(pageResult.data)
+    };
+  }
+
   const grid = await fetchVendorProductsPage({
     page,
     limit,
     vendorId
   });
   const rows = grid.rows || [];
-  const productIds = Array.from(
-    new Set(rows.map((row) => row.product_id).filter(Boolean))
-  );
-  const productsById = await fetchProductAvailabilityById(productIds);
 
   return {
-    data: rows.map((row) => {
-      const product = productsById.get(row.product_id) || row.product || {};
-      const qtyAvailable = Number(product.qty_available || 0);
-
-      return {
-        id: row.product_id || row.id,
-        vendorProductId: row.id,
-        sku: product.sku || row.product?.sku || row.sku || row.label || "",
-        name: product.name || row.product?.name || "",
-        qtyAvailable,
-        availability: mapAvailability(qtyAvailable)
-      };
-    }),
+    data: await mapVendorProducts(rows),
     total: Number(grid.totalSize || 0),
     totalPages: Number(grid.totalPages || 0),
     isLastPage: Boolean(grid.isLastPage)

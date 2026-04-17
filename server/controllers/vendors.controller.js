@@ -2,7 +2,7 @@ const vendorsService = require("../services/vendors.service");
 
 async function listVendors(req, res, next) {
   try {
-    const vendors = await vendorsService.listVendors();
+    const vendors = await vendorsService.listVendors(req.query);
     res.send(vendors);
   } catch (err) {
     next(err);

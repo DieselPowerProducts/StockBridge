@@ -4,6 +4,8 @@ type VendorProductsTableProps = {
   vendor: string;
   products: VendorProduct[];
   totalItems: number;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
   onBackToVendors: () => void;
 };
 
@@ -11,6 +13,8 @@ export function VendorProductsTable({
   vendor,
   products,
   totalItems,
+  searchValue,
+  onSearchChange,
   onBackToVendors
 }: VendorProductsTableProps) {
   return (
@@ -30,6 +34,15 @@ export function VendorProductsTable({
         </p>
       </div>
 
+      <input
+        type="text"
+        value={searchValue}
+        placeholder="Search SKU or name..."
+        className="search-bar"
+        aria-label={`Search ${vendor} products`}
+        onChange={(event) => onSearchChange(event.target.value)}
+      />
+
       <table>
         <thead>
           <tr>
@@ -45,7 +58,7 @@ export function VendorProductsTable({
             </tr>
           ) : (
             products.map((product) => (
-              <tr key={product.id}>
+              <tr key={product.vendorProductId}>
                 <td>{product.sku}</td>
                 <td>{product.name}</td>
                 <td>

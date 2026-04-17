@@ -3,7 +3,7 @@ import type {
   Note,
   ProductsResponse,
   VendorProductsResponse,
-  VendorSummary
+  VendorsResponse
 } from "../types";
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -99,22 +99,39 @@ export function updateStatus(id: number, status: string) {
   });
 }
 
-export function getVendors() {
-  return request<VendorSummary[]>("/vendors");
+export function getVendors({
+  page,
+  limit,
+  search
+}: {
+  page: number;
+  limit: number;
+  search: string;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search
+  });
+
+  return request<VendorsResponse>(`/vendors?${params.toString()}`);
 }
 
 export function getVendorProducts({
   vendorId,
   page,
-  limit
+  limit,
+  search
 }: {
   vendorId: string;
   page: number;
   limit: number;
+  search: string;
 }) {
   const params = new URLSearchParams({
     page: String(page),
-    limit: String(limit)
+    limit: String(limit),
+    search
   });
 
   return request<VendorProductsResponse>(

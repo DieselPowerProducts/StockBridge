@@ -50,6 +50,13 @@ export type VendorSummary = {
   productCount: number;
 };
 
+export type VendorsResponse = {
+  data: VendorSummary[];
+  total: number;
+  totalPages: number;
+  isLastPage: boolean;
+};
+
 export type VendorProduct = {
   id: string;
   vendorProductId: string;

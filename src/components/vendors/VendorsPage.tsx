@@ -20,23 +20,58 @@ export function VendorsPage({
 }: VendorsPageProps) {
   const [vendors, setVendors] = useState<VendorSummary[]>([]);
   const [products, setProducts] = useState<VendorProduct[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [vendorCurrentPage, setVendorCurrentPage] = useState(1);
+  const [vendorSearchInput, setVendorSearchInput] = useState("");
+  const [vendorSearchQuery, setVendorSearchQuery] = useState("");
+  const [vendorTotalItems, setVendorTotalItems] = useState(0);
+  const [productCurrentPage, setProductCurrentPage] = useState(1);
+  const [productSearchInput, setProductSearchInput] = useState("");
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [productTotalItems, setProductTotalItems] = useState(0);
+  const [isVendorsLoading, setIsVendorsLoading] = useState(false);
+  const [isProductsLoading, setIsProductsLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setVendorSearchQuery(vendorSearchInput);
+      setVendorCurrentPage(1);
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [vendorSearchInput]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setProductSearchQuery(productSearchInput);
+      setProductCurrentPage(1);
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [productSearchInput]);
 
   useEffect(() => {
     let ignore = false;
 
     async function loadVendors() {
-      setIsLoading(true);
+      if (selectedVendor) {
+        setIsVendorsLoading(false);
+        return;
+      }
+
+      setIsVendorsLoading(true);
       setError("");
 
       try {
-        const result = await getVendors();
+        const result = await getVendors({
+          page: vendorCurrentPage,
+          limit: pageSize,
+          search: vendorSearchQuery
+        });
 
         if (!ignore) {
-          setVendors(result);
+          setVendors(result.data);
+          setVendorTotalItems(result.total);
         }
       } catch (err) {
         if (!ignore) {
@@ -44,7 +79,7 @@ export function VendorsPage({
         }
       } finally {
         if (!ignore) {
-          setIsLoading(false);
+          setIsVendorsLoading(false);
         }
       }
     }
@@ -54,10 +89,12 @@ export function VendorsPage({
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [selectedVendor, vendorCurrentPage, vendorSearchQuery]);
 
   useEffect(() => {
-    setCurrentPage(1);
+    setProductCurrentPage(1);
+    setProductSearchInput("");
+    setProductSearchQuery("");
   }, [selectedVendor]);
 
   useEffect(() => {
@@ -66,22 +103,25 @@ export function VendorsPage({
     async function loadVendorProducts() {
       if (!selectedVendor) {
         setProducts([]);
+        setProductTotalItems(0);
+        setIsProductsLoading(false);
         return;
       }
 
-      setIsLoading(true);
+      setIsProductsLoading(true);
       setError("");
 
       try {
         const result = await getVendorProducts({
           vendorId: selectedVendor,
-          page: currentPage,
-          limit: pageSize
+          page: productCurrentPage,
+          limit: pageSize,
+          search: productSearchQuery
         });
 
         if (!ignore) {
           setProducts(result.data);
-          setTotalItems(result.total);
+          setProductTotalItems(result.total);
         }
       } catch (err) {
         if (!ignore) {
@@ -91,7 +131,7 @@ export function VendorsPage({
         }
       } finally {
         if (!ignore) {
-          setIsLoading(false);
+          setIsProductsLoading(false);
         }
       }
     }
@@ -101,7 +141,7 @@ export function VendorsPage({
     return () => {
       ignore = true;
     };
-  }, [selectedVendor, currentPage]);
+  }, [selectedVendor, productCurrentPage, productSearchQuery]);
 
   const selectedVendorSummary = vendors.find(
     (vendor) => vendor.id === selectedVendor
@@ -111,28 +151,50 @@ export function VendorsPage({
   return (
     <section className="page" aria-labelledby="vendorsHeading">
       {error && <p className="status-message error-message">{error}</p>}
-      {isLoading && <p className="status-message">Loading vendors...</p>}
+      {isVendorsLoading && <p className="status-message">Loading vendors...</p>}
+      {isProductsLoading && (
+        <p className="status-message">Loading vendor products...</p>
+      )}
 
       {selectedVendor ? (
         <>
           <VendorProductsTable
             vendor={selectedVendorName}
             products={products}
-            totalItems={totalItems}
+            totalItems={productTotalItems}
+            searchValue={productSearchInput}
+            onSearchChange={setProductSearchInput}
             onBackToVendors={onBackToVendors}
           />
 
           <Pagination
-            currentPage={currentPage}
+            currentPage={productCurrentPage}
             limit={pageSize}
-            totalItems={totalItems}
-            onPageChange={setCurrentPage}
+            totalItems={productTotalItems}
+            onPageChange={setProductCurrentPage}
           />
         </>
       ) : (
         <>
           <h1 id="vendorsHeading">Vendors</h1>
+
+          <input
+            type="text"
+            value={vendorSearchInput}
+            placeholder="Search vendors..."
+            className="search-bar"
+            aria-label="Search vendors"
+            onChange={(event) => setVendorSearchInput(event.target.value)}
+          />
+
           <VendorsTable vendors={vendors} onSelectVendor={onSelectVendor} />
+
+          <Pagination
+            currentPage={vendorCurrentPage}
+            limit={pageSize}
+            totalItems={vendorTotalItems}
+            onPageChange={setVendorCurrentPage}
+          />
         </>
       )}
     </section>
