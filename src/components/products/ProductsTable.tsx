@@ -10,11 +10,7 @@ function getAvailabilityClass(product: Product) {
     return "availability-available";
   }
 
-  if (product.availability === "Backorder") {
-    return "availability-backorder";
-  }
-
-  return "availability-not-ordered";
+  return "availability-backorder";
 }
 
 export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {

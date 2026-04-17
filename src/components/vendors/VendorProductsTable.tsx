@@ -14,11 +14,7 @@ function getAvailabilityClass(product: VendorProduct) {
     return "availability-available";
   }
 
-  if (product.availability === "Backorder") {
-    return "availability-backorder";
-  }
-
-  return "availability-not-ordered";
+  return "availability-backorder";
 }
 
 export function VendorProductsTable({

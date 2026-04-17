@@ -47,11 +47,11 @@ function buildProductsQuery({ page, limit, search }) {
 }
 
 function mapAvailability(qtyAvailable, hasActiveVendor) {
-  if (Number(qtyAvailable || 0) > 0) {
+  if (Number(qtyAvailable || 0) > 0 || !hasActiveVendor) {
     return "Available";
   }
 
-  return hasActiveVendor ? "Backorder" : "Not Ordered";
+  return "Backorder";
 }
 
 function isActiveVendor(vendor) {

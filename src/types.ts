@@ -19,7 +19,7 @@ export type BackordersResponse = {
   total: number;
 };
 
-export type ProductAvailability = "Available" | "Backorder" | "Not Ordered";
+export type ProductAvailability = "Available" | "Backorder";
 
 export type Product = {
   id: string;
