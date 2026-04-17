@@ -34,6 +34,7 @@ function setHashRoute(page: AppRoute["page"], vendor = "") {
 export function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
   const [selectedSku, setSelectedSku] = useState("");
+  const [productRefreshKey, setProductRefreshKey] = useState(0);
 
   useEffect(() => {
     const handleHashChange = () => setRoute(parseRoute());
@@ -53,7 +54,10 @@ export function App() {
 
       <main className="main">
         {route.page === "products" && (
-          <ProductsPage onOpenNotes={setSelectedSku} />
+          <ProductsPage
+            refreshKey={productRefreshKey}
+            onOpenNotes={setSelectedSku}
+          />
         )}
 
         {route.page === "vendors" && (
@@ -66,7 +70,11 @@ export function App() {
       </main>
 
       {selectedSku && (
-        <NotesModal sku={selectedSku} onClose={() => setSelectedSku("")} />
+        <NotesModal
+          sku={selectedSku}
+          onClose={() => setSelectedSku("")}
+          onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
+        />
       )}
     </div>
   );

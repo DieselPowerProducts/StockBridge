@@ -1,4 +1,5 @@
 const skunexus = require("./skunexus.service");
+const followUpsService = require("./followUps.service");
 
 const vendorProductPageSize = 10000;
 
@@ -138,16 +139,20 @@ async function fetchProductIdsWithActiveVendors(productIds) {
   );
 }
 
-function mapProduct(row, productIdsWithActiveVendors) {
+function mapProduct(row, productIdsWithActiveVendors, followUpsBySku) {
   const qtyAvailable = Number(row.qty_available || 0);
   const hasActiveVendor = productIdsWithActiveVendors.has(row.id);
+  const sku = row.sku || "";
+  const availability = mapAvailability(qtyAvailable, hasActiveVendor);
 
   return {
     id: row.id,
-    sku: row.sku || "",
+    sku,
     name: row.name || "",
     qtyAvailable,
-    availability: mapAvailability(qtyAvailable, hasActiveVendor)
+    availability,
+    followUpDate:
+      availability === "Backorder" ? followUpsBySku.get(sku) || "" : ""
   };
 }
 
@@ -187,10 +192,13 @@ async function listProducts(queryParams) {
   const productIdsWithActiveVendors = await fetchProductIdsWithActiveVendors(
     rows.map((product) => product.id).filter(Boolean)
   );
+  const followUpsBySku = await followUpsService.getFollowUpsForSkus(
+    rows.map((product) => product.sku).filter(Boolean)
+  );
 
   return {
     data: rows.map((product) =>
-      mapProduct(product, productIdsWithActiveVendors)
+      mapProduct(product, productIdsWithActiveVendors, followUpsBySku)
     ),
     total: Number(grid.totalSize || 0),
     totalPages: Number(grid.totalPages || 0),
@@ -231,16 +239,23 @@ async function getProductDetails(sku) {
     .sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
     );
+  const followUpDate = await followUpsService.getFollowUpForSku(product.sku || sku);
 
   return {
     id: product.id,
     sku: product.sku || sku,
     name: product.name || product.sku || sku,
+    followUpDate,
     vendors: assignedVendors
   };
 }
 
+async function setProductFollowUp({ sku, followUpDate }) {
+  return followUpsService.setFollowUp({ sku, followUpDate });
+}
+
 module.exports = {
   getProductDetails,
-  listProducts
+  listProducts,
+  setProductFollowUp
 };

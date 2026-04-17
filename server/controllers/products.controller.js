@@ -18,7 +18,17 @@ async function getProductDetails(req, res, next) {
   }
 }
 
+async function updateProductFollowUp(req, res, next) {
+  try {
+    const result = await productsService.setProductFollowUp(req.body);
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getProductDetails,
-  listProducts
+  listProducts,
+  updateProductFollowUp
 };

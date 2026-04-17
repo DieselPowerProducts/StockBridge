@@ -27,6 +27,7 @@ export type Product = {
   name: string;
   qtyAvailable: number;
   availability: ProductAvailability;
+  followUpDate: string;
 };
 
 export type ProductsResponse = {
@@ -53,6 +54,7 @@ export type ProductDetails = {
   id: string;
   sku: string;
   name: string;
+  followUpDate: string;
   vendors: ProductVendor[];
 };
 

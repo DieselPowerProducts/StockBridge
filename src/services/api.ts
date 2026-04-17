@@ -61,6 +61,22 @@ export function getProductDetails(sku: string) {
   return request<ProductDetails>(`/products/details?${params.toString()}`);
 }
 
+export function updateProductFollowUp({
+  sku,
+  followUpDate
+}: {
+  sku: string;
+  followUpDate: string;
+}) {
+  return request<{ sku: string; followUpDate: string }>("/products/follow-up", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sku, followUpDate })
+  });
+}
+
 export function importBackorders(formData: FormData) {
   return request<{ message: string; imported: number }>("/import", {
     method: "POST",

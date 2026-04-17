@@ -6,11 +6,12 @@ import { ProductsTable } from "./ProductsTable";
 
 type ProductsPageProps = {
   onOpenNotes: (sku: string) => void;
+  refreshKey: number;
 };
 
 const pageSize = 30;
 
-export function ProductsPage({ onOpenNotes }: ProductsPageProps) {
+export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -64,7 +65,7 @@ export function ProductsPage({ onOpenNotes }: ProductsPageProps) {
     return () => {
       ignore = true;
     };
-  }, [currentPage, searchQuery]);
+  }, [currentPage, refreshKey, searchQuery]);
 
   return (
     <section className="page" aria-labelledby="productsHeading">

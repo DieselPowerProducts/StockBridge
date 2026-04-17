@@ -13,6 +13,20 @@ function getAvailabilityClass(product: Product) {
   return "availability-backorder";
 }
 
+function formatFollowUpDate(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return value;
+  }
+
+  return new Date(year, month - 1, day).toLocaleDateString();
+}
+
 export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
   return (
     <table>
@@ -21,12 +35,13 @@ export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
           <th>SKU</th>
           <th>Name</th>
           <th>Availability</th>
+          <th>Follow Up</th>
         </tr>
       </thead>
       <tbody>
         {products.length === 0 ? (
           <tr>
-            <td colSpan={3}>No products found yet.</td>
+            <td colSpan={4}>No products found yet.</td>
           </tr>
         ) : (
           products.map((product) => (
@@ -48,6 +63,11 @@ export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
                 >
                   {product.availability}
                 </span>
+              </td>
+              <td>
+                {product.availability === "Backorder"
+                  ? formatFollowUpDate(product.followUpDate)
+                  : ""}
               </td>
             </tr>
           ))
