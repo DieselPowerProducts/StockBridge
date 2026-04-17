@@ -81,41 +81,41 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
   const hasSearch = Boolean(searchQuery.trim());
 
   return (
-    <section className="page" aria-labelledby="productsHeading">
-      <h1 id="productsHeading">Products</h1>
+    <section
+      className={`page products-page${hasSearch ? "" : " products-page-empty"}`}
+      aria-labelledby="productsHeading"
+    >
+      <div className="products-search-panel">
+        <h1 id="productsHeading">Products</h1>
 
-      <input
-        type="text"
-        value={searchInput}
-        placeholder="Search SKU or name..."
-        className="search-bar"
-        aria-label="Search products"
-        onChange={(event) => setSearchInput(event.target.value)}
-      />
+        <input
+          type="text"
+          value={searchInput}
+          placeholder="Search SKU or name..."
+          className="search-bar product-search-bar"
+          aria-label="Search products"
+          onChange={(event) => setSearchInput(event.target.value)}
+        />
+      </div>
 
       {error && <p className="status-message error-message">{error}</p>}
       {isLoading && <p className="status-message">Loading products...</p>}
-      {!hasSearch && (
-        <p className="status-message">
-          Search by SKU or name to load products.
-        </p>
-      )}
-
-      <ProductsTable
-        emptyMessage={
-          hasSearch ? "No products found." : "Search to show products."
-        }
-        products={products}
-        onOpenNotes={onOpenNotes}
-      />
 
       {hasSearch && (
-        <Pagination
-          currentPage={currentPage}
-          limit={pageSize}
-          totalItems={totalItems}
-          onPageChange={setCurrentPage}
-        />
+        <>
+          <ProductsTable
+            emptyMessage="No products found."
+            products={products}
+            onOpenNotes={onOpenNotes}
+          />
+
+          <Pagination
+            currentPage={currentPage}
+            limit={pageSize}
+            totalItems={totalItems}
+            onPageChange={setCurrentPage}
+          />
+        </>
       )}
     </section>
   );
