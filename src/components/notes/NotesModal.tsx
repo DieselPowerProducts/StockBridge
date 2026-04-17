@@ -29,6 +29,72 @@ function formatFollowUpDate(value: string) {
   return new Date(year, month - 1, day).toLocaleDateString();
 }
 
+function getValidDate(value: string) {
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSameDate(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function formatNoteDate(value: string) {
+  const date = getValidDate(value);
+
+  if (!date) {
+    return "";
+  }
+
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (isSameDate(date, today)) {
+    return "Today";
+  }
+
+  if (isSameDate(date, yesterday)) {
+    return "Yesterday";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(date);
+}
+
+function formatNoteTime(value: string) {
+  const date = getValidDate(value);
+
+  if (!date) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 0) {
+    return "SB";
+  }
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
 export function NotesModal({
   sku,
   onClose,
@@ -238,26 +304,79 @@ export function NotesModal({
               {notes.length === 0 ? (
                 <p className="status-message">No notes yet.</p>
               ) : (
-                notes.map((note) => (
-                  <article className="note-item" key={note.id}>
-                    <div className="note-content">
-                      <small>{note.created_at}</small>
-                      <br />
-                      <span>{note.note}</span>
+                notes.map((note, index) => {
+                  const authorName = note.author?.name || "StockBridge";
+                  const dateLabel = formatNoteDate(note.created_at);
+                  const previousDateLabel =
+                    index > 0 ? formatNoteDate(notes[index - 1].created_at) : "";
+                  const showDateLabel = dateLabel && dateLabel !== previousDateLabel;
+                  const noteTime = formatNoteTime(note.created_at);
+
+                  return (
+                    <div className="note-group" key={note.id}>
+                      {showDateLabel && (
+                        <div className="note-date-divider">
+                          <span>{dateLabel}</span>
+                        </div>
+                      )}
+
+                      <article className="note-item">
+                        <div className="note-avatar" aria-hidden="true">
+                          {note.author?.picture ? (
+                            <img src={note.author.picture} alt="" />
+                          ) : (
+                            <span>{getInitials(authorName)}</span>
+                          )}
+                        </div>
+
+                        <div className="note-card">
+                          <header className="note-card-header">
+                            <strong>{authorName}</strong>
+
+                            <div className="note-card-meta">
+                              {noteTime && (
+                                <time dateTime={note.created_at}>{noteTime}</time>
+                              )}
+
+                              <div className="note-icon-actions">
+                                <button
+                                  type="button"
+                                  aria-label="Edit note"
+                                  title="Edit note"
+                                  onClick={() => handleEditNote(note)}
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    viewBox="0 0 24 24"
+                                    focusable="false"
+                                  >
+                                    <path d="M4 16.7V20h3.3L17.1 10.2l-3.3-3.3L4 16.7Zm15.7-9.1c.4-.4.4-1 0-1.4l-1.9-1.9c-.4-.4-1-.4-1.4 0l-1.5 1.5 3.3 3.3 1.5-1.5Z" />
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Delete note"
+                                  title="Delete note"
+                                  onClick={() => handleDeleteNote(note.id)}
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    viewBox="0 0 24 24"
+                                    focusable="false"
+                                  >
+                                    <path d="M8 5V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v1h4v2H4V5h4Zm2 0h4V4h-4v1Zm-3 4h10l-.7 11.1c-.1 1.1-1 1.9-2 1.9H9.7c-1.1 0-1.9-.8-2-1.9L7 9Zm3 2v8h2v-8h-2Zm4 0v8h2v-8h-2Z" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          </header>
+
+                          <p className="note-text">{note.note}</p>
+                        </div>
+                      </article>
                     </div>
-                    <div className="note-actions">
-                      <button type="button" onClick={() => handleEditNote(note)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteNote(note.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </article>
-                ))
+                  );
+                })
               )}
             </div>
 

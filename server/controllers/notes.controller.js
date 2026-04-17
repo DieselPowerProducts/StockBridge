@@ -11,7 +11,7 @@ async function listNotes(req, res, next) {
 
 async function createNote(req, res, next) {
   try {
-    const result = await notesService.addNote(req.body);
+    const result = await notesService.addNote(req.body, req.user);
     res.send({ id: result.id });
   } catch (err) {
     next(err);

@@ -466,27 +466,136 @@ select {
   flex: 1;
   min-height: 180px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 6px;
 }
 
 .notes-panel .note-input-container {
   margin: 12px 0 0;
 }
 
-.note-item {
-  background: #333333;
-  border-radius: 5px;
-  margin-bottom: 8px;
-  padding: 10px;
+.note-group {
+  margin-bottom: 14px;
 }
 
-.note-actions {
+.note-date-divider {
+  align-items: center;
+  color: #ffffff;
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 12px;
+  justify-content: center;
+  margin: 2px 0 14px;
 }
 
-.note-actions button,
+.note-date-divider::before,
+.note-date-divider::after {
+  background: #777777;
+  content: "";
+  flex: 1;
+  height: 1px;
+  min-width: 40px;
+}
+
+.note-item {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.note-avatar {
+  align-items: center;
+  background: #555555;
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  flex: 0 0 36px;
+  font-size: 12px;
+  font-weight: 700;
+  height: 36px;
+  justify-content: center;
+  overflow: hidden;
+  width: 36px;
+}
+
+.note-avatar img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.note-card {
+  background: #333333;
+  border: 1px solid #4d4d4d;
+  border-radius: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.note-card-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.note-card-header strong {
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.note-card-meta {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.note-card-meta time {
+  color: #eeeeee;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.note-icon-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.note-icon-actions button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #dddddd;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  padding: 4px;
+  width: 28px;
+}
+
+.note-icon-actions button:hover {
+  background: #444444;
+  color: white;
+}
+
+.note-icon-actions svg {
+  fill: currentColor;
+  height: 18px;
+  width: 18px;
+}
+
+.note-text {
+  line-height: 1.45;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 #closeModalButton,
 #importForm button,
 .secondary-action {

@@ -53,6 +53,12 @@ export type Note = {
   id: string;
   sku: string;
   note: string;
+  author: {
+    sub: string;
+    email: string;
+    name: string;
+    picture: string;
+  };
   created_at: string;
   updated_at?: string;
 };
