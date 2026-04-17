@@ -12,13 +12,12 @@ export function VendorsTable({ vendors, onSelectVendor }: VendorsTableProps) {
         <thead>
           <tr>
             <th>Vendor</th>
-            <th>Products</th>
           </tr>
         </thead>
         <tbody>
           {vendors.length === 0 ? (
             <tr>
-              <td colSpan={2}>No vendors found yet.</td>
+              <td>No vendors found yet.</td>
             </tr>
           ) : (
             vendors.map((vendor) => (
@@ -32,7 +31,6 @@ export function VendorsTable({ vendors, onSelectVendor }: VendorsTableProps) {
                     {vendor.vendor}
                   </button>
                 </td>
-                <td>{vendor.productCount}</td>
               </tr>
             ))
           )}

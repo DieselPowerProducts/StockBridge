@@ -61,7 +61,6 @@ export type ProductDetails = {
 export type VendorSummary = {
   id: string;
   vendor: string;
-  productCount: number;
 };
 
 export type VendorsResponse = {

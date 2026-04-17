@@ -52,6 +52,10 @@ function graphqlStringList(values) {
   return values.map(graphqlString).join(", ");
 }
 
+function buildVendorFilter(search) {
+  return search ? `filter: { fulltext_search: ${graphqlString(search)} }` : "";
+}
+
 function mapAvailability(qtyAvailable) {
   return Number(qtyAvailable || 0) > 0 ? "Available" : "Backorder";
 }
@@ -96,45 +100,6 @@ async function fetchVendorProductsPage({ page, limit, vendorId = "" }) {
   };
 }
 
-async function fetchVendorProductIdsPage(page) {
-  const data = await skunexus.query(`
-    query V1Queries {
-      vendorProduct {
-        grid(
-          limit: { size: ${vendorProductPageSize}, page: ${page} }
-        ) {
-          totalSize
-          totalPages
-          isLastPage
-          rows {
-            vendor_id
-            product_id
-          }
-        }
-      }
-    }
-  `);
-
-  return data?.vendorProduct?.grid || {
-    rows: [],
-    totalSize: 0,
-    totalPages: 0,
-    isLastPage: true
-  };
-}
-
-function mergeVendorProductCounts(productIdsByVendor, rows) {
-  for (const row of rows || []) {
-    if (!row.vendor_id || !row.product_id) {
-      continue;
-    }
-
-    const productIds = productIdsByVendor.get(row.vendor_id) || new Set();
-    productIds.add(row.product_id);
-    productIdsByVendor.set(row.vendor_id, productIds);
-  }
-}
-
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = [];
   let nextIndex = 0;
@@ -158,42 +123,18 @@ async function mapWithConcurrency(items, concurrency, mapper) {
   return results;
 }
 
-async function fetchAllVendorProductCounts() {
-  const productIdsByVendor = new Map();
-  const firstPage = await fetchVendorProductIdsPage(1);
-  const totalPages = Number(firstPage.totalPages || 1);
-
-  mergeVendorProductCounts(productIdsByVendor, firstPage.rows);
-
-  if (totalPages <= 1) {
-    return productIdsByVendor;
-  }
-
-  const remainingPages = Array.from(
-    { length: totalPages - 1 },
-    (_, index) => index + 2
-  );
-  const remainingGrids = await mapWithConcurrency(
-    remainingPages,
-    vendorProductFetchConcurrency,
-    fetchVendorProductIdsPage
-  );
-
-  for (const grid of remainingGrids) {
-    mergeVendorProductCounts(productIdsByVendor, grid.rows);
-  }
-
-  return productIdsByVendor;
-}
-
-async function fetchAllVendors() {
+async function fetchVendorsPage({ page, limit, search }) {
   const data = await skunexus.query(`
     query V1Queries {
       vendor {
         grid(
+          ${buildVendorFilter(search)}
           sort: { name: ASC }
-          limit: { size: 500, page: 1 }
+          limit: { size: ${limit}, page: ${page} }
         ) {
+          totalSize
+          totalPages
+          isLastPage
           rows {
             id
             name
@@ -205,52 +146,55 @@ async function fetchAllVendors() {
     }
   `);
 
-  return data?.vendor?.grid?.rows || [];
+  return data?.vendor?.grid || {
+    rows: [],
+    totalSize: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
 }
 
-async function getVendorSummaries() {
-  if (vendorCache && Date.now() - vendorCache.createdAt < vendorCacheTtlMs) {
+function mapVendorSummary(vendor) {
+  return {
+    id: vendor.id,
+    vendor: vendor.name || vendor.label || "",
+    status: vendor.status
+  };
+}
+
+async function getVendorSummaries(queryParams) {
+  const { page, limit } = normalizePaging(queryParams);
+  const search = normalizeSearch(queryParams.search);
+  const cacheKey = `${page}:${limit}:${search}`;
+
+  if (
+    vendorCache?.key === cacheKey &&
+    Date.now() - vendorCache.createdAt < vendorCacheTtlMs
+  ) {
     return vendorCache.data;
   }
 
-  const [vendors, productIdsByVendor] = await Promise.all([
-    fetchAllVendors(),
-    fetchAllVendorProductCounts()
-  ]);
-
-  const data = vendors
-    .map((vendor) => {
-      const productIds = productIdsByVendor.get(vendor.id);
-
-      return {
-        id: vendor.id,
-        vendor: vendor.name || vendor.label || "",
-        status: vendor.status,
-        productCount: productIds?.size || 0
-      };
-    })
-    .filter((vendor) => vendor.id && vendor.vendor && vendor.productCount > 0)
-    .sort((a, b) =>
-      a.vendor.localeCompare(b.vendor, undefined, { sensitivity: "base" })
-    );
+  const grid = await fetchVendorsPage({ page, limit, search });
+  const result = {
+    data: (grid.rows || [])
+      .map(mapVendorSummary)
+      .filter((vendor) => vendor.id && vendor.vendor),
+    total: Number(grid.totalSize || 0),
+    totalPages: Number(grid.totalPages || 0),
+    isLastPage: Boolean(grid.isLastPage)
+  };
 
   vendorCache = {
     createdAt: Date.now(),
-    data
+    data: result,
+    key: cacheKey
   };
 
-  return data;
+  return result;
 }
 
 async function listVendors(queryParams = {}) {
-  const { page, limit } = normalizePaging(queryParams);
-  const search = normalizeSearch(queryParams.search);
-  const vendors = await getVendorSummaries();
-  const filteredVendors = vendors.filter((vendor) =>
-    matchesSearch([vendor.vendor], search)
-  );
-
-  return paginateRows(filteredVendors, { page, limit });
+  return getVendorSummaries(queryParams);
 }
 
 async function fetchProductAvailabilityById(productIds) {
