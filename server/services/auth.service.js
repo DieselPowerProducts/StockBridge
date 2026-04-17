@@ -165,11 +165,17 @@ async function verifyGoogleCredential(credential) {
     throw createHttpError(400, "Missing Google credential.");
   }
 
-  const ticket = await googleClient.verifyIdToken({
-    idToken: credential,
-    audience: googleClientId
-  });
-  const payload = ticket.getPayload();
+  let payload;
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: googleClientId
+    });
+    payload = ticket.getPayload();
+  } catch (err) {
+    throw createHttpError(401, "Unable to verify Google account.");
+  }
 
   if (!payload || !payload.sub || !payload.email || !payload.email_verified) {
     throw createHttpError(401, "Unable to verify Google account.");
