@@ -8,6 +8,7 @@ type SidebarProps = {
 
 const navItems: Array<{ page: PageName; label: string }> = [
   { page: "products", label: "Products" },
+  { page: "stock-check", label: "Stock Check" },
   { page: "vendors", label: "Vendors" }
 ];
 

@@ -30,6 +30,17 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
   }, [searchInput]);
 
   useEffect(() => {
+    const search = searchQuery.trim();
+
+    if (!search) {
+      setProducts([]);
+      setTotalItems(0);
+      setIsLoading(false);
+      setError("");
+
+      return;
+    }
+
     let ignore = false;
 
     async function loadProducts() {
@@ -40,7 +51,7 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
         const result = await getProducts({
           page: currentPage,
           limit: pageSize,
-          search: searchQuery
+          search
         });
 
         if (!ignore) {
@@ -67,6 +78,8 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
     };
   }, [currentPage, refreshKey, searchQuery]);
 
+  const hasSearch = Boolean(searchQuery.trim());
+
   return (
     <section className="page" aria-labelledby="productsHeading">
       <h1 id="productsHeading">Products</h1>
@@ -82,15 +95,28 @@ export function ProductsPage({ onOpenNotes, refreshKey }: ProductsPageProps) {
 
       {error && <p className="status-message error-message">{error}</p>}
       {isLoading && <p className="status-message">Loading products...</p>}
+      {!hasSearch && (
+        <p className="status-message">
+          Search by SKU or name to load products.
+        </p>
+      )}
 
-      <ProductsTable products={products} onOpenNotes={onOpenNotes} />
-
-      <Pagination
-        currentPage={currentPage}
-        limit={pageSize}
-        totalItems={totalItems}
-        onPageChange={setCurrentPage}
+      <ProductsTable
+        emptyMessage={
+          hasSearch ? "No products found." : "Search to show products."
+        }
+        products={products}
+        onOpenNotes={onOpenNotes}
       />
+
+      {hasSearch && (
+        <Pagination
+          currentPage={currentPage}
+          limit={pageSize}
+          totalItems={totalItems}
+          onPageChange={setCurrentPage}
+        />
+      )}
     </section>
   );
 }

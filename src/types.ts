@@ -1,4 +1,4 @@
-export type PageName = "products" | "vendors";
+export type PageName = "products" | "stock-check" | "vendors";
 
 export type AppRoute = {
   page: PageName;

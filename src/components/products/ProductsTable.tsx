@@ -1,6 +1,7 @@
 import type { Product } from "../../types";
 
 type ProductsTableProps = {
+  emptyMessage?: string;
   products: Product[];
   onOpenNotes: (sku: string) => void;
 };
@@ -27,7 +28,11 @@ function formatFollowUpDate(value: string) {
   return new Date(year, month - 1, day).toLocaleDateString();
 }
 
-export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
+export function ProductsTable({
+  emptyMessage = "No products found yet.",
+  products,
+  onOpenNotes
+}: ProductsTableProps) {
   return (
     <table>
       <thead>
@@ -41,7 +46,7 @@ export function ProductsTable({ products, onOpenNotes }: ProductsTableProps) {
       <tbody>
         {products.length === 0 ? (
           <tr>
-            <td colSpan={4}>No products found yet.</td>
+            <td colSpan={4}>{emptyMessage}</td>
           </tr>
         ) : (
           products.map((product) => (

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { ProductsPage } from "./components/products/ProductsPage";
+import { StockCheckPage } from "./components/products/StockCheckPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
 import type { AppRoute } from "./types";
 
@@ -11,7 +12,7 @@ function parseRoute(): AppRoute {
   const page = parts[0] || "products";
   const vendor = parts.length > 1 ? decodeURIComponent(parts.slice(1).join("/")) : "";
 
-  if (page === "vendors" || page === "products") {
+  if (page === "vendors" || page === "products" || page === "stock-check") {
     return { page, vendor };
   }
 
@@ -65,6 +66,13 @@ export function App() {
             selectedVendor={route.vendor}
             onBackToVendors={() => setHashRoute("vendors")}
             onSelectVendor={(vendorId) => setHashRoute("vendors", vendorId)}
+          />
+        )}
+
+        {route.page === "stock-check" && (
+          <StockCheckPage
+            refreshKey={productRefreshKey}
+            onOpenNotes={setSelectedSku}
           />
         )}
       </main>

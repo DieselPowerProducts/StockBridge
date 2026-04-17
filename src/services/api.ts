@@ -53,6 +53,24 @@ export function getProducts({
   return request<ProductsResponse>(`/products?${params.toString()}`);
 }
 
+export function getStockCheckProducts({
+  page,
+  limit,
+  search
+}: {
+  page: number;
+  limit: number;
+  search: string;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search
+  });
+
+  return request<ProductsResponse>(`/products/stock-check?${params.toString()}`);
+}
+
 export function getProductDetails(sku: string) {
   const params = new URLSearchParams({
     sku
