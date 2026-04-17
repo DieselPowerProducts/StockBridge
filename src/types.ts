@@ -44,6 +44,18 @@ export type Note = {
   updated_at?: string;
 };
 
+export type ProductVendor = {
+  id: string;
+  name: string;
+};
+
+export type ProductDetails = {
+  id: string;
+  sku: string;
+  name: string;
+  vendors: ProductVendor[];
+};
+
 export type VendorSummary = {
   id: string;
   vendor: string;

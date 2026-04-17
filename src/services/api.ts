@@ -1,6 +1,7 @@
 import type {
   BackordersResponse,
   Note,
+  ProductDetails,
   ProductsResponse,
   VendorProductsResponse,
   VendorsResponse
@@ -50,6 +51,14 @@ export function getProducts({
   });
 
   return request<ProductsResponse>(`/products?${params.toString()}`);
+}
+
+export function getProductDetails(sku: string) {
+  const params = new URLSearchParams({
+    sku
+  });
+
+  return request<ProductDetails>(`/products/details?${params.toString()}`);
 }
 
 export function importBackorders(formData: FormData) {

@@ -87,6 +87,21 @@ async function fetchActiveVendorIds(vendorIds) {
     return new Set();
   }
 
+  const vendors = await fetchVendorsByIds(vendorIds);
+
+  return new Set(
+    vendors
+      .filter(isActiveVendor)
+      .map((vendor) => vendor.id)
+      .filter(Boolean)
+  );
+}
+
+async function fetchVendorsByIds(vendorIds) {
+  if (vendorIds.length === 0) {
+    return [];
+  }
+
   const data = await skunexus.query(`
     query V1Queries {
       vendor {
@@ -96,20 +111,16 @@ async function fetchActiveVendorIds(vendorIds) {
         ) {
           rows {
             id
+            name
+            label
             status
           }
         }
       }
     }
   `);
-  const vendors = data?.vendor?.grid?.rows || [];
 
-  return new Set(
-    vendors
-      .filter(isActiveVendor)
-      .map((vendor) => vendor.id)
-      .filter(Boolean)
-  );
+  return data?.vendor?.grid?.rows || [];
 }
 
 async function fetchProductIdsWithActiveVendors(productIds) {
@@ -140,6 +151,28 @@ function mapProduct(row, productIdsWithActiveVendors) {
   };
 }
 
+async function fetchProductBySku(sku) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      product {
+        grid(
+          filter: { sku: { operator: eq, value: [${graphqlString(sku)}] } }
+          limit: { size: 1, page: 1 }
+        ) {
+          rows {
+            id
+            sku
+            name
+            qty_available
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.product?.grid?.rows?.[0] || null;
+}
+
 async function listProducts(queryParams) {
   const { page, limit } = normalizePaging(queryParams);
   const data = await skunexus.query(
@@ -165,6 +198,49 @@ async function listProducts(queryParams) {
   };
 }
 
+async function getProductDetails(sku) {
+  if (!String(sku || "").trim()) {
+    const error = new Error("Product SKU is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const product = await fetchProductBySku(sku);
+
+  if (!product) {
+    const error = new Error("Product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const vendorProducts = await fetchVendorProductsForProductIds([product.id]);
+  const vendorIds = Array.from(
+    new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))
+  );
+  const vendors = await fetchVendorsByIds(vendorIds);
+  const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
+  const assignedVendors = vendorIds
+    .map((vendorId) => {
+      const vendor = vendorsById.get(vendorId);
+
+      return {
+        id: vendorId,
+        name: vendor?.name || vendor?.label || vendorId
+      };
+    })
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+    );
+
+  return {
+    id: product.id,
+    sku: product.sku || sku,
+    name: product.name || product.sku || sku,
+    vendors: assignedVendors
+  };
+}
+
 module.exports = {
+  getProductDetails,
   listProducts
 };
