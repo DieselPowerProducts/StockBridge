@@ -336,7 +336,7 @@ select {
 }
 
 .notes-popup-page {
-  background: #333333;
+  background: transparent;
   color: white;
   min-height: 100vh;
 }
@@ -346,8 +346,21 @@ select {
   display: flex;
   justify-content: center;
   min-height: 100vh;
-  padding: 16px;
+  padding: 0;
   width: 100%;
+}
+
+html:has(.notes-popup-page),
+body:has(.notes-popup-page),
+#root:has(.notes-popup-page) {
+  background: transparent;
+  overflow: hidden;
+}
+
+.notes-route-shell .notes-modal-content {
+  height: 100vh;
+  max-height: none;
+  width: 100vw;
 }
 
 .modal-content {
