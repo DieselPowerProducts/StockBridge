@@ -358,8 +358,7 @@ body:has(.notes-popup-page),
 }
 
 .notes-route-shell .notes-modal-content {
-  height: 100vh;
-  max-height: none;
+  max-height: min(620px, 100vh);
   width: 100vw;
 }
 
