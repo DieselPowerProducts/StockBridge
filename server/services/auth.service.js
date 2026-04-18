@@ -139,15 +139,16 @@ function shouldUseSecureCookie(req) {
 }
 
 function serializeCookie(req, value, maxAgeSeconds) {
+  const useSecureCookie = shouldUseSecureCookie(req);
   const parts = [
     `${sessionCookieName}=${encodeURIComponent(value)}`,
     "HttpOnly",
     "Path=/",
-    "SameSite=Lax",
+    useSecureCookie ? "SameSite=None" : "SameSite=Lax",
     `Max-Age=${maxAgeSeconds}`
   ];
 
-  if (shouldUseSecureCookie(req)) {
+  if (useSecureCookie) {
     parts.push("Secure");
   }
 

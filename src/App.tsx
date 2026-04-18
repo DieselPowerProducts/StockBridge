@@ -101,6 +101,11 @@ export function App() {
   }
 
   function handleCloseNotesRoute() {
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "stockbridge:close-notes" }, "*");
+      return;
+    }
+
     window.close();
 
     window.setTimeout(() => {
