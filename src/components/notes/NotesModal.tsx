@@ -10,6 +10,8 @@ import {
 import type { Note, ProductDetails } from "../../types";
 
 type NotesModalProps = {
+  closeLabel?: string;
+  mode?: "modal" | "route";
   sku: string;
   onClose: () => void;
   onFollowUpSaved: () => void;
@@ -96,6 +98,8 @@ function getInitials(name: string) {
 }
 
 export function NotesModal({
+  closeLabel = "Close",
+  mode = "modal",
   sku,
   onClose,
   onFollowUpSaved
@@ -229,14 +233,20 @@ export function NotesModal({
 
   const title = productDetails?.name || sku;
   const vendors = productDetails?.vendors || [];
+  const isRouteMode = mode === "route";
 
   return (
-    <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div
+      className={isRouteMode ? "notes-route-shell" : "modal"}
+      role={isRouteMode ? "region" : "dialog"}
+      aria-modal={isRouteMode ? undefined : true}
+      aria-labelledby="modalTitle"
+    >
       <div className="modal-content notes-modal-content">
         <header className="notes-modal-header">
           <h2 id="modalTitle">{title}</h2>
           <button id="closeModalButton" type="button" onClick={onClose}>
-            Close
+            {closeLabel}
           </button>
         </header>
 

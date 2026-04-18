@@ -6,22 +6,29 @@ import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
 import { getCurrentUser, signOut } from "./services/api";
-import type { AppRoute, AuthUser } from "./types";
+import type { AppRoute, AuthUser, PageName } from "./types";
 
 function parseRoute(): AppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
   const parts = hash.split("/").filter(Boolean);
   const page = parts[0] || "products";
-  const vendor = parts.length > 1 ? decodeURIComponent(parts.slice(1).join("/")) : "";
+  const routeValue =
+    parts.length > 1 ? decodeURIComponent(parts.slice(1).join("/")) : "";
 
-  if (page === "vendors" || page === "products" || page === "stock-check") {
-    return { page, vendor };
+  if (page === "notes") {
+    return routeValue
+      ? { page: "notes", sku: routeValue, vendor: "" }
+      : { page: "products", sku: "", vendor: "" };
   }
 
-  return { page: "products", vendor: "" };
+  if (page === "vendors" || page === "products" || page === "stock-check") {
+    return { page, sku: "", vendor: page === "vendors" ? routeValue : "" };
+  }
+
+  return { page: "products", sku: "", vendor: "" };
 }
 
-function setHashRoute(page: AppRoute["page"], vendor = "") {
+function setHashRoute(page: PageName, vendor = "") {
   const nextHash = vendor
     ? `#/${page}/${encodeURIComponent(vendor)}`
     : `#/${page}`;
@@ -93,6 +100,16 @@ export function App() {
     }
   }
 
+  function handleCloseNotesRoute() {
+    window.close();
+
+    window.setTimeout(() => {
+      if (!window.closed) {
+        setHashRoute("products");
+      }
+    }, 0);
+  }
+
   if (authStatus === "checking") {
     return (
       <main className="auth-page" aria-label="Loading StockBridge">
@@ -106,6 +123,19 @@ export function App() {
 
   if (!authUser) {
     return <LoginPage onLogin={setAuthUser} />;
+  }
+
+  if (route.page === "notes") {
+    return (
+      <main className="notes-popup-page" aria-label="StockBridge notes">
+        <NotesModal
+          mode="route"
+          sku={route.sku}
+          onClose={handleCloseNotesRoute}
+          onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
+        />
+      </main>
+    );
   }
 
   return (

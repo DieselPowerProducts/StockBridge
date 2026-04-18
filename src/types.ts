@@ -1,7 +1,9 @@
 export type PageName = "products" | "stock-check" | "vendors";
+export type RoutePageName = PageName | "notes";
 
 export type AppRoute = {
-  page: PageName;
+  page: RoutePageName;
+  sku: string;
   vendor: string;
 };
 

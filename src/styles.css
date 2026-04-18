@@ -335,6 +335,21 @@ select {
   width: 100%;
 }
 
+.notes-popup-page {
+  background: #333333;
+  color: white;
+  min-height: 100vh;
+}
+
+.notes-route-shell {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 16px;
+  width: 100%;
+}
+
 .modal-content {
   background: #222222;
   border-radius: 8px;
