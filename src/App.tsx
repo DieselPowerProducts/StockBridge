@@ -131,8 +131,13 @@ export function App() {
   }
 
   if (route.page === "notes") {
+    const isEmbeddedRoute = window.parent !== window;
+
     return (
-      <main className="notes-popup-page" aria-label="StockBridge notes">
+      <main
+        className={`notes-popup-page${isEmbeddedRoute ? " embedded" : ""}`}
+        aria-label="StockBridge notes"
+      >
         <NotesModal
           mode="route"
           sku={route.sku}

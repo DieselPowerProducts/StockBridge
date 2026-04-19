@@ -362,6 +362,25 @@ body:has(.notes-popup-page),
   width: 100vw;
 }
 
+.notes-popup-page.embedded .notes-route-shell {
+  align-items: stretch;
+  justify-content: stretch;
+  min-height: 100vh;
+}
+
+.notes-popup-page.embedded .notes-modal-content {
+  height: 100vh;
+  max-height: none;
+}
+
+.notes-popup-page.embedded .notes-modal-grid {
+  flex: 1;
+}
+
+.notes-popup-page.embedded .notes-panel {
+  min-height: 0;
+}
+
 .modal-content {
   background: #222222;
   border-radius: 8px;
