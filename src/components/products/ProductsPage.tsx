@@ -11,6 +11,30 @@ type ProductsPageProps = {
 };
 
 const pageSize = 30;
+const productSearchStorageKey = "stockbridge:products-search";
+
+function getStoredProductSearch() {
+  try {
+    return window.localStorage.getItem(productSearchStorageKey) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeProductSearch(value: string) {
+  try {
+    const search = value.trim();
+
+    if (search) {
+      window.localStorage.setItem(productSearchStorageKey, search);
+      return;
+    }
+
+    window.localStorage.removeItem(productSearchStorageKey);
+  } catch {
+    // The search still works if browser storage is unavailable.
+  }
+}
 
 export function ProductsPage({
   productStockUpdate,
@@ -18,15 +42,19 @@ export function ProductsPage({
 }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState(getStoredProductSearch);
+  const [searchQuery, setSearchQuery] = useState(getStoredProductSearch);
   const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    storeProductSearch(searchInput);
+  }, [searchInput]);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
-      setSearchQuery(searchInput);
+      setSearchQuery(searchInput.trim());
       setCurrentPage(1);
     }, 300);
 
