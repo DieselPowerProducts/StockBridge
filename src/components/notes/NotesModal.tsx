@@ -239,6 +239,10 @@ export function NotesModal({
     vendor: ProductVendor,
     enabled: boolean
   ) {
+    if (!vendor.canUpdateStock) {
+      return;
+    }
+
     const isCurrentlyEnabled = vendor.quantity > 0;
 
     if (isCurrentlyEnabled === enabled || pendingVendorStock[vendor.vendorProductId]) {
@@ -334,41 +338,50 @@ export function NotesModal({
                     <li className="assigned-vendor-item" key={vendor.vendorProductId}>
                       <span className="assigned-vendor-name">{vendor.name}</span>
 
-                      <div
-                        className="vendor-stock-switch"
-                        role="group"
-                        aria-label={`${vendor.name} stock override`}
-                        title={`Current quantity: ${vendor.quantity}`}
-                      >
-                        <button
-                          type="button"
-                          className={
-                            stockEnabled
-                              ? "vendor-stock-switch-option active"
-                              : "vendor-stock-switch-option"
-                          }
-                          aria-label={`Turn on stock for ${vendor.name}`}
-                          aria-pressed={stockEnabled}
-                          disabled={isPending}
-                          onClick={() => handleVendorStockChange(vendor, true)}
+                      {vendor.canUpdateStock ? (
+                        <div
+                          className="vendor-stock-switch"
+                          role="group"
+                          aria-label={`${vendor.name} stock override`}
+                          title={`Current quantity: ${vendor.quantity}`}
                         >
-                          I
-                        </button>
-                        <button
-                          type="button"
-                          className={
-                            stockEnabled
-                              ? "vendor-stock-switch-option"
-                              : "vendor-stock-switch-option active off"
-                          }
-                          aria-label={`Turn off stock for ${vendor.name}`}
-                          aria-pressed={!stockEnabled}
-                          disabled={isPending}
-                          onClick={() => handleVendorStockChange(vendor, false)}
+                          <button
+                            type="button"
+                            className={
+                              stockEnabled
+                                ? "vendor-stock-switch-option active"
+                                : "vendor-stock-switch-option"
+                            }
+                            aria-label={`Turn on stock for ${vendor.name}`}
+                            aria-pressed={stockEnabled}
+                            disabled={isPending}
+                            onClick={() => handleVendorStockChange(vendor, true)}
+                          >
+                            I
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              stockEnabled
+                                ? "vendor-stock-switch-option"
+                                : "vendor-stock-switch-option active off"
+                            }
+                            aria-label={`Turn off stock for ${vendor.name}`}
+                            aria-pressed={!stockEnabled}
+                            disabled={isPending}
+                            onClick={() => handleVendorStockChange(vendor, false)}
+                          >
+                            O
+                          </button>
+                        </div>
+                      ) : (
+                        <span
+                          className="vendor-stock-readonly"
+                          title={`Current quantity: ${vendor.quantity}`}
                         >
-                          O
-                        </button>
-                      </div>
+                          Warehouse
+                        </span>
+                      )}
                     </li>
                   );
                 })}

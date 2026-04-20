@@ -70,6 +70,9 @@ export type ProductVendor = {
   vendorProductId: string;
   name: string;
   quantity: number;
+  stockSource: "vendor" | "warehouse";
+  stockType: string;
+  canUpdateStock: boolean;
 };
 
 export type ProductDetails = {

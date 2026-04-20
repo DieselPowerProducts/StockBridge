@@ -507,6 +507,19 @@ body:has(.notes-popup-page),
   opacity: 0.75;
 }
 
+.vendor-stock-readonly {
+  background: #2a4a66;
+  border: 1px solid #5b7891;
+  border-radius: 8px;
+  color: #e7f3ff;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 9px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .notes-panel {
   display: flex;
   flex-direction: column;

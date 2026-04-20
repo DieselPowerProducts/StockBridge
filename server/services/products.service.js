@@ -8,6 +8,8 @@ const stockCheckProductPageSize = 1000;
 const stockCheckVendorChunkSize = 500;
 const enabledVendorStockQuantity = 999999;
 const disabledVendorStockQuantity = 0;
+const dppWarehouseLabel = "DPP Warehouse";
+const dppWarehouseStockType = "WAREHOUSE";
 
 const stockCheckCache = new Map();
 
@@ -201,6 +203,44 @@ async function fetchVendorProductById(vendorProductId) {
   `);
 
   return data?.vendorProduct?.details || null;
+}
+
+async function fetchDppWarehouseStockForSku(sku) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      stock {
+        stocksGrid(
+          filter: {
+            product: { sku: { operator: eq, value: [${graphqlString(sku)}] } }
+            type: [${dppWarehouseStockType}]
+            location: {
+              warehouse_label: { operator: eq, value: [${graphqlString(dppWarehouseLabel)}] }
+            }
+          }
+          limit: { size: 100, page: 1 }
+        ) {
+          rows {
+            id
+            qty
+            qty_available
+            type
+            location {
+              warehouse {
+                id
+                label
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  return (data?.stock?.stocksGrid?.rows || []).filter(
+    (row) =>
+      row.type === dppWarehouseStockType &&
+      row.location?.warehouse?.label === dppWarehouseLabel
+  );
 }
 
 async function fetchActiveVendorIds(vendorIds) {
@@ -497,9 +537,38 @@ async function getProductDetails(sku) {
         id: vendorProduct.vendor_id,
         vendorProductId: vendorProduct.id,
         name: vendor?.name || vendor?.label || vendorProduct.vendor_id,
-        quantity: Number(vendorProduct.quantity || 0)
+        quantity: Number(vendorProduct.quantity || 0),
+        stockSource: "vendor",
+        stockType: "VENDOR",
+        canUpdateStock: true
       };
-    })
+    });
+  const dppWarehouseStockRows = await fetchDppWarehouseStockForSku(
+    product.sku || sku
+  );
+  const dppWarehouseStock = dppWarehouseStockRows.reduce(
+    (summary, row) => ({
+      id: row.location?.warehouse?.id || summary.id,
+      quantity: summary.quantity + Number(row.qty_available || 0)
+    }),
+    { id: "", quantity: 0 }
+  );
+  const assignedStockSources = [
+    ...assignedVendors,
+    ...(dppWarehouseStockRows.length > 0
+      ? [
+          {
+            id: dppWarehouseStock.id || dppWarehouseLabel,
+            vendorProductId: `warehouse:${dppWarehouseStock.id || dppWarehouseLabel}`,
+            name: dppWarehouseLabel,
+            quantity: dppWarehouseStock.quantity,
+            stockSource: "warehouse",
+            stockType: dppWarehouseStockType,
+            canUpdateStock: false
+          }
+        ]
+      : [])
+  ]
     .sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
     );
@@ -510,7 +579,7 @@ async function getProductDetails(sku) {
     sku: product.sku || sku,
     name: product.name || product.sku || sku,
     followUpDate,
-    vendors: assignedVendors
+    vendors: assignedStockSources
   };
 }
 
