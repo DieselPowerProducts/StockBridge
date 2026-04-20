@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { getStockCheckProducts } from "../../services/api";
-import type { Product } from "../../types";
+import type { Product, ProductStockUpdate } from "../../types";
 import { Pagination } from "./Pagination";
 import { ProductsTable } from "./ProductsTable";
+import { applyProductStockUpdate } from "./productStockUpdates";
 
 type StockCheckPageProps = {
+  productStockUpdate: ProductStockUpdate | null;
   onOpenNotes: (sku: string) => void;
   refreshKey: number;
 };
@@ -12,6 +14,7 @@ type StockCheckPageProps = {
 const pageSize = 30;
 
 export function StockCheckPage({
+  productStockUpdate,
   onOpenNotes,
   refreshKey
 }: StockCheckPageProps) {
@@ -36,7 +39,7 @@ export function StockCheckPage({
         });
 
         if (!ignore) {
-          setProducts(result.data);
+          setProducts(applyProductStockUpdate(result.data, productStockUpdate));
           setTotalItems(result.total);
         }
       } catch (err) {
@@ -59,7 +62,17 @@ export function StockCheckPage({
     return () => {
       ignore = true;
     };
-  }, [currentPage, refreshKey]);
+  }, [currentPage, productStockUpdate, refreshKey]);
+
+  useEffect(() => {
+    if (!productStockUpdate) {
+      return;
+    }
+
+    setProducts((current) =>
+      applyProductStockUpdate(current, productStockUpdate)
+    );
+  }, [productStockUpdate]);
 
   return (
     <section className="page" aria-labelledby="stockCheckHeading">

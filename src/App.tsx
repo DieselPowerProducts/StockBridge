@@ -6,7 +6,7 @@ import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
 import { getCurrentUser, signOut } from "./services/api";
-import type { AppRoute, AuthUser, PageName } from "./types";
+import type { AppRoute, AuthUser, PageName, ProductStockUpdate } from "./types";
 
 function parseRoute(): AppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -49,6 +49,8 @@ export function App() {
   );
   const [selectedSku, setSelectedSku] = useState("");
   const [productRefreshKey, setProductRefreshKey] = useState(0);
+  const [productStockUpdate, setProductStockUpdate] =
+    useState<ProductStockUpdate | null>(null);
 
   useEffect(() => {
     const handleHashChange = () => setRoute(parseRoute());
@@ -143,6 +145,7 @@ export function App() {
           sku={route.sku}
           onClose={handleCloseNotesRoute}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
+          onProductStockChanged={setProductStockUpdate}
         />
       </main>
     );
@@ -159,7 +162,10 @@ export function App() {
 
       <main className="main">
         {route.page === "products" && (
-          <ProductsPage onOpenNotes={setSelectedSku} />
+          <ProductsPage
+            productStockUpdate={productStockUpdate}
+            onOpenNotes={setSelectedSku}
+          />
         )}
 
         {route.page === "vendors" && (
@@ -172,6 +178,7 @@ export function App() {
 
         {route.page === "stock-check" && (
           <StockCheckPage
+            productStockUpdate={productStockUpdate}
             refreshKey={productRefreshKey}
             onOpenNotes={setSelectedSku}
           />
@@ -183,6 +190,7 @@ export function App() {
           sku={selectedSku}
           onClose={() => setSelectedSku("")}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
+          onProductStockChanged={setProductStockUpdate}
         />
       )}
     </div>

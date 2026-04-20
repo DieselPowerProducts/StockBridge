@@ -8,7 +8,12 @@ import {
   updateProductVendorStock,
   updateNote
 } from "../../services/api";
-import type { Note, ProductDetails, ProductVendor } from "../../types";
+import type {
+  Note,
+  ProductDetails,
+  ProductStockUpdate,
+  ProductVendor
+} from "../../types";
 
 type NotesModalProps = {
   closeLabel?: string;
@@ -16,6 +21,7 @@ type NotesModalProps = {
   sku: string;
   onClose: () => void;
   onFollowUpSaved: () => void;
+  onProductStockChanged?: (update: ProductStockUpdate) => void;
 };
 
 function formatFollowUpDate(value: string) {
@@ -98,12 +104,43 @@ function getInitials(name: string) {
     .join("");
 }
 
+function applyVendorQuantityUpdates(
+  vendors: ProductVendor[],
+  quantitiesByVendorProductId: Map<string, number>
+) {
+  return vendors.map((vendor) =>
+    quantitiesByVendorProductId.has(vendor.vendorProductId)
+      ? {
+          ...vendor,
+          quantity: quantitiesByVendorProductId.get(vendor.vendorProductId) || 0
+        }
+      : vendor
+  );
+}
+
+function getProductStockUpdate(
+  sku: string,
+  vendors: ProductVendor[]
+): ProductStockUpdate {
+  const qtyAvailable = vendors.reduce(
+    (total, vendor) => total + Math.max(Number(vendor.quantity || 0), 0),
+    0
+  );
+
+  return {
+    sku,
+    qtyAvailable,
+    availability: qtyAvailable > 0 ? "Available" : "Backorder"
+  };
+}
+
 export function NotesModal({
   closeLabel = "Close",
   mode = "modal",
   sku,
   onClose,
-  onFollowUpSaved
+  onFollowUpSaved,
+  onProductStockChanged
 }: NotesModalProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(
@@ -263,22 +300,26 @@ export function NotesModal({
         vendorProductId: vendor.vendorProductId,
         enabled
       });
+      const quantitiesByVendorProductId = new Map([
+        [result.vendorProductId, result.quantity]
+      ]);
+      const updatedVendors = applyVendorQuantityUpdates(
+        vendors,
+        quantitiesByVendorProductId
+      );
 
       setProductDetails((current) =>
         current
           ? {
               ...current,
-              vendors: current.vendors.map((currentVendor) =>
-                currentVendor.vendorProductId === result.vendorProductId
-                  ? {
-                      ...currentVendor,
-                      quantity: result.quantity
-                    }
-                  : currentVendor
+              vendors: applyVendorQuantityUpdates(
+                current.vendors,
+                quantitiesByVendorProductId
               )
             }
           : current
       );
+      onProductStockChanged?.(getProductStockUpdate(sku, updatedVendors));
       onFollowUpSaved();
     } catch (err) {
       setDetailsError(
@@ -344,24 +385,23 @@ export function NotesModal({
       );
 
       if (savedResults.length > 0) {
+        const updatedVendors = applyVendorQuantityUpdates(
+          vendors,
+          quantitiesByVendorProductId
+        );
+
         setProductDetails((current) =>
           current
             ? {
                 ...current,
-                vendors: current.vendors.map((currentVendor) =>
-                  quantitiesByVendorProductId.has(currentVendor.vendorProductId)
-                    ? {
-                        ...currentVendor,
-                        quantity:
-                          quantitiesByVendorProductId.get(
-                            currentVendor.vendorProductId
-                          ) || 0
-                      }
-                    : currentVendor
+                vendors: applyVendorQuantityUpdates(
+                  current.vendors,
+                  quantitiesByVendorProductId
                 )
               }
             : current
         );
+        onProductStockChanged?.(getProductStockUpdate(sku, updatedVendors));
         onFollowUpSaved();
       }
 

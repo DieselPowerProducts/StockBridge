@@ -1,16 +1,21 @@
 import { useEffect, useState } from "react";
 import { getProducts } from "../../services/api";
-import type { Product } from "../../types";
+import type { Product, ProductStockUpdate } from "../../types";
 import { Pagination } from "./Pagination";
 import { ProductsTable } from "./ProductsTable";
+import { applyProductStockUpdate } from "./productStockUpdates";
 
 type ProductsPageProps = {
+  productStockUpdate: ProductStockUpdate | null;
   onOpenNotes: (sku: string) => void;
 };
 
 const pageSize = 30;
 
-export function ProductsPage({ onOpenNotes }: ProductsPageProps) {
+export function ProductsPage({
+  productStockUpdate,
+  onOpenNotes
+}: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -54,7 +59,7 @@ export function ProductsPage({ onOpenNotes }: ProductsPageProps) {
         });
 
         if (!ignore) {
-          setProducts(result.data);
+          setProducts(applyProductStockUpdate(result.data, productStockUpdate));
           setTotalItems(result.total);
         }
       } catch (err) {
@@ -75,7 +80,17 @@ export function ProductsPage({ onOpenNotes }: ProductsPageProps) {
     return () => {
       ignore = true;
     };
-  }, [currentPage, searchQuery]);
+  }, [currentPage, productStockUpdate, searchQuery]);
+
+  useEffect(() => {
+    if (!productStockUpdate) {
+      return;
+    }
+
+    setProducts((current) =>
+      applyProductStockUpdate(current, productStockUpdate)
+    );
+  }, [productStockUpdate]);
 
   const hasSearch = Boolean(searchQuery.trim());
 

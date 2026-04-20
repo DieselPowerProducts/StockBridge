@@ -44,6 +44,12 @@ export type Product = {
   followUpDate: string;
 };
 
+export type ProductStockUpdate = {
+  sku: string;
+  qtyAvailable: number;
+  availability: ProductAvailability;
+};
+
 export type ProductsResponse = {
   data: Product[];
   total: number;
