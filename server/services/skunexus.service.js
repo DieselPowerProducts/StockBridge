@@ -154,6 +154,42 @@ async function query(queryText, { retry = true } = {}) {
   return payload.data;
 }
 
+async function rest(path, { method = "GET", body, retry = true } = {}) {
+  const { baseUrl } = getConfig();
+  const cookie = await login();
+  const cleanPath = path.startsWith("/api/")
+    ? path
+    : `/api${path.startsWith("/") ? "" : "/"}${path}`;
+  const response = await fetch(`${baseUrl}${cleanPath}`, {
+    method,
+    headers: getJsonHeaders({ Cookie: cookie }),
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+
+  if (response.status === 401 && retry) {
+    sessionCookie = "";
+    await login(true);
+    return rest(path, { method, body, retry: false });
+  }
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    const message =
+      payload.message ||
+      payload.error ||
+      payload.errors?.[0]?.message ||
+      `SKU Nexus request failed with status ${response.status}.`;
+    const error = new Error(message);
+    error.statusCode =
+      response.status >= 400 && response.status < 500 ? response.status : 502;
+    throw error;
+  }
+
+  return payload;
+}
+
 module.exports = {
-  query
+  query,
+  rest
 };

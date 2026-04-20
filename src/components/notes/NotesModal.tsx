@@ -5,9 +5,10 @@ import {
   getProductDetails,
   getNotes,
   updateProductFollowUp,
+  updateProductVendorStock,
   updateNote
 } from "../../services/api";
-import type { Note, ProductDetails } from "../../types";
+import type { Note, ProductDetails, ProductVendor } from "../../types";
 
 type NotesModalProps = {
   closeLabel?: string;
@@ -116,6 +117,9 @@ export function NotesModal({
   const [isFollowUpPickerOpen, setIsFollowUpPickerOpen] = useState(false);
   const [isFollowUpSaving, setIsFollowUpSaving] = useState(false);
   const [isProductDetailsLoading, setIsProductDetailsLoading] = useState(false);
+  const [pendingVendorStock, setPendingVendorStock] = useState<
+    Record<string, boolean>
+  >({});
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadNotes = useCallback(async () => {
@@ -231,6 +235,61 @@ export function NotesModal({
     }
   }
 
+  async function handleVendorStockChange(
+    vendor: ProductVendor,
+    enabled: boolean
+  ) {
+    const isCurrentlyEnabled = vendor.quantity > 0;
+
+    if (isCurrentlyEnabled === enabled || pendingVendorStock[vendor.vendorProductId]) {
+      return;
+    }
+
+    setDetailsError("");
+    setPendingVendorStock((current) => ({
+      ...current,
+      [vendor.vendorProductId]: true
+    }));
+
+    try {
+      const result = await updateProductVendorStock({
+        sku,
+        vendorId: vendor.id,
+        vendorProductId: vendor.vendorProductId,
+        enabled
+      });
+
+      setProductDetails((current) =>
+        current
+          ? {
+              ...current,
+              vendors: current.vendors.map((currentVendor) =>
+                currentVendor.vendorProductId === result.vendorProductId
+                  ? {
+                      ...currentVendor,
+                      quantity: result.quantity
+                    }
+                  : currentVendor
+              )
+            }
+          : current
+      );
+      onFollowUpSaved();
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error ? err.message : "Unable to update vendor stock."
+      );
+    } finally {
+      setPendingVendorStock((current) => {
+        const next = { ...current };
+
+        delete next[vendor.vendorProductId];
+
+        return next;
+      });
+    }
+  }
+
   const title = productDetails?.name || sku;
   const vendors = productDetails?.vendors || [];
   const isRouteMode = mode === "route";
@@ -265,9 +324,54 @@ export function NotesModal({
               <p className="status-message">No vendors assigned.</p>
             ) : (
               <ul className="assigned-vendors-list">
-                {vendors.map((vendor) => (
-                  <li key={vendor.id}>{vendor.name}</li>
-                ))}
+                {vendors.map((vendor) => {
+                  const stockEnabled = vendor.quantity > 0;
+                  const isPending = Boolean(
+                    pendingVendorStock[vendor.vendorProductId]
+                  );
+
+                  return (
+                    <li className="assigned-vendor-item" key={vendor.vendorProductId}>
+                      <span className="assigned-vendor-name">{vendor.name}</span>
+
+                      <div
+                        className="vendor-stock-switch"
+                        role="group"
+                        aria-label={`${vendor.name} stock override`}
+                        title={`Current quantity: ${vendor.quantity}`}
+                      >
+                        <button
+                          type="button"
+                          className={
+                            stockEnabled
+                              ? "vendor-stock-switch-option active"
+                              : "vendor-stock-switch-option"
+                          }
+                          aria-label={`Turn on stock for ${vendor.name}`}
+                          aria-pressed={stockEnabled}
+                          disabled={isPending}
+                          onClick={() => handleVendorStockChange(vendor, true)}
+                        >
+                          I
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            stockEnabled
+                              ? "vendor-stock-switch-option"
+                              : "vendor-stock-switch-option active off"
+                          }
+                          aria-label={`Turn off stock for ${vendor.name}`}
+                          aria-pressed={!stockEnabled}
+                          disabled={isPending}
+                          onClick={() => handleVendorStockChange(vendor, false)}
+                        >
+                          O
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </aside>

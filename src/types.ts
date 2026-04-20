@@ -67,7 +67,9 @@ export type Note = {
 
 export type ProductVendor = {
   id: string;
+  vendorProductId: string;
   name: string;
+  quantity: number;
 };
 
 export type ProductDetails = {

@@ -6,6 +6,8 @@ const stockCheckCacheTtlMs = 5 * 60 * 1000;
 const stockCheckFetchConcurrency = 8;
 const stockCheckProductPageSize = 1000;
 const stockCheckVendorChunkSize = 500;
+const enabledVendorStockQuantity = 999999;
+const disabledVendorStockQuantity = 0;
 
 const stockCheckCache = new Map();
 
@@ -48,6 +50,34 @@ function graphqlString(value) {
 
 function graphqlStringList(values) {
   return values.map(graphqlString).join(", ");
+}
+
+function normalizeRequiredString(value, message) {
+  const normalized = String(value || "").trim();
+
+  if (!normalized) {
+    const error = new Error(message);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
+}
+
+function cleanPayload(payload) {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined)
+  );
+}
+
+function optionalNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
 function buildProductFilter({ search, onlyZeroQty = false }) {
@@ -138,8 +168,11 @@ async function fetchVendorProductsForProductIds(productIds) {
           limit: { size: ${vendorProductPageSize}, page: 1 }
         ) {
           rows {
+            id
             vendor_id
             product_id
+            sku
+            quantity
           }
         }
       }
@@ -147,6 +180,27 @@ async function fetchVendorProductsForProductIds(productIds) {
   `);
 
   return data?.vendorProduct?.grid?.rows || [];
+}
+
+async function fetchVendorProductById(vendorProductId) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      vendorProduct {
+        details(id: ${graphqlString(vendorProductId)}) {
+          id
+          vendor_id
+          product_id
+          sku
+          label
+          quantity
+          price
+          status
+        }
+      }
+    }
+  `);
+
+  return data?.vendorProduct?.details || null;
 }
 
 async function fetchActiveVendorIds(vendorIds) {
@@ -434,13 +488,16 @@ async function getProductDetails(sku) {
   );
   const vendors = await fetchVendorsByIds(vendorIds);
   const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
-  const assignedVendors = vendorIds
-    .map((vendorId) => {
-      const vendor = vendorsById.get(vendorId);
+  const assignedVendors = vendorProducts
+    .filter((vendorProduct) => vendorProduct.id && vendorProduct.vendor_id)
+    .map((vendorProduct) => {
+      const vendor = vendorsById.get(vendorProduct.vendor_id);
 
       return {
-        id: vendorId,
-        name: vendor?.name || vendor?.label || vendorId
+        id: vendorProduct.vendor_id,
+        vendorProductId: vendorProduct.id,
+        name: vendor?.name || vendor?.label || vendorProduct.vendor_id,
+        quantity: Number(vendorProduct.quantity || 0)
       };
     })
     .sort((a, b) =>
@@ -465,9 +522,88 @@ async function setProductFollowUp({ sku, followUpDate }) {
   return result;
 }
 
+async function setProductVendorStock({
+  sku,
+  vendorId,
+  vendorProductId,
+  enabled
+}) {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const safeVendorProductId = normalizeRequiredString(
+    vendorProductId,
+    "Vendor product ID is required."
+  );
+
+  if (typeof enabled !== "boolean") {
+    const error = new Error("Enabled must be true or false.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const product = await fetchProductBySku(safeSku);
+
+  if (!product) {
+    const error = new Error("Product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const vendorProduct = await fetchVendorProductById(safeVendorProductId);
+
+  if (!vendorProduct) {
+    const error = new Error("Vendor product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    vendorProduct.vendor_id !== safeVendorId ||
+    vendorProduct.product_id !== product.id
+  ) {
+    const error = new Error("Vendor product does not match this product.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const quantity = enabled
+    ? enabledVendorStockQuantity
+    : disabledVendorStockQuantity;
+  const productSku = vendorProduct.sku || product.sku || safeSku;
+  const payload = cleanPayload({
+    product_id: vendorProduct.product_id,
+    sku: productSku,
+    label: vendorProduct.label || productSku,
+    quantity,
+    price: optionalNumber(vendorProduct.price),
+    status: optionalNumber(vendorProduct.status)
+  });
+
+  await skunexus.rest(
+    `/vendors/${encodeURIComponent(safeVendorId)}/products/${encodeURIComponent(
+      safeVendorProductId
+    )}`,
+    {
+      method: "PUT",
+      body: payload
+    }
+  );
+
+  stockCheckCache.clear();
+
+  return {
+    sku: product.sku || safeSku,
+    vendorId: safeVendorId,
+    vendorProductId: safeVendorProductId,
+    quantity,
+    enabled
+  };
+}
+
 module.exports = {
   getProductDetails,
   listProducts,
   listStockCheckProducts,
-  setProductFollowUp
+  setProductFollowUp,
+  setProductVendorStock
 };

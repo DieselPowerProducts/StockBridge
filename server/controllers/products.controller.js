@@ -36,9 +36,19 @@ async function updateProductFollowUp(req, res, next) {
   }
 }
 
+async function updateProductVendorStock(req, res, next) {
+  try {
+    const result = await productsService.setProductVendorStock(req.body);
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getProductDetails,
   listProducts,
   listStockCheckProducts,
-  updateProductFollowUp
+  updateProductFollowUp,
+  updateProductVendorStock
 };

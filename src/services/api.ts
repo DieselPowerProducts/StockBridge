@@ -150,6 +150,32 @@ export function updateProductFollowUp({
   });
 }
 
+export function updateProductVendorStock({
+  sku,
+  vendorId,
+  vendorProductId,
+  enabled
+}: {
+  sku: string;
+  vendorId: string;
+  vendorProductId: string;
+  enabled: boolean;
+}) {
+  return request<{
+    sku: string;
+    vendorId: string;
+    vendorProductId: string;
+    quantity: number;
+    enabled: boolean;
+  }>("/products/vendor-stock", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sku, vendorId, vendorProductId, enabled })
+  });
+}
+
 export function importBackorders(formData: FormData) {
   return request<{ message: string; imported: number }>("/import", {
     method: "POST",
