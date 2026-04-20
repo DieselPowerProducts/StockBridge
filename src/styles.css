@@ -439,6 +439,18 @@ body:has(.notes-popup-page),
   margin: 0 0 14px;
 }
 
+.assigned-vendors-heading {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.assigned-vendors-heading h3 {
+  margin: 0;
+}
+
 .assigned-vendors-list {
   display: grid;
   gap: 8px;

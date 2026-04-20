@@ -120,6 +120,7 @@ export function NotesModal({
   const [pendingVendorStock, setPendingVendorStock] = useState<
     Record<string, boolean>
   >({});
+  const [isBulkVendorStockSaving, setIsBulkVendorStockSaving] = useState(false);
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadNotes = useCallback(async () => {
@@ -296,7 +297,94 @@ export function NotesModal({
 
   const title = productDetails?.name || sku;
   const vendors = productDetails?.vendors || [];
+  const editableVendors = vendors.filter((vendor) => vendor.canUpdateStock);
+  const hasEditableVendors = editableVendors.length > 0;
+  const areAllEditableVendorsOn =
+    hasEditableVendors && editableVendors.every((vendor) => vendor.quantity > 0);
+  const areAllEditableVendorsOff =
+    hasEditableVendors && editableVendors.every((vendor) => vendor.quantity <= 0);
   const isRouteMode = mode === "route";
+
+  async function handleAllVendorStockChange(enabled: boolean) {
+    const vendorsToUpdate = editableVendors.filter(
+      (vendor) =>
+        (vendor.quantity > 0) !== enabled &&
+        !pendingVendorStock[vendor.vendorProductId]
+    );
+
+    if (vendorsToUpdate.length === 0 || isBulkVendorStockSaving) {
+      return;
+    }
+
+    setDetailsError("");
+    setIsBulkVendorStockSaving(true);
+    setPendingVendorStock((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        vendorsToUpdate.map((vendor) => [vendor.vendorProductId, true])
+      )
+    }));
+
+    try {
+      const results = await Promise.allSettled(
+        vendorsToUpdate.map((vendor) =>
+          updateProductVendorStock({
+            sku,
+            vendorId: vendor.id,
+            vendorProductId: vendor.vendorProductId,
+            enabled
+          })
+        )
+      );
+      const savedResults = results
+        .filter((result) => result.status === "fulfilled")
+        .map((result) => result.value);
+      const quantitiesByVendorProductId = new Map(
+        savedResults.map((result) => [result.vendorProductId, result.quantity])
+      );
+
+      if (savedResults.length > 0) {
+        setProductDetails((current) =>
+          current
+            ? {
+                ...current,
+                vendors: current.vendors.map((currentVendor) =>
+                  quantitiesByVendorProductId.has(currentVendor.vendorProductId)
+                    ? {
+                        ...currentVendor,
+                        quantity:
+                          quantitiesByVendorProductId.get(
+                            currentVendor.vendorProductId
+                          ) || 0
+                      }
+                    : currentVendor
+                )
+              }
+            : current
+        );
+        onFollowUpSaved();
+      }
+
+      if (savedResults.length !== results.length) {
+        setDetailsError("Unable to update every assigned vendor stock value.");
+      }
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error ? err.message : "Unable to update vendor stock."
+      );
+    } finally {
+      setIsBulkVendorStockSaving(false);
+      setPendingVendorStock((current) => {
+        const next = { ...current };
+
+        for (const vendor of vendorsToUpdate) {
+          delete next[vendor.vendorProductId];
+        }
+
+        return next;
+      });
+    }
+  }
 
   return (
     <div
@@ -320,7 +408,45 @@ export function NotesModal({
 
         <div className="notes-modal-grid">
           <aside className="assigned-vendors-panel" aria-labelledby="assignedVendorsHeading">
-            <h3 id="assignedVendorsHeading">Assigned vendors</h3>
+            <div className="assigned-vendors-heading">
+              <h3 id="assignedVendorsHeading">Assigned vendors</h3>
+
+              <div
+                className="vendor-stock-switch"
+                role="group"
+                aria-label="All assigned vendor stock override"
+                title="Update all assigned vendor stock values"
+              >
+                <button
+                  type="button"
+                  className={
+                    areAllEditableVendorsOn
+                      ? "vendor-stock-switch-option active"
+                      : "vendor-stock-switch-option"
+                  }
+                  aria-label="Turn on stock for all assigned vendors"
+                  aria-pressed={areAllEditableVendorsOn}
+                  disabled={!hasEditableVendors || isBulkVendorStockSaving}
+                  onClick={() => handleAllVendorStockChange(true)}
+                >
+                  I
+                </button>
+                <button
+                  type="button"
+                  className={
+                    areAllEditableVendorsOff
+                      ? "vendor-stock-switch-option active off"
+                      : "vendor-stock-switch-option"
+                  }
+                  aria-label="Turn off stock for all assigned vendors"
+                  aria-pressed={areAllEditableVendorsOff}
+                  disabled={!hasEditableVendors || isBulkVendorStockSaving}
+                  onClick={() => handleAllVendorStockChange(false)}
+                >
+                  O
+                </button>
+              </div>
+            </div>
 
             {isProductDetailsLoading ? (
               <p className="status-message">Loading vendors...</p>
