@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getProducts } from "../../services/api";
 import type { Product, ProductStockUpdate } from "../../types";
 import { Pagination } from "./Pagination";
@@ -40,6 +40,7 @@ export function ProductsPage({
   productStockUpdate,
   onOpenNotes
 }: ProductsPageProps) {
+  const latestProductStockUpdate = useRef(productStockUpdate);
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchInput, setSearchInput] = useState(getStoredProductSearch);
@@ -51,6 +52,10 @@ export function ProductsPage({
   useEffect(() => {
     storeProductSearch(searchInput);
   }, [searchInput]);
+
+  useEffect(() => {
+    latestProductStockUpdate.current = productStockUpdate;
+  }, [productStockUpdate]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -87,7 +92,9 @@ export function ProductsPage({
         });
 
         if (!ignore) {
-          setProducts(applyProductStockUpdate(result.data, productStockUpdate));
+          setProducts(
+            applyProductStockUpdate(result.data, latestProductStockUpdate.current)
+          );
           setTotalItems(result.total);
         }
       } catch (err) {
@@ -108,7 +115,7 @@ export function ProductsPage({
     return () => {
       ignore = true;
     };
-  }, [currentPage, productStockUpdate, searchQuery]);
+  }, [currentPage, searchQuery]);
 
   useEffect(() => {
     if (!productStockUpdate) {
