@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getStockCheckProducts } from "../../services/api";
 import type { Product, ProductStockUpdate } from "../../types";
 import { Pagination } from "./Pagination";
@@ -18,11 +18,18 @@ export function StockCheckPage({
   onOpenNotes,
   refreshKey
 }: StockCheckPageProps) {
+  const latestProductStockUpdate = useRef(productStockUpdate);
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const hasKitResults = products.some((product) => product.isKit);
+
+  useEffect(() => {
+    latestProductStockUpdate.current = productStockUpdate;
+  }, [productStockUpdate]);
 
   useEffect(() => {
     let ignore = false;
@@ -39,7 +46,9 @@ export function StockCheckPage({
         });
 
         if (!ignore) {
-          setProducts(applyProductStockUpdate(result.data, productStockUpdate));
+          setProducts(
+            applyProductStockUpdate(result.data, latestProductStockUpdate.current)
+          );
           setTotalItems(result.total);
         }
       } catch (err) {
@@ -62,7 +71,7 @@ export function StockCheckPage({
     return () => {
       ignore = true;
     };
-  }, [currentPage, productStockUpdate, refreshKey]);
+  }, [currentPage, refreshKey, refreshNonce]);
 
   useEffect(() => {
     if (!productStockUpdate) {
@@ -72,7 +81,11 @@ export function StockCheckPage({
     setProducts((current) =>
       applyProductStockUpdate(current, productStockUpdate)
     );
-  }, [productStockUpdate]);
+
+    if (hasKitResults) {
+      setRefreshNonce((current) => current + 1);
+    }
+  }, [hasKitResults, productStockUpdate]);
 
   return (
     <section className="page" aria-labelledby="stockCheckHeading">

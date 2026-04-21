@@ -11,6 +11,7 @@ import {
 import type {
   Note,
   ProductDetails,
+  ProductKitChild,
   ProductStockUpdate,
   ProductVendor
 } from "../../types";
@@ -119,19 +120,45 @@ function applyVendorQuantityUpdates(
 }
 
 function getProductStockUpdate(
-  sku: string,
+  productDetails: ProductDetails,
   vendors: ProductVendor[]
 ): ProductStockUpdate {
+  if (productDetails.isKit) {
+    return {
+      sku: productDetails.sku,
+      qtyAvailable: productDetails.qtyAvailable,
+      availability: productDetails.availability
+    };
+  }
+
   const qtyAvailable = vendors.reduce(
     (total, vendor) => total + Math.max(Number(vendor.quantity || 0), 0),
     0
   );
 
   return {
-    sku,
+    sku: productDetails.sku,
     qtyAvailable,
     availability: qtyAvailable > 0 ? "Available" : "Backorder"
   };
+}
+
+function formatKitQuantityLabel(childProduct: ProductKitChild) {
+  return childProduct.qtyRequired === 1
+    ? "1 required"
+    : `${childProduct.qtyRequired} required`;
+}
+
+function getVendorDrivenAvailability(vendors: ProductVendor[]) {
+  const qtyAvailable = vendors.reduce(
+    (total, vendor) => total + Math.max(Number(vendor.quantity || 0), 0),
+    0
+  );
+
+  return {
+    qtyAvailable,
+    availability: qtyAvailable > 0 ? "Available" : "Backorder"
+  } as const;
 }
 
 export function NotesModal({
@@ -158,6 +185,7 @@ export function NotesModal({
     Record<string, boolean>
   >({});
   const [isBulkVendorStockSaving, setIsBulkVendorStockSaving] = useState(false);
+  const [isKitModalOpen, setIsKitModalOpen] = useState(false);
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadNotes = useCallback(async () => {
@@ -197,6 +225,10 @@ export function NotesModal({
   useEffect(() => {
     loadProductDetails();
   }, [loadProductDetails]);
+
+  useEffect(() => {
+    setIsKitModalOpen(false);
+  }, [sku]);
 
   useEffect(() => {
     if (!isFollowUpPickerOpen) {
@@ -307,19 +339,24 @@ export function NotesModal({
         vendors,
         quantitiesByVendorProductId
       );
+      const nextStockUpdate = productDetails
+        ? getProductStockUpdate(productDetails, updatedVendors)
+        : null;
 
       setProductDetails((current) =>
         current
           ? {
               ...current,
-              vendors: applyVendorQuantityUpdates(
-                current.vendors,
-                quantitiesByVendorProductId
-              )
+              ...(!current.isKit
+                ? getVendorDrivenAvailability(updatedVendors)
+                : {}),
+              vendors: applyVendorQuantityUpdates(current.vendors, quantitiesByVendorProductId)
             }
           : current
       );
-      onProductStockChanged?.(getProductStockUpdate(sku, updatedVendors));
+      if (nextStockUpdate) {
+        onProductStockChanged?.(nextStockUpdate);
+      }
       onFollowUpSaved();
     } catch (err) {
       setDetailsError(
@@ -338,12 +375,14 @@ export function NotesModal({
 
   const title = productDetails?.name || sku;
   const vendors = productDetails?.vendors || [];
+  const childProducts = productDetails?.childProducts || [];
   const editableVendors = vendors.filter((vendor) => vendor.canUpdateStock);
   const hasEditableVendors = editableVendors.length > 0;
   const areAllEditableVendorsOn =
     hasEditableVendors && editableVendors.every((vendor) => vendor.quantity > 0);
   const areAllEditableVendorsOff =
     hasEditableVendors && editableVendors.every((vendor) => vendor.quantity <= 0);
+  const canShowKits = Boolean(productDetails?.isKit && childProducts.length > 0);
   const isRouteMode = mode === "route";
 
   async function handleAllVendorStockChange(enabled: boolean) {
@@ -389,19 +428,24 @@ export function NotesModal({
           vendors,
           quantitiesByVendorProductId
         );
+        const nextStockUpdate = productDetails
+          ? getProductStockUpdate(productDetails, updatedVendors)
+          : null;
 
         setProductDetails((current) =>
           current
             ? {
                 ...current,
-                vendors: applyVendorQuantityUpdates(
-                  current.vendors,
-                  quantitiesByVendorProductId
-                )
+                ...(!current.isKit
+                  ? getVendorDrivenAvailability(updatedVendors)
+                  : {}),
+                vendors: applyVendorQuantityUpdates(current.vendors, quantitiesByVendorProductId)
               }
             : current
         );
-        onProductStockChanged?.(getProductStockUpdate(sku, updatedVendors));
+        if (nextStockUpdate) {
+          onProductStockChanged?.(nextStockUpdate);
+        }
         onFollowUpSaved();
       }
 
@@ -571,13 +615,24 @@ export function NotesModal({
                 )}
               </div>
 
-              <button
-                type="button"
-                className="follow-up-button"
-                onClick={() => setIsFollowUpPickerOpen((isOpen) => !isOpen)}
-              >
-                Follow Up
-              </button>
+              <div className="notes-panel-actions">
+                {canShowKits && (
+                  <button
+                    type="button"
+                    className="follow-up-button"
+                    onClick={() => setIsKitModalOpen(true)}
+                  >
+                    Kits
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="follow-up-button"
+                  onClick={() => setIsFollowUpPickerOpen((isOpen) => !isOpen)}
+                >
+                  Follow Up
+                </button>
+              </div>
             </div>
 
             {isFollowUpPickerOpen && (
@@ -698,6 +753,55 @@ export function NotesModal({
             </div>
           </section>
         </div>
+
+        {isKitModalOpen && (
+          <div
+            className="notes-submodal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kitModalTitle"
+          >
+            <div className="kit-products-modal">
+              <div className="kit-products-modal-header">
+                <h3 id="kitModalTitle">Kits</h3>
+                <button type="button" onClick={() => setIsKitModalOpen(false)}>
+                  Close
+                </button>
+              </div>
+
+              {childProducts.length === 0 ? (
+                <p className="status-message">No child products found.</p>
+              ) : (
+                <ul className="kit-products-list">
+                  {childProducts.map((childProduct) => (
+                    <li className="kit-products-list-item" key={childProduct.sku}>
+                      <div className="kit-products-copy">
+                        <strong>{childProduct.sku}</strong>
+                        <span>{childProduct.name}</span>
+                      </div>
+
+                      <div className="kit-products-meta">
+                        <span className="kit-products-qty">
+                          {formatKitQuantityLabel(childProduct)}
+                        </span>
+                        <span
+                          className={`availability-badge ${
+                            childProduct.availability === "Available"
+                              ? "availability-available"
+                              : "availability-backorder"
+                          }`}
+                          title={`Quantity available: ${childProduct.qtyAvailable}`}
+                        >
+                          {childProduct.availability}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

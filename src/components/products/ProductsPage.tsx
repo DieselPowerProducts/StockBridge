@@ -48,6 +48,8 @@ export function ProductsPage({
   const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const hasKitResults = products.some((product) => product.isKit);
 
   useEffect(() => {
     storeProductSearch(searchInput);
@@ -115,7 +117,7 @@ export function ProductsPage({
     return () => {
       ignore = true;
     };
-  }, [currentPage, searchQuery]);
+  }, [currentPage, refreshNonce, searchQuery]);
 
   useEffect(() => {
     if (!productStockUpdate) {
@@ -125,7 +127,11 @@ export function ProductsPage({
     setProducts((current) =>
       applyProductStockUpdate(current, productStockUpdate)
     );
-  }, [productStockUpdate]);
+
+    if (hasKitResults) {
+      setRefreshNonce((current) => current + 1);
+    }
+  }, [hasKitResults, productStockUpdate]);
 
   const hasSearch = Boolean(searchQuery.trim());
 

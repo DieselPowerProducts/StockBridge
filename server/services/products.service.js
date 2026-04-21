@@ -7,10 +7,24 @@ const stockCheckCacheTtlMs = 5 * 60 * 1000;
 const stockCheckFetchConcurrency = 8;
 const stockCheckProductPageSize = 1000;
 const stockCheckVendorChunkSize = 500;
+const productLookupPageSize = 100;
+const productFetchConcurrency = 4;
 const enabledVendorStockQuantity = 999999;
 const disabledVendorStockQuantity = 0;
 const dppWarehouseLabel = "DPP Warehouse";
 const dppWarehouseStockType = "WAREHOUSE";
+const productSelectionFields = `
+  id
+  sku
+  name
+  qty_available
+  is_kit
+  relatedProduct {
+    sku
+    name
+    qty
+  }
+`;
 
 const stockCheckCache = new Map();
 const vendorCache = new Map();
@@ -84,6 +98,49 @@ function optionalNumber(value) {
   return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
+function normalizeKitChild(row) {
+  const sku = String(row?.sku || "").trim();
+
+  if (!sku) {
+    return null;
+  }
+
+  return {
+    sku,
+    name: row?.name || sku,
+    qty: Math.max(Number(row?.qty || 0), 1)
+  };
+}
+
+function normalizeProductNode(row) {
+  const sku = String(row?.sku || "").trim();
+
+  if (!sku) {
+    return null;
+  }
+
+  return {
+    id: row?.id || "",
+    sku,
+    name: row?.name || sku,
+    qty_available: Math.max(Number(row?.qty_available || 0), 0),
+    is_kit: Boolean(row?.is_kit),
+    relatedProduct: (row?.relatedProduct || [])
+      .map(normalizeKitChild)
+      .filter(Boolean)
+  };
+}
+
+function getKitChildSkus(products) {
+  return Array.from(
+    new Set(
+      products.flatMap((product) =>
+        (product?.relatedProduct || []).map((child) => child.sku).filter(Boolean)
+      )
+    )
+  );
+}
+
 function buildProductFilter({ search, onlyZeroQty = false }) {
   const cleanSearch = normalizeSearch(search);
   const filters = [];
@@ -112,10 +169,7 @@ function buildProductsQuery({ page, limit, search }) {
           totalPages
           isLastPage
           rows {
-            id
-            sku
-            name
-            qty_available
+            ${productSelectionFields}
           }
         }
       }
@@ -136,10 +190,7 @@ function buildZeroQtyProductsQuery({ page, search }) {
           totalPages
           isLastPage
           rows {
-            id
-            sku
-            name
-            qty_available
+            ${productSelectionFields}
           }
         }
       }
@@ -401,11 +452,73 @@ async function fetchProductIdsWithActiveVendors(productIds) {
   );
 }
 
-function mapProduct(row, productIdsWithActiveVendors, followUpsBySku) {
-  const qtyAvailable = Number(row.qty_available || 0);
-  const hasActiveVendor = productIdsWithActiveVendors.has(row.id);
-  const sku = row.sku || "";
-  const availability = mapAvailability(qtyAvailable, hasActiveVendor);
+function getEffectiveQtyAvailable(sku, productsBySku, qtyCache = new Map(), visiting = new Set()) {
+  const safeSku = String(sku || "").trim();
+
+  if (!safeSku) {
+    return 0;
+  }
+
+  if (qtyCache.has(safeSku)) {
+    return qtyCache.get(safeSku);
+  }
+
+  const product = productsBySku.get(safeSku);
+
+  if (!product) {
+    qtyCache.set(safeSku, 0);
+    return 0;
+  }
+
+  if (!product.is_kit || product.relatedProduct.length === 0) {
+    qtyCache.set(safeSku, product.qty_available);
+    return product.qty_available;
+  }
+
+  if (visiting.has(safeSku)) {
+    qtyCache.set(safeSku, product.qty_available);
+    return product.qty_available;
+  }
+
+  visiting.add(safeSku);
+  const childQtyAvailable = product.relatedProduct.map((child) => {
+    const requiredQty = Math.max(Number(child.qty || 0), 1);
+    const childQty = getEffectiveQtyAvailable(
+      child.sku,
+      productsBySku,
+      qtyCache,
+      visiting
+    );
+
+    return Math.floor(childQty / requiredQty);
+  });
+  visiting.delete(safeSku);
+
+  const qtyAvailable =
+    childQtyAvailable.length > 0 ? Math.min(...childQtyAvailable) : 0;
+  qtyCache.set(safeSku, qtyAvailable);
+
+  return qtyAvailable;
+}
+
+function mapProduct(
+  row,
+  productIdsWithActiveVendors,
+  followUpsBySku,
+  { productsBySku = new Map(), qtyCache = new Map() } = {}
+) {
+  const normalizedRow = normalizeProductNode(row);
+  const sku = normalizedRow?.sku || row?.sku || "";
+  const product = normalizedRow?.sku ? productsBySku.get(normalizedRow.sku) || normalizedRow : null;
+  const isKit = Boolean(product?.is_kit);
+  const qtyAvailable = isKit
+    ? getEffectiveQtyAvailable(sku, productsBySku, qtyCache)
+    : Math.max(Number(row?.qty_available || 0), 0);
+  const availability = isKit
+    ? qtyAvailable > 0
+      ? "Available"
+      : "Backorder"
+    : mapAvailability(qtyAvailable, productIdsWithActiveVendors.has(row.id));
 
   return {
     id: row.id,
@@ -414,8 +527,111 @@ function mapProduct(row, productIdsWithActiveVendors, followUpsBySku) {
     qtyAvailable,
     availability,
     followUpDate:
-      availability === "Backorder" ? followUpsBySku?.get(sku) || "" : ""
+      availability === "Backorder" ? followUpsBySku?.get(sku) || "" : "",
+    isKit
   };
+}
+
+async function fetchProductsBySkus(skus) {
+  const uniqueSkus = Array.from(
+    new Set(skus.map((sku) => String(sku || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueSkus.length === 0) {
+    return [];
+  }
+
+  const skuChunks = chunkRows(uniqueSkus, productLookupPageSize);
+  const grids = await mapWithConcurrency(
+    skuChunks,
+    productFetchConcurrency,
+    async (skuChunk) => {
+      const data = await skunexus.query(`
+        query V1Queries {
+          product {
+            grid(
+              filter: { sku: { operator: in, value: [${graphqlStringList(skuChunk)}] } }
+              limit: { size: ${skuChunk.length}, page: 1 }
+            ) {
+              rows {
+                ${productSelectionFields}
+              }
+            }
+          }
+        }
+      `);
+
+      return data?.product?.grid?.rows || [];
+    }
+  );
+
+  return grids.flat();
+}
+
+async function buildProductGraph(rows) {
+  const productsBySku = new Map();
+  let nextSkus = getKitChildSkus(rows.map(normalizeProductNode).filter(Boolean));
+
+  for (const row of rows) {
+    const product = normalizeProductNode(row);
+
+    if (product) {
+      productsBySku.set(product.sku, product);
+    }
+  }
+
+  while (nextSkus.length > 0) {
+    const missingSkus = nextSkus.filter((childSku) => !productsBySku.has(childSku));
+
+    if (missingSkus.length === 0) {
+      break;
+    }
+
+    const fetchedProducts = await fetchProductsBySkus(missingSkus);
+
+    if (fetchedProducts.length === 0) {
+      break;
+    }
+
+    for (const fetchedProduct of fetchedProducts) {
+      const product = normalizeProductNode(fetchedProduct);
+
+      if (product) {
+        productsBySku.set(product.sku, product);
+      }
+    }
+
+    nextSkus = getKitChildSkus(Array.from(productsBySku.values()));
+  }
+
+  return {
+    productsBySku,
+    qtyCache: new Map()
+  };
+}
+
+function buildKitChildProducts(product, productGraph) {
+  if (!product?.is_kit) {
+    return [];
+  }
+
+  return product.relatedProduct.map((child) => {
+    const childProduct = productGraph.productsBySku.get(child.sku);
+    const qtyAvailable = getEffectiveQtyAvailable(
+      child.sku,
+      productGraph.productsBySku,
+      productGraph.qtyCache
+    );
+
+    return {
+      sku: child.sku,
+      name: childProduct?.name || child.name || child.sku,
+      qtyRequired: Math.max(Number(child.qty || 0), 1),
+      qtyAvailable,
+      availability: qtyAvailable > 0 ? "Available" : "Backorder",
+      isKit: Boolean(childProduct?.is_kit)
+    };
+  });
 }
 
 async function fetchProductBySku(sku) {
@@ -427,10 +643,7 @@ async function fetchProductBySku(sku) {
           limit: { size: 1, page: 1 }
         ) {
           rows {
-            id
-            sku
-            name
-            qty_available
+            ${productSelectionFields}
           }
         }
       }
@@ -549,10 +762,12 @@ async function getStockCheckProducts(search) {
     }
   }
 
-  const productIdsWithActiveVendors =
-    await fetchProductIdsWithActiveVendorsInChunks(
+  const [productIdsWithActiveVendors, productGraph] = await Promise.all([
+    fetchProductIdsWithActiveVendorsInChunks(
       rows.map((product) => product.id).filter(Boolean)
-    );
+    ),
+    buildProductGraph(rows)
+  ]);
   const backorderRows = rows.filter((product) =>
     productIdsWithActiveVendors.has(product.id)
   );
@@ -560,7 +775,7 @@ async function getStockCheckProducts(search) {
     backorderRows.map((product) => product.sku).filter(Boolean)
   );
   const data = backorderRows.map((product) =>
-    mapProduct(product, productIdsWithActiveVendors, followUpsBySku)
+    mapProduct(product, productIdsWithActiveVendors, followUpsBySku, productGraph)
   );
 
   stockCheckCache.set(cacheKey, {
@@ -588,13 +803,14 @@ async function listProducts(queryParams) {
   );
   const grid = data?.product?.grid || {};
   const rows = grid.rows || [];
-  const productIdsWithActiveVendors = await fetchProductIdsWithActiveVendors(
-    rows.map((product) => product.id).filter(Boolean)
-  );
+  const [productIdsWithActiveVendors, productGraph] = await Promise.all([
+    fetchProductIdsWithActiveVendors(rows.map((product) => product.id).filter(Boolean)),
+    buildProductGraph(rows)
+  ]);
 
   return {
     data: rows.map((product) =>
-      mapProduct(product, productIdsWithActiveVendors)
+      mapProduct(product, productIdsWithActiveVendors, undefined, productGraph)
     ),
     total: Number(grid.totalSize || 0),
     totalPages: Number(grid.totalPages || 0),
@@ -611,27 +827,43 @@ async function listStockCheckProducts(queryParams) {
 
 async function getProductDetails(sku) {
   const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
-  const [vendorProducts, dppWarehouseStockRows, followUpDate] = await Promise.all([
+  const [vendorProducts, fullProduct, dppWarehouseStockRows, followUpDate] =
+    await Promise.all([
     fetchVendorProductsForSku(safeSku),
+    fetchProductBySku(safeSku),
     fetchDppWarehouseStockForSku(safeSku),
     followUpsService.getFollowUpForSku(safeSku)
   ]);
-  const relatedProduct = vendorProducts.find((vendorProduct) => vendorProduct.product)
-    ?.product;
+  const relatedProduct = vendorProducts.find((vendorProduct) => vendorProduct.product)?.product;
   const product =
-    relatedProduct && relatedProduct.id
+    fullProduct ||
+    (relatedProduct && relatedProduct.id
       ? {
           id: relatedProduct.id,
           sku: relatedProduct.sku || safeSku,
           name: relatedProduct.name || relatedProduct.sku || safeSku
         }
-      : await fetchProductBySku(safeSku);
+      : null);
 
   if (!product) {
     const error = new Error("Product not found.");
     error.statusCode = 404;
     throw error;
   }
+
+  const productGraph = await buildProductGraph([product]);
+  const productNode =
+    productGraph.productsBySku.get(product.sku || safeSku) ||
+    normalizeProductNode(product);
+  const qtyAvailable = productNode
+    ? getEffectiveQtyAvailable(
+        productNode.sku,
+        productGraph.productsBySku,
+        productGraph.qtyCache
+      )
+    : 0;
+  const availability = qtyAvailable > 0 ? "Available" : "Backorder";
+  const childProducts = buildKitChildProducts(productNode, productGraph);
 
   const vendorIds = Array.from(
     new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))
@@ -684,7 +916,11 @@ async function getProductDetails(sku) {
     id: product.id,
     sku: product.sku || safeSku,
     name: product.name || product.sku || safeSku,
+    qtyAvailable,
+    availability,
+    isKit: Boolean(productNode?.is_kit),
     followUpDate,
+    childProducts,
     vendors: assignedStockSources
   };
 }

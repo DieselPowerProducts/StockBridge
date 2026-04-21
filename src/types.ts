@@ -42,6 +42,7 @@ export type Product = {
   qtyAvailable: number;
   availability: ProductAvailability;
   followUpDate: string;
+  isKit: boolean;
 };
 
 export type ProductStockUpdate = {
@@ -81,11 +82,24 @@ export type ProductVendor = {
   canUpdateStock: boolean;
 };
 
+export type ProductKitChild = {
+  sku: string;
+  name: string;
+  qtyRequired: number;
+  qtyAvailable: number;
+  availability: ProductAvailability;
+  isKit: boolean;
+};
+
 export type ProductDetails = {
   id: string;
   sku: string;
   name: string;
+  qtyAvailable: number;
+  availability: ProductAvailability;
+  isKit: boolean;
   followUpDate: string;
+  childProducts: ProductKitChild[];
   vendors: ProductVendor[];
 };
 
