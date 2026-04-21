@@ -46,11 +46,6 @@ export function Sidebar({
               </button>
             </li>
           ))}
-          <li>
-            <button type="button" disabled>
-              Logs
-            </button>
-          </li>
         </ul>
       </nav>
 
