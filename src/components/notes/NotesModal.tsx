@@ -186,6 +186,7 @@ export function NotesModal({
   >({});
   const [isBulkVendorStockSaving, setIsBulkVendorStockSaving] = useState(false);
   const [isKitModalOpen, setIsKitModalOpen] = useState(false);
+  const [selectedChildSku, setSelectedChildSku] = useState("");
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadNotes = useCallback(async () => {
@@ -228,6 +229,7 @@ export function NotesModal({
 
   useEffect(() => {
     setIsKitModalOpen(false);
+    setSelectedChildSku("");
   }, [sku]);
 
   useEffect(() => {
@@ -384,6 +386,11 @@ export function NotesModal({
     hasEditableVendors && editableVendors.every((vendor) => vendor.quantity <= 0);
   const canShowKits = Boolean(productDetails?.isKit && childProducts.length > 0);
   const isRouteMode = mode === "route";
+
+  function handleCloseChildNotes() {
+    setSelectedChildSku("");
+    void loadProductDetails();
+  }
 
   async function handleAllVendorStockChange(enabled: boolean) {
     const vendorsToUpdate = editableVendors.filter(
@@ -775,10 +782,15 @@ export function NotesModal({
                 <ul className="kit-products-list">
                   {childProducts.map((childProduct) => (
                     <li className="kit-products-list-item" key={childProduct.sku}>
-                      <div className="kit-products-copy">
+                      <button
+                        type="button"
+                        className="kit-products-copy kit-products-open"
+                        onClick={() => setSelectedChildSku(childProduct.sku)}
+                        aria-label={`Open notes for ${childProduct.sku}`}
+                      >
                         <strong>{childProduct.sku}</strong>
                         <span>{childProduct.name}</span>
-                      </div>
+                      </button>
 
                       <div className="kit-products-meta">
                         <span className="kit-products-qty">
@@ -801,6 +813,15 @@ export function NotesModal({
               )}
             </div>
           </div>
+        )}
+
+        {selectedChildSku && (
+          <NotesModal
+            sku={selectedChildSku}
+            onClose={handleCloseChildNotes}
+            onFollowUpSaved={onFollowUpSaved}
+            onProductStockChanged={onProductStockChanged}
+          />
         )}
       </div>
     </div>

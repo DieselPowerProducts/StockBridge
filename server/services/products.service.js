@@ -141,7 +141,7 @@ function getKitChildSkus(products) {
   );
 }
 
-function buildProductFilter({ search, onlyZeroQty = false }) {
+function buildProductFilter({ search, onlyZeroQty = false, onlyKits = false }) {
   const cleanSearch = normalizeSearch(search);
   const filters = [];
 
@@ -151,6 +151,10 @@ function buildProductFilter({ search, onlyZeroQty = false }) {
 
   if (onlyZeroQty) {
     filters.push(`qty_available: { operator: eq, value: ["0"] }`);
+  }
+
+  if (onlyKits) {
+    filters.push("is_kit: { operator: eq, value: [true] }");
   }
 
   return filters.length > 0 ? `filter: { ${filters.join(", ")} }` : "";
@@ -183,6 +187,27 @@ function buildZeroQtyProductsQuery({ page, search }) {
       product {
         grid(
           ${buildProductFilter({ search, onlyZeroQty: true })}
+          sort: { sku: ASC }
+          limit: { size: ${stockCheckProductPageSize}, page: ${page} }
+        ) {
+          totalSize
+          totalPages
+          isLastPage
+          rows {
+            ${productSelectionFields}
+          }
+        }
+      }
+    }
+  `;
+}
+
+function buildKitProductsQuery({ page, search }) {
+  return `
+    query V1Queries {
+      product {
+        grid(
+          ${buildProductFilter({ search, onlyKits: true })}
           sort: { sku: ASC }
           limit: { size: ${stockCheckProductPageSize}, page: ${page} }
         ) {
@@ -471,13 +496,14 @@ function getEffectiveQtyAvailable(sku, productsBySku, qtyCache = new Map(), visi
   }
 
   if (!product.is_kit || product.relatedProduct.length === 0) {
-    qtyCache.set(safeSku, product.qty_available);
-    return product.qty_available;
+    const qtyAvailable = product.is_kit ? 0 : product.qty_available;
+    qtyCache.set(safeSku, qtyAvailable);
+    return qtyAvailable;
   }
 
   if (visiting.has(safeSku)) {
-    qtyCache.set(safeSku, product.qty_available);
-    return product.qty_available;
+    qtyCache.set(safeSku, 0);
+    return 0;
   }
 
   visiting.add(safeSku);
@@ -664,6 +690,59 @@ async function fetchZeroQtyProductsPage({ page, search }) {
   };
 }
 
+async function fetchKitProductsPage({ page, search }) {
+  const data = await skunexus.query(buildKitProductsQuery({ page, search }));
+
+  return data?.product?.grid || {
+    rows: [],
+    totalSize: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
+}
+
+async function fetchAllProductRows(fetchPage) {
+  const firstPage = await fetchPage(1);
+  const totalPages = Number(firstPage.totalPages || 1);
+  const rows = [...(firstPage.rows || [])];
+
+  if (totalPages > 1) {
+    const remainingPages = Array.from(
+      { length: totalPages - 1 },
+      (_, index) => index + 2
+    );
+    const remainingGrids = await mapWithConcurrency(
+      remainingPages,
+      stockCheckFetchConcurrency,
+      (page) => fetchPage(page)
+    );
+
+    for (const grid of remainingGrids) {
+      rows.push(...(grid.rows || []));
+    }
+  }
+
+  return rows;
+}
+
+function dedupeAndSortProducts(rows) {
+  const productsByKey = new Map();
+
+  for (const row of rows) {
+    const key = String(row?.sku || row?.id || "").trim();
+
+    if (key && !productsByKey.has(key)) {
+      productsByKey.set(key, row);
+    }
+  }
+
+  return Array.from(productsByKey.values()).sort((left, right) =>
+    String(left?.sku || "").localeCompare(String(right?.sku || ""), undefined, {
+      sensitivity: "base"
+    })
+  );
+}
+
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = [];
   let nextIndex = 0;
@@ -735,48 +814,48 @@ async function getStockCheckProducts(search) {
     return cached.data;
   }
 
-  const firstPage = await fetchZeroQtyProductsPage({
-    page: 1,
-    search: cleanSearch
-  });
-  const totalPages = Number(firstPage.totalPages || 1);
-  const rows = [...(firstPage.rows || [])];
+  const [zeroQtyRows, kitRows] = await Promise.all([
+    fetchAllProductRows((page) =>
+      fetchZeroQtyProductsPage({
+        page,
+        search: cleanSearch
+      })
+    ),
+    fetchAllProductRows((page) =>
+      fetchKitProductsPage({
+        page,
+        search: cleanSearch
+      })
+    )
+  ]);
+  const candidateRows = dedupeAndSortProducts([...zeroQtyRows, ...kitRows]);
 
-  if (totalPages > 1) {
-    const remainingPages = Array.from(
-      { length: totalPages - 1 },
-      (_, index) => index + 2
-    );
-    const remainingGrids = await mapWithConcurrency(
-      remainingPages,
-      stockCheckFetchConcurrency,
-      (page) =>
-        fetchZeroQtyProductsPage({
-          page,
-          search: cleanSearch
-        })
-    );
+  if (candidateRows.length === 0) {
+    stockCheckCache.set(cacheKey, {
+      createdAt: Date.now(),
+      data: []
+    });
 
-    for (const grid of remainingGrids) {
-      rows.push(...(grid.rows || []));
-    }
+    return [];
   }
 
   const [productIdsWithActiveVendors, productGraph] = await Promise.all([
     fetchProductIdsWithActiveVendorsInChunks(
-      rows.map((product) => product.id).filter(Boolean)
+      candidateRows.map((product) => product.id).filter(Boolean)
     ),
-    buildProductGraph(rows)
+    buildProductGraph(candidateRows)
   ]);
-  const backorderRows = rows.filter((product) =>
+  const activeVendorRows = candidateRows.filter((product) =>
     productIdsWithActiveVendors.has(product.id)
   );
   const followUpsBySku = await followUpsService.getFollowUpsForSkus(
-    backorderRows.map((product) => product.sku).filter(Boolean)
+    activeVendorRows.map((product) => product.sku).filter(Boolean)
   );
-  const data = backorderRows.map((product) =>
-    mapProduct(product, productIdsWithActiveVendors, followUpsBySku, productGraph)
-  );
+  const data = activeVendorRows
+    .map((product) =>
+      mapProduct(product, productIdsWithActiveVendors, followUpsBySku, productGraph)
+    )
+    .filter((product) => product.availability === "Backorder");
 
   stockCheckCache.set(cacheKey, {
     createdAt: Date.now(),

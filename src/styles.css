@@ -629,6 +629,28 @@ body:has(.notes-popup-page),
   min-width: 0;
 }
 
+.kit-products-open {
+  align-items: flex-start;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.kit-products-open strong {
+  color: #72b8ff;
+}
+
+.kit-products-open:hover strong {
+  text-decoration: underline;
+}
+
+.kit-products-open:focus-visible {
+  outline: 2px solid #72b8ff;
+  outline-offset: 3px;
+}
+
 .kit-products-copy strong,
 .kit-products-copy span {
   overflow-wrap: anywhere;
