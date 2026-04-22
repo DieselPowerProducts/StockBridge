@@ -1,6 +1,7 @@
 const { getSql } = require("../db/neon");
 
 let schemaReady;
+let notesBackfillReady;
 
 function normalizeUser(user) {
   if (!user?.sub || !user?.email) {
@@ -63,6 +64,51 @@ async function initializeSchema() {
   return schemaReady;
 }
 
+async function backfillUsersFromNotes() {
+  if (!notesBackfillReady) {
+    notesBackfillReady = (async () => {
+      await initializeSchema();
+
+      const sql = getSql();
+
+      try {
+        const rows = await sql`
+          SELECT DISTINCT
+            author_sub AS sub,
+            author_email AS email,
+            author_name AS name,
+            author_picture AS picture
+          FROM product_notes
+          WHERE author_sub IS NOT NULL
+            AND author_email IS NOT NULL
+        `;
+
+        for (const row of rows) {
+          await upsertUser({
+            sub: row.sub,
+            email: row.email,
+            name: row.name,
+            picture: row.picture,
+            hd: ""
+          });
+        }
+      } catch (error) {
+        if (
+          error &&
+          typeof error.message === "string" &&
+          error.message.toLowerCase().includes("product_notes")
+        ) {
+          return;
+        }
+
+        throw error;
+      }
+    })();
+  }
+
+  return notesBackfillReady;
+}
+
 async function upsertUser(user) {
   const safeUser = normalizeUser(user);
 
@@ -97,6 +143,7 @@ async function upsertUser(user) {
 
 async function listUsers() {
   await initializeSchema();
+  await backfillUsersFromNotes();
 
   const sql = getSql();
   const rows = await sql`

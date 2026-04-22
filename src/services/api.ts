@@ -75,6 +75,10 @@ export function signOut() {
   });
 }
 
+export function getUsers() {
+  return request<AuthUser[]>("/users");
+}
+
 export function getNotifications() {
   return request<NotificationsResponse>("/notifications");
 }

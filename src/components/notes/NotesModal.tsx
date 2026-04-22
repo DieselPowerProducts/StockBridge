@@ -3,6 +3,7 @@ import {
   createNote,
   deleteNote,
   getProductDetails,
+  getUsers,
   getNotes,
   refreshProductDetails,
   updateProductFollowUp,
@@ -10,6 +11,7 @@ import {
   updateNote
 } from "../../services/api";
 import type {
+  AuthUser,
   Note,
   ProductDetails,
   ProductKitChild,
@@ -19,11 +21,18 @@ import type {
 
 type NotesModalProps = {
   closeLabel?: string;
+  currentUser?: AuthUser | null;
   mode?: "modal" | "route";
   sku: string;
   onClose: () => void;
   onFollowUpSaved: () => void;
   onProductStockChanged?: (update: ProductStockUpdate) => void;
+};
+
+type ActiveMention = {
+  start: number;
+  end: number;
+  query: string;
 };
 
 function formatFollowUpDate(value: string) {
@@ -170,8 +179,87 @@ function getVendorDrivenAvailability(vendors: ProductVendor[]) {
   } as const;
 }
 
+function normalizeMentionQuery(value: string) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function compactMentionValue(value: string) {
+  return normalizeMentionQuery(value).replace(/[^a-z0-9]/g, "");
+}
+
+function getActiveMention(value: string, caretIndex: number): ActiveMention | null {
+  if (caretIndex < 0) {
+    return null;
+  }
+
+  const beforeCaret = value.slice(0, caretIndex);
+  const atIndex = beforeCaret.lastIndexOf("@");
+
+  if (atIndex === -1) {
+    return null;
+  }
+
+  if (atIndex > 0 && !/\s/.test(beforeCaret[atIndex - 1])) {
+    return null;
+  }
+
+  const query = beforeCaret.slice(atIndex + 1);
+
+  if (
+    query.startsWith(" ") ||
+    query.endsWith(" ") ||
+    query.includes("@") ||
+    /[\n\r,:;!?()[\]{}<>]/.test(query) ||
+    !/^[a-z0-9._ -]*$/i.test(query)
+  ) {
+    return null;
+  }
+
+  return {
+    start: atIndex,
+    end: caretIndex,
+    query
+  };
+}
+
+function getMentionSuggestions(
+  users: AuthUser[],
+  query: string,
+  currentUserSub = ""
+) {
+  const safeQuery = normalizeMentionQuery(query);
+  const compactQuery = compactMentionValue(query);
+
+  return users
+    .filter((user) => user.sub && user.sub !== currentUserSub)
+    .filter((user) => {
+      if (!safeQuery && !compactQuery) {
+        return true;
+      }
+
+      const emailLocal = String(user.email || "")
+        .toLowerCase()
+        .split("@")[0];
+      const values = [
+        normalizeMentionQuery(user.name),
+        normalizeMentionQuery(user.email),
+        normalizeMentionQuery(emailLocal),
+        compactMentionValue(user.name),
+        compactMentionValue(emailLocal)
+      ].filter(Boolean);
+
+      return values.some(
+        (value) =>
+          (safeQuery && value.includes(safeQuery)) ||
+          (compactQuery && value.includes(compactQuery))
+      );
+    })
+    .slice(0, 6);
+}
+
 export function NotesModal({
   closeLabel = "Close",
+  currentUser = null,
   mode = "modal",
   sku,
   onClose,
@@ -186,6 +274,8 @@ export function NotesModal({
   const [followUpDate, setFollowUpDate] = useState("");
   const [notesError, setNotesError] = useState("");
   const [detailsError, setDetailsError] = useState("");
+  const [mentionUsers, setMentionUsers] = useState<AuthUser[]>([]);
+  const [isMentionUsersLoading, setIsMentionUsersLoading] = useState(false);
   const [followUpMessage, setFollowUpMessage] = useState("");
   const [isFollowUpPickerOpen, setIsFollowUpPickerOpen] = useState(false);
   const [isFollowUpSaving, setIsFollowUpSaving] = useState(false);
@@ -197,8 +287,11 @@ export function NotesModal({
   const [isBulkVendorStockSaving, setIsBulkVendorStockSaving] = useState(false);
   const [isKitModalOpen, setIsKitModalOpen] = useState(false);
   const [selectedChildSku, setSelectedChildSku] = useState("");
+  const [activeMention, setActiveMention] = useState<ActiveMention | null>(null);
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
   const notesListRef = useRef<HTMLDivElement | null>(null);
+  const noteInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadNotes = useCallback(async () => {
     setNotesError("");
@@ -230,6 +323,19 @@ export function NotesModal({
     }
   }, [sku]);
 
+  const loadMentionUsers = useCallback(async () => {
+    setIsMentionUsersLoading(true);
+
+    try {
+      const result = await getUsers();
+      setMentionUsers(result);
+    } catch {
+      setMentionUsers([]);
+    } finally {
+      setIsMentionUsersLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadNotes();
   }, [loadNotes]);
@@ -239,8 +345,14 @@ export function NotesModal({
   }, [loadProductDetails]);
 
   useEffect(() => {
+    loadMentionUsers();
+  }, [loadMentionUsers]);
+
+  useEffect(() => {
     setIsKitModalOpen(false);
     setSelectedChildSku("");
+    setActiveMention(null);
+    setSelectedMentionIndex(0);
   }, [sku]);
 
   useEffect(() => {
@@ -270,6 +382,38 @@ export function NotesModal({
     return () => window.cancelAnimationFrame(frame);
   }, [notes]);
 
+  useEffect(() => {
+    setSelectedMentionIndex(0);
+  }, [activeMention?.query]);
+
+  function updateMentionState(value: string, caretIndex: number) {
+    setActiveMention(getActiveMention(value, caretIndex));
+  }
+
+  function handleNoteInputChange(value: string, caretIndex: number) {
+    setNewNote(value);
+    updateMentionState(value, caretIndex);
+  }
+
+  function insertMention(user: AuthUser) {
+    if (!activeMention) {
+      return;
+    }
+
+    const mentionLabel = `@${user.name}`;
+    const nextValue = `${newNote.slice(0, activeMention.start)}${mentionLabel} ${newNote.slice(activeMention.end)}`;
+    const nextCaretIndex = activeMention.start + mentionLabel.length + 1;
+
+    setNewNote(nextValue);
+    setActiveMention(null);
+    setSelectedMentionIndex(0);
+
+    window.requestAnimationFrame(() => {
+      noteInputRef.current?.focus();
+      noteInputRef.current?.setSelectionRange(nextCaretIndex, nextCaretIndex);
+    });
+  }
+
   async function handleAddNote() {
     const note = newNote.trim();
 
@@ -279,6 +423,8 @@ export function NotesModal({
 
     await createNote({ sku, note });
     setNewNote("");
+    setActiveMention(null);
+    setSelectedMentionIndex(0);
     loadNotes();
   }
 
@@ -432,6 +578,10 @@ export function NotesModal({
     hasEditableVendors && editableVendors.every((vendor) => vendor.quantity <= 0);
   const canShowKits = Boolean(productDetails?.isKit && childProducts.length > 0);
   const isRouteMode = mode === "route";
+  const mentionSuggestions = activeMention
+    ? getMentionSuggestions(mentionUsers, activeMention.query, currentUser?.sub || "")
+    : [];
+  const isMentionMenuOpen = Boolean(activeMention);
 
   function handleCloseChildNotes() {
     setSelectedChildSku("");
@@ -821,22 +971,130 @@ export function NotesModal({
             </div>
 
             <div className="note-input-container">
-              <input
-                type="text"
-                value={newNote}
-                placeholder="Add note or @mention someone..."
-                aria-label="Add note"
-                onChange={(event) => setNewNote(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    handleAddNote();
+              {isMentionMenuOpen && (
+                <div className="mention-suggestions" role="listbox" aria-label="Mention people">
+                  {isMentionUsersLoading ? (
+                    <p className="mention-status">Loading people...</p>
+                  ) : mentionSuggestions.length === 0 ? (
+                    <p className="mention-status">No matching people.</p>
+                  ) : (
+                    mentionSuggestions.map((user, index) => {
+                      const isActive = index === selectedMentionIndex;
+                      const emailLocal = user.email.split("@")[0] || user.email;
+
+                      return (
+                        <button
+                          key={user.sub}
+                          type="button"
+                          className={`mention-suggestion-item${isActive ? " active" : ""}`}
+                          role="option"
+                          aria-selected={isActive}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            insertMention(user);
+                          }}
+                        >
+                          <span className="mention-suggestion-avatar" aria-hidden="true">
+                            {user.picture ? (
+                              <img src={user.picture} alt="" />
+                            ) : (
+                              <span>{getInitials(user.name)}</span>
+                            )}
+                          </span>
+                          <span className="mention-suggestion-copy">
+                            <strong>{user.name}</strong>
+                            <small>@{emailLocal}</small>
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              <div className="note-input-row">
+                <input
+                  ref={noteInputRef}
+                  type="text"
+                  value={newNote}
+                  placeholder="Add note or @mention someone..."
+                  aria-label="Add note"
+                  onChange={(event) =>
+                    handleNoteInputChange(
+                      event.target.value,
+                      event.target.selectionStart ?? event.target.value.length
+                    )
                   }
-                }}
-              />
-              <button className="send-btn" type="button" onClick={handleAddNote}>
-                Send
-              </button>
+                  onClick={(event) =>
+                    updateMentionState(
+                      event.currentTarget.value,
+                      event.currentTarget.selectionStart ?? event.currentTarget.value.length
+                    )
+                  }
+                  onKeyUp={(event) =>
+                    updateMentionState(
+                      event.currentTarget.value,
+                      event.currentTarget.selectionStart ?? event.currentTarget.value.length
+                    )
+                  }
+                  onBlur={() => {
+                    window.setTimeout(() => {
+                      setActiveMention(null);
+                    }, 0);
+                  }}
+                  onKeyDown={(event) => {
+                    if (isMentionMenuOpen) {
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        setSelectedMentionIndex((current) =>
+                          mentionSuggestions.length === 0
+                            ? 0
+                            : (current + 1) % mentionSuggestions.length
+                        );
+                        return;
+                      }
+
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        setSelectedMentionIndex((current) =>
+                          mentionSuggestions.length === 0
+                            ? 0
+                            : (current - 1 + mentionSuggestions.length) %
+                              mentionSuggestions.length
+                        );
+                        return;
+                      }
+
+                      if (
+                        (event.key === "Enter" || event.key === "Tab") &&
+                        mentionSuggestions.length > 0
+                      ) {
+                        event.preventDefault();
+                        insertMention(
+                          mentionSuggestions[
+                            Math.min(selectedMentionIndex, mentionSuggestions.length - 1)
+                          ]
+                        );
+                        return;
+                      }
+
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setActiveMention(null);
+                        return;
+                      }
+                    }
+
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleAddNote();
+                    }
+                  }}
+                />
+                <button className="send-btn" type="button" onClick={handleAddNote}>
+                  Send
+                </button>
+              </div>
             </div>
           </section>
         </div>
@@ -898,6 +1156,7 @@ export function NotesModal({
 
         {selectedChildSku && (
           <NotesModal
+            currentUser={currentUser}
             sku={selectedChildSku}
             onClose={handleCloseChildNotes}
             onFollowUpSaved={onFollowUpSaved}

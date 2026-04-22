@@ -143,6 +143,7 @@ export function App() {
       >
         <NotesModal
           mode="route"
+          currentUser={authUser}
           sku={route.sku}
           onClose={handleCloseNotesRoute}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
@@ -194,6 +195,7 @@ export function App() {
 
       {selectedSku && (
         <NotesModal
+          currentUser={authUser}
           sku={selectedSku}
           onClose={() => setSelectedSku("")}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
