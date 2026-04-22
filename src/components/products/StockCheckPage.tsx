@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getStockCheckProducts } from "../../services/api";
-import type { Product, ProductStockUpdate } from "../../types";
+import type { Product, ProductStockUpdate, StockCheckSort } from "../../types";
 import { Pagination } from "./Pagination";
 import { ProductsTable } from "./ProductsTable";
 import { applyProductStockUpdate } from "./productStockUpdates";
@@ -12,6 +12,20 @@ type StockCheckPageProps = {
 };
 
 const pageSize = 30;
+const stockCheckSortOptions: Array<{ value: StockCheckSort; label: string }> = [
+  { value: "yesterday", label: "Yesterday" },
+  { value: "today", label: "Today" },
+  { value: "tomorrow", label: "Tomorrow" },
+  { value: "all", label: "All" }
+];
+
+function getLocalDateText() {
+  const now = new Date();
+
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
+}
 
 export function StockCheckPage({
   productStockUpdate,
@@ -25,6 +39,7 @@ export function StockCheckPage({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [sort, setSort] = useState<StockCheckSort>("all");
 
   useEffect(() => {
     latestProductStockUpdate.current = productStockUpdate;
@@ -41,7 +56,9 @@ export function StockCheckPage({
         const result = await getStockCheckProducts({
           page: currentPage,
           limit: pageSize,
-          search: ""
+          search: "",
+          sort,
+          referenceDate: getLocalDateText()
         });
 
         if (!ignore) {
@@ -70,7 +87,7 @@ export function StockCheckPage({
     return () => {
       ignore = true;
     };
-  }, [currentPage, refreshKey, refreshNonce]);
+  }, [currentPage, refreshKey, refreshNonce, sort]);
 
   useEffect(() => {
     if (!productStockUpdate) {
@@ -83,15 +100,42 @@ export function StockCheckPage({
     setRefreshNonce((current) => current + 1);
   }, [productStockUpdate]);
 
+  const emptyMessageBySort: Record<StockCheckSort, string> = {
+    yesterday: "No stock check products with follow-up dates from yesterday.",
+    today: "No stock check products with follow-up dates from today.",
+    tomorrow: "No stock check products with follow-up dates from tomorrow.",
+    all: "No backordered or follow-up products found."
+  };
+
   return (
-    <section className="page" aria-labelledby="stockCheckHeading">
-      <h1 id="stockCheckHeading">Stock Check</h1>
+    <section className="page stock-check-page" aria-labelledby="stockCheckHeading">
+      <div className="stock-check-toolbar">
+        <h1 id="stockCheckHeading">Stock Check</h1>
+
+        <label className="stock-check-sort-control">
+          <span>Show</span>
+          <select
+            value={sort}
+            aria-label="Sort stock check products"
+            onChange={(event) => {
+              setSort(event.target.value as StockCheckSort);
+              setCurrentPage(1);
+            }}
+          >
+            {stockCheckSortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {error && <p className="status-message error-message">{error}</p>}
       {isLoading && <p className="status-message">Loading stock check...</p>}
 
       <ProductsTable
-        emptyMessage="No backordered or follow-up products found."
+        emptyMessage={emptyMessageBySort[sort]}
         products={products}
         onOpenNotes={onOpenNotes}
       />

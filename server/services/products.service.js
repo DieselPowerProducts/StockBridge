@@ -29,6 +29,7 @@ const productSelectionFields = `
 
 const stockCheckCache = new Map();
 const vendorCache = new Map();
+const stockCheckSortValues = new Set(["all", "yesterday", "today", "tomorrow"]);
 
 function normalizePaging({ page = 1, limit = 50 }) {
   return {
@@ -39,6 +40,56 @@ function normalizePaging({ page = 1, limit = 50 }) {
 
 function normalizeSearch(search) {
   return String(search || "").trim();
+}
+
+function normalizeStockCheckSort(sort) {
+  const normalized = String(sort || "all").trim().toLowerCase();
+
+  return stockCheckSortValues.has(normalized) ? normalized : "all";
+}
+
+function normalizeDateText(value) {
+  const normalized = String(value || "").trim();
+
+  if (!normalized) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const error = new Error("Reference date must use YYYY-MM-DD format.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
+}
+
+function parseDateText(value) {
+  const [year, month, day] = String(value).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== String(value)
+  ) {
+    const error = new Error("Reference date is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return date;
+}
+
+function formatDateText(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysToDateText(value, days) {
+  const date = parseDateText(value);
+
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return formatDateText(date);
 }
 
 function emptyProductsResponse() {
@@ -815,6 +866,44 @@ function matchesProductSearch(product, search) {
   return terms.every((term) => haystack.includes(term));
 }
 
+function compareStockCheckProducts(left, right) {
+  const leftDate = String(left?.followUpDate || "");
+  const rightDate = String(right?.followUpDate || "");
+
+  if (leftDate && rightDate && leftDate !== rightDate) {
+    return leftDate.localeCompare(rightDate);
+  }
+
+  if (leftDate && !rightDate) {
+    return -1;
+  }
+
+  if (!leftDate && rightDate) {
+    return 1;
+  }
+
+  return String(left?.sku || "").localeCompare(String(right?.sku || ""), undefined, {
+    sensitivity: "base"
+  });
+}
+
+function filterStockCheckProducts(products, sort, referenceDate) {
+  if (sort === "all") {
+    return [...products].sort(compareStockCheckProducts);
+  }
+
+  const offsetBySort = {
+    yesterday: -1,
+    today: 0,
+    tomorrow: 1
+  };
+  const targetDate = addDaysToDateText(referenceDate, offsetBySort[sort] || 0);
+
+  return products
+    .filter((product) => product.followUpDate === targetDate)
+    .sort(compareStockCheckProducts);
+}
+
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = [];
   let nextIndex = 0;
@@ -881,9 +970,11 @@ async function getProductVendorAvailabilityInfoInChunks(productIds) {
   );
 }
 
-async function getStockCheckProducts(search) {
+async function getStockCheckProducts({ search, sort = "all", referenceDate = "" } = {}) {
   const cleanSearch = normalizeSearch(search);
-  const cacheKey = cleanSearch.toLowerCase();
+  const cleanSort = normalizeStockCheckSort(sort);
+  const cleanReferenceDate = normalizeDateText(referenceDate);
+  const cacheKey = `${cleanSearch.toLowerCase()}:${cleanSort}:${cleanReferenceDate}`;
   const cached = stockCheckCache.get(cacheKey);
 
   if (cached && Date.now() - cached.createdAt < stockCheckCacheTtlMs) {
@@ -936,13 +1027,18 @@ async function getStockCheckProducts(search) {
         product.availability !== "Available" || Boolean(product.followUpDate)
     )
     .filter((product) => matchesProductSearch(product, cleanSearch));
+  const filteredData = filterStockCheckProducts(
+    data,
+    cleanSort,
+    cleanReferenceDate
+  );
 
   stockCheckCache.set(cacheKey, {
     createdAt: Date.now(),
-    data
+    data: filteredData
   });
 
-  return data;
+  return filteredData;
 }
 
 async function listProducts(queryParams) {
@@ -979,7 +1075,11 @@ async function listProducts(queryParams) {
 
 async function listStockCheckProducts(queryParams) {
   const { page, limit } = normalizePaging(queryParams);
-  const products = await getStockCheckProducts(queryParams.search);
+  const products = await getStockCheckProducts({
+    search: queryParams.search,
+    sort: queryParams.sort,
+    referenceDate: queryParams.referenceDate
+  });
 
   return paginateRows(products, { page, limit });
 }

@@ -5,6 +5,7 @@ import type {
   Note,
   ProductDetails,
   ProductsResponse,
+  StockCheckSort,
   VendorDetails,
   VendorProductsResponse,
   VendorsResponse
@@ -112,16 +113,22 @@ export function getProducts({
 export function getStockCheckProducts({
   page,
   limit,
-  search
+  search,
+  sort,
+  referenceDate
 }: {
   page: number;
   limit: number;
   search: string;
+  sort: StockCheckSort;
+  referenceDate: string;
 }) {
   const params = new URLSearchParams({
     page: String(page),
     limit: String(limit),
-    search
+    search,
+    sort,
+    referenceDate
   });
 
   return request<ProductsResponse>(`/products/stock-check?${params.toString()}`);
