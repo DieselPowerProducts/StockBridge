@@ -2,6 +2,8 @@ const { getSql } = require("../db/neon");
 
 let schemaReady;
 let notesBackfillReady;
+const recentUserTouches = new Map();
+const userTouchTtlMs = 5 * 60 * 1000;
 
 function normalizeUser(user) {
   if (!user?.sub || !user?.email) {
@@ -155,7 +157,32 @@ async function listUsers() {
   return rows.map(formatUser).filter(Boolean);
 }
 
+async function registerAuthenticatedUser(user) {
+  const safeUser = normalizeUser(user);
+
+  if (!safeUser) {
+    return null;
+  }
+
+  const now = Date.now();
+  const lastTouchedAt = recentUserTouches.get(safeUser.sub) || 0;
+
+  if (now - lastTouchedAt < userTouchTtlMs) {
+    return safeUser;
+  }
+
+  recentUserTouches.set(safeUser.sub, now);
+
+  try {
+    return await upsertUser(safeUser);
+  } catch (error) {
+    recentUserTouches.delete(safeUser.sub);
+    throw error;
+  }
+}
+
 module.exports = {
   listUsers,
+  registerAuthenticatedUser,
   upsertUser
 };

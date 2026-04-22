@@ -349,6 +349,14 @@ export function NotesModal({
   }, [loadMentionUsers]);
 
   useEffect(() => {
+    if (!activeMention || activeMention.query !== "") {
+      return;
+    }
+
+    void loadMentionUsers();
+  }, [activeMention?.start, activeMention?.query, loadMentionUsers]);
+
+  useEffect(() => {
     setIsKitModalOpen(false);
     setSelectedChildSku("");
     setActiveMention(null);
