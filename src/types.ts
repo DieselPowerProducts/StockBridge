@@ -19,6 +19,26 @@ export type AuthSession = {
   user: AuthUser | null;
 };
 
+export type AppNotification = {
+  id: string;
+  sku: string;
+  noteId: string;
+  notePreview: string;
+  sender: {
+    sub: string;
+    email: string;
+    name: string;
+    picture: string;
+  };
+  created_at: string;
+  read_at: string;
+};
+
+export type NotificationsResponse = {
+  items: AppNotification[];
+  unreadCount: number;
+};
+
 export type Backorder = {
   id: number;
   sku: string;

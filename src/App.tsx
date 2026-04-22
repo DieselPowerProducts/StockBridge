@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { LoginPage } from "./components/auth/LoginPage";
+import { NotificationsMenu } from "./components/layout/NotificationsMenu";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { ProductsPage } from "./components/products/ProductsPage";
@@ -160,30 +161,36 @@ export function App() {
         onLogout={handleLogout}
       />
 
-      <main className="main">
-        {route.page === "products" && (
-          <ProductsPage
-            productStockUpdate={productStockUpdate}
-            onOpenNotes={setSelectedSku}
-          />
-        )}
+      <div className="app-main-shell">
+        <div className="app-topbar">
+          <NotificationsMenu onOpenSku={setSelectedSku} />
+        </div>
 
-        {route.page === "vendors" && (
-          <VendorsPage
-            selectedVendor={route.vendor}
-            onBackToVendors={() => setHashRoute("vendors")}
-            onSelectVendor={(vendorId) => setHashRoute("vendors", vendorId)}
-          />
-        )}
+        <main className="main">
+          {route.page === "products" && (
+            <ProductsPage
+              productStockUpdate={productStockUpdate}
+              onOpenNotes={setSelectedSku}
+            />
+          )}
 
-        {route.page === "stock-check" && (
-          <StockCheckPage
-            productStockUpdate={productStockUpdate}
-            refreshKey={productRefreshKey}
-            onOpenNotes={setSelectedSku}
-          />
-        )}
-      </main>
+          {route.page === "vendors" && (
+            <VendorsPage
+              selectedVendor={route.vendor}
+              onBackToVendors={() => setHashRoute("vendors")}
+              onSelectVendor={(vendorId) => setHashRoute("vendors", vendorId)}
+            />
+          )}
+
+          {route.page === "stock-check" && (
+            <StockCheckPage
+              productStockUpdate={productStockUpdate}
+              refreshKey={productRefreshKey}
+              onOpenNotes={setSelectedSku}
+            />
+          )}
+        </main>
+      </div>
 
       {selectedSku && (
         <NotesModal

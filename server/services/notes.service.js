@@ -1,4 +1,5 @@
 const { getSql } = require("../db/neon");
+const notificationsService = require("./notifications.service");
 
 let schemaReady;
 
@@ -126,6 +127,8 @@ async function addNote({ sku, note, productId = "" }, author = {}) {
   assertNoteInput({ sku, note });
   await initializeSchema();
 
+  const safeSku = String(sku).trim();
+  const safeNote = String(note).trim();
   const sql = getSql();
   const rows = await sql`
     INSERT INTO product_notes (
@@ -139,37 +142,50 @@ async function addNote({ sku, note, productId = "" }, author = {}) {
     )
     VALUES (
       ${productId || null},
-      ${String(sku).trim()},
-      ${String(note).trim()},
+      ${safeSku},
+      ${safeNote},
       ${author.sub || null},
       ${author.email || null},
       ${author.name || author.email || null},
       ${author.picture || null}
     )
-    RETURNING id::text
+    RETURNING id::text, sku
   `;
 
+  const noteId = String(rows[0]?.id || "");
+  await notificationsService.syncNoteNotifications({
+    noteId,
+    sku: rows[0]?.sku || safeSku,
+    note: safeNote,
+    sender: author
+  });
+
   return {
-    id: String(rows[0]?.id || "")
+    id: noteId
   };
 }
 
 async function deleteNote(id) {
   await initializeSchema();
 
+  const safeId = getSafeId(id);
   const sql = getSql();
   const rows = await sql`
     DELETE FROM product_notes
-    WHERE id = ${getSafeId(id)}
-    RETURNING id
+    WHERE id = ${safeId}
+    RETURNING id::text
   `;
+
+  if (rows.length > 0) {
+    await notificationsService.deleteNotificationsForNoteId(String(rows[0].id || safeId));
+  }
 
   return {
     changes: rows.length
   };
 }
 
-async function updateNote(id, note) {
+async function updateNote(id, note, author = {}) {
   if (!String(note || "").trim()) {
     const error = new Error("Note is required.");
     error.statusCode = 400;
@@ -178,13 +194,24 @@ async function updateNote(id, note) {
 
   await initializeSchema();
 
+  const safeId = getSafeId(id);
+  const safeNote = String(note).trim();
   const sql = getSql();
   const rows = await sql`
     UPDATE product_notes
-    SET note = ${String(note).trim()}, updated_at = now()
-    WHERE id = ${getSafeId(id)}
-    RETURNING id
+    SET note = ${safeNote}, updated_at = now()
+    WHERE id = ${safeId}
+    RETURNING id::text, sku
   `;
+
+  if (rows.length > 0) {
+    await notificationsService.syncNoteNotifications({
+      noteId: String(rows[0].id || safeId),
+      sku: rows[0].sku || "",
+      note: safeNote,
+      sender: author
+    });
+  }
 
   return {
     changes: rows.length

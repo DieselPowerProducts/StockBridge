@@ -4,6 +4,7 @@ const authRoutes = require("./routes/auth.routes");
 const backordersRoutes = require("./routes/backorders.routes");
 const importRoutes = require("./routes/import.routes");
 const notesRoutes = require("./routes/notes.routes");
+const notificationsRoutes = require("./routes/notifications.routes");
 const productsRoutes = require("./routes/products.routes");
 const vendorsRoutes = require("./routes/vendors.routes");
 const { requireAuth } = require("./middleware/auth");
@@ -37,6 +38,7 @@ app.use(requireAuth);
 app.use(backordersRoutes);
 app.use(importRoutes);
 app.use(notesRoutes);
+app.use(notificationsRoutes);
 app.use(productsRoutes);
 app.use(vendorsRoutes);
 

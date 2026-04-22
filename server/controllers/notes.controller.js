@@ -29,7 +29,7 @@ async function deleteNote(req, res, next) {
 
 async function updateNote(req, res, next) {
   try {
-    const result = await notesService.updateNote(req.params.id, req.body.note);
+    const result = await notesService.updateNote(req.params.id, req.body.note, req.user);
     res.send({ updated: result.changes });
   } catch (err) {
     next(err);

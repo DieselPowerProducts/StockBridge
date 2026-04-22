@@ -824,7 +824,7 @@ export function NotesModal({
               <input
                 type="text"
                 value={newNote}
-                placeholder="Add note..."
+                placeholder="Add note or @mention someone..."
                 aria-label="Add note"
                 onChange={(event) => setNewNote(event.target.value)}
                 onKeyDown={(event) => {

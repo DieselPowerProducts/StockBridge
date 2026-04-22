@@ -1,8 +1,10 @@
 const authService = require("../services/auth.service");
+const usersService = require("../services/users.service");
 
 async function signInWithGoogle(req, res, next) {
   try {
     const user = await authService.verifyGoogleCredential(req.body.credential);
+    await usersService.upsertUser(user);
     authService.setSessionCookie(req, res, user);
     res.send({ user });
   } catch (err) {
@@ -10,15 +12,20 @@ async function signInWithGoogle(req, res, next) {
   }
 }
 
-function getSession(req, res) {
-  const user = authService.getCurrentUser(req);
+async function getSession(req, res, next) {
+  try {
+    const user = authService.getCurrentUser(req);
 
-  if (!user) {
-    res.status(401).send({ message: "Sign in to continue." });
-    return;
+    if (!user) {
+      res.status(401).send({ message: "Sign in to continue." });
+      return;
+    }
+
+    await usersService.upsertUser(user);
+    res.send({ user });
+  } catch (err) {
+    next(err);
   }
-
-  res.send({ user });
 }
 
 function logout(req, res) {

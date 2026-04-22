@@ -1,4 +1,5 @@
 import type {
+  NotificationsResponse,
   AuthSession,
   AuthUser,
   BackordersResponse,
@@ -72,6 +73,19 @@ export function signOut() {
   return request<{ ok: boolean }>("/auth/logout", {
     method: "POST"
   });
+}
+
+export function getNotifications() {
+  return request<NotificationsResponse>("/notifications");
+}
+
+export function markNotificationRead(id: string) {
+  return request<{ updated: number }>(
+    `/notifications/${encodeURIComponent(id)}/read`,
+    {
+      method: "POST"
+    }
+  );
 }
 
 export function getBackorders({
