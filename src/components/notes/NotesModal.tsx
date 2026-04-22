@@ -10,6 +10,7 @@ import {
   updateProductVendorStock,
   updateNote
 } from "../../services/api";
+import { getMentionSeedUsers } from "../../data/mentionSeed";
 import type {
   AuthUser,
   Note,
@@ -225,13 +226,22 @@ function getActiveMention(value: string, caretIndex: number): ActiveMention | nu
 function getMentionSuggestions(
   users: AuthUser[],
   query: string,
-  currentUserSub = ""
+  currentUserSub = "",
+  currentUserEmail = ""
 ) {
   const safeQuery = normalizeMentionQuery(query);
   const compactQuery = compactMentionValue(query);
+  const normalizedCurrentUserEmail = String(currentUserEmail || "")
+    .trim()
+    .toLowerCase();
 
   return users
-    .filter((user) => user.sub && user.sub !== currentUserSub)
+    .filter(
+      (user) =>
+        user.sub &&
+        user.sub !== currentUserSub &&
+        String(user.email || "").trim().toLowerCase() !== normalizedCurrentUserEmail
+    )
     .filter((user) => {
       if (!safeQuery && !compactQuery) {
         return true;
@@ -328,9 +338,9 @@ export function NotesModal({
 
     try {
       const result = await getUsers();
-      setMentionUsers(result);
+      setMentionUsers(result.length > 0 ? result : getMentionSeedUsers());
     } catch {
-      setMentionUsers([]);
+      setMentionUsers(getMentionSeedUsers());
     } finally {
       setIsMentionUsersLoading(false);
     }
@@ -587,7 +597,12 @@ export function NotesModal({
   const canShowKits = Boolean(productDetails?.isKit && childProducts.length > 0);
   const isRouteMode = mode === "route";
   const mentionSuggestions = activeMention
-    ? getMentionSuggestions(mentionUsers, activeMention.query, currentUser?.sub || "")
+    ? getMentionSuggestions(
+        mentionUsers,
+        activeMention.query,
+        currentUser?.sub || "",
+        currentUser?.email || ""
+      )
     : [];
   const isMentionMenuOpen = Boolean(activeMention);
 

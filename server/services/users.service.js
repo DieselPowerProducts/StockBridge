@@ -70,6 +70,10 @@ function normalizeSeedUser(user) {
   });
 }
 
+function getSeedUsers() {
+  return staticUserSeed.map(normalizeSeedUser).filter(Boolean);
+}
+
 async function initializeSchema() {
   if (!schemaReady) {
     schemaReady = (async () => {
@@ -307,18 +311,23 @@ async function upsertUser(user) {
 }
 
 async function listUsers() {
-  await initializeSchema();
-  await backfillUsersFromNotes();
-  await ensureStaticSeedUsers();
+  try {
+    await initializeSchema();
+    await backfillUsersFromNotes();
+    await ensureStaticSeedUsers();
 
-  const sql = getSql();
-  const rows = await sql`
-    SELECT sub, email, name, picture, hd
-    FROM app_users
-    ORDER BY lower(name) ASC, lower(email) ASC
-  `;
+    const sql = getSql();
+    const rows = await sql`
+      SELECT sub, email, name, picture, hd
+      FROM app_users
+      ORDER BY lower(name) ASC, lower(email) ASC
+    `;
 
-  return rows.map(formatUser).filter(Boolean);
+    return rows.map(formatUser).filter(Boolean);
+  } catch (error) {
+    console.error("Unable to load app users, falling back to static seed.", error);
+    return getSeedUsers();
+  }
 }
 
 async function registerAuthenticatedUser(user) {
@@ -347,6 +356,7 @@ async function registerAuthenticatedUser(user) {
 }
 
 module.exports = {
+  getSeedUsers,
   listUsers,
   registerAuthenticatedUser,
   upsertUser

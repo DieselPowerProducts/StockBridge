@@ -87,11 +87,12 @@ function isAliasBoundary(character) {
   return !character || /[\s.,!?;:()[\]{}<>"'`/\\|+-]/.test(character);
 }
 
-function extractMentionedUsers(note, users, senderSub) {
+function extractMentionedUsers(note, users, senderSub, senderEmail = "") {
   const safeNote = String(note || "");
   const normalizedNote = safeNote.toLowerCase();
   const aliases = buildMentionAliases(users);
   const mentionedUsers = new Map();
+  const normalizedSenderEmail = normalizeText(senderEmail).toLowerCase();
 
   for (let index = 0; index < normalizedNote.length; index += 1) {
     if (normalizedNote[index] !== "@") {
@@ -105,7 +106,13 @@ function extractMentionedUsers(note, users, senderSub) {
         continue;
       }
 
-      if (user.sub && user.sub !== senderSub) {
+      const userEmail = normalizeText(user?.email).toLowerCase();
+
+      if (
+        user.sub &&
+        user.sub !== senderSub &&
+        (!normalizedSenderEmail || userEmail !== normalizedSenderEmail)
+      ) {
         mentionedUsers.set(user.sub, user);
       }
 
@@ -215,7 +222,8 @@ async function syncNoteNotifications({ noteId, sku, note, sender }) {
   const recipients = extractMentionedUsers(
     note,
     await usersService.listUsers(),
-    String(sender?.sub || "").trim()
+    String(sender?.sub || "").trim(),
+    String(sender?.email || "").trim().toLowerCase()
   );
 
   if (recipients.length === 0) {
