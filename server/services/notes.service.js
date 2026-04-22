@@ -116,7 +116,7 @@ async function getNotesForSku(sku) {
       updated_at
     FROM product_notes
     WHERE sku = ${sku}
-    ORDER BY created_at DESC
+    ORDER BY created_at ASC, id ASC
   `;
 
   return rows.map(formatNote);

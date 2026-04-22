@@ -198,6 +198,7 @@ export function NotesModal({
   const [isKitModalOpen, setIsKitModalOpen] = useState(false);
   const [selectedChildSku, setSelectedChildSku] = useState("");
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
+  const notesListRef = useRef<HTMLDivElement | null>(null);
 
   const loadNotes = useCallback(async () => {
     setNotesError("");
@@ -254,6 +255,20 @@ export function NotesModal({
       // Some browsers only allow showPicker during the direct click event.
     }
   }, [isFollowUpPickerOpen]);
+
+  useEffect(() => {
+    if (notes.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      if (notesListRef.current) {
+        notesListRef.current.scrollTop = notesListRef.current.scrollHeight;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [notes]);
 
   async function handleAddNote() {
     const note = newNote.trim();
@@ -725,7 +740,7 @@ export function NotesModal({
               </div>
             )}
 
-            <div id="notesList" className="notes-list">
+            <div id="notesList" className="notes-list" ref={notesListRef}>
               {notes.length === 0 ? (
                 <p className="status-message">No notes yet.</p>
               ) : (

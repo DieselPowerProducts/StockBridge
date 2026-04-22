@@ -137,7 +137,7 @@ async function all(sql, params = []) {
 
     return notesLog
       .filter((item) => item.sku === sku)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
   }
 
   if (normalized.startsWith("SELECT VENDOR, COUNT(*) AS PRODUCTCOUNT")) {
