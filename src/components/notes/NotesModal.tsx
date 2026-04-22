@@ -405,7 +405,8 @@ export function NotesModal({
     }
   }
 
-  const title = productDetails?.name || sku;
+  const title = productDetails?.name || "";
+  const modalTitle = title && title !== sku ? `${sku} | ${title}` : sku;
   const vendors = productDetails?.vendors || [];
   const childProducts = productDetails?.childProducts || [];
   const editableVendors = vendors.filter((vendor) => vendor.canUpdateStock);
@@ -529,7 +530,7 @@ export function NotesModal({
     >
       <div className="modal-content notes-modal-content">
         <header className="notes-modal-header">
-          <h2 id="modalTitle">{title}</h2>
+          <h2 id="modalTitle">{modalTitle}</h2>
           <button id="closeModalButton" type="button" onClick={onClose}>
             {closeLabel}
           </button>
