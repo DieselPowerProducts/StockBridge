@@ -455,6 +455,7 @@ body:has(.notes-popup-page),
 
 .notes-modal-grid {
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: minmax(220px, 32%) minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
@@ -591,7 +592,8 @@ body:has(.notes-popup-page),
 .notes-panel {
   display: flex;
   flex-direction: column;
-  min-height: 360px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .notes-panel-header {
@@ -750,7 +752,7 @@ body:has(.notes-popup-page),
 
 .notes-list {
   flex: 1;
-  min-height: 180px;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 6px;
 }
