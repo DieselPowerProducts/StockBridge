@@ -12,6 +12,10 @@ function getAvailabilityClass(product: Product) {
     return "availability-available";
   }
 
+  if (product.availability === "Built to Order") {
+    return "availability-built-to-order";
+  }
+
   return "availability-backorder";
 }
 
@@ -73,7 +77,7 @@ export function ProductsTable({
               </td>
               {showFollowUp && (
                 <td>
-                  {product.availability === "Backorder"
+                  {product.availability !== "Available"
                     ? formatFollowUpDate(product.followUpDate)
                     : ""}
                 </td>

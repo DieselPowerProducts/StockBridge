@@ -5,6 +5,7 @@ import type {
   Note,
   ProductDetails,
   ProductsResponse,
+  VendorDetails,
   VendorProductsResponse,
   VendorsResponse
 } from "../types";
@@ -261,4 +262,22 @@ export function getVendorProducts({
   return request<VendorProductsResponse>(
     `/vendors/${encodeURIComponent(vendorId)}/products?${params.toString()}`
   );
+}
+
+export function updateVendorSettings({
+  vendorId,
+  builtToOrder,
+  buildTime
+}: {
+  vendorId: string;
+  builtToOrder: boolean;
+  buildTime: string;
+}) {
+  return request<VendorDetails>(`/vendors/${encodeURIComponent(vendorId)}/settings`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ builtToOrder, buildTime })
+  });
 }

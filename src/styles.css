@@ -275,7 +275,7 @@ th {
   border-radius: 8px;
   display: inline-block;
   font-size: 13px;
-  min-width: 96px;
+  min-width: 120px;
   padding: 4px 8px;
   text-align: center;
 }
@@ -288,6 +288,11 @@ th {
 .availability-backorder {
   background: #7a2830;
   color: #ffecee;
+}
+
+.availability-built-to-order {
+  background: #785619;
+  color: #fff4dc;
 }
 
 select {
@@ -475,6 +480,28 @@ body:has(.notes-popup-page),
 .assigned-vendor-name {
   flex: 1;
   min-width: 0;
+}
+
+.vendor-build-time-display {
+  background: #293326;
+  border: 1px solid #5d7d52;
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  min-width: 136px;
+  padding: 8px 10px;
+}
+
+.vendor-build-time-label {
+  color: #a9c79f;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vendor-build-time-value {
+  color: #f5fff0;
+  font-weight: 600;
 }
 
 .vendor-stock-switch {
@@ -878,16 +905,68 @@ body:has(.notes-popup-page),
 }
 
 .vendor-products-header {
+  display: grid;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
-.vendor-products-header h1 {
-  margin-bottom: 4px;
+.vendor-products-title-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.vendor-products-title-row h1 {
+  margin: 0;
 }
 
 .vendor-products-header p {
   color: #cccccc;
-  margin-top: 0;
+  margin: 0;
+}
+
+.vendor-built-to-order-toggle {
+  align-items: center;
+  background: #293326;
+  border: 1px solid #5d7d52;
+  border-radius: 999px;
+  color: #f5fff0;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.vendor-built-to-order-toggle input {
+  accent-color: #3f8c5b;
+  margin: 0;
+}
+
+.vendor-build-time-field {
+  display: grid;
+  gap: 6px;
+  max-width: 280px;
+}
+
+.vendor-build-time-field span {
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.vendor-build-time-field input {
+  background: #222222;
+  border: 1px solid #555555;
+  border-radius: 6px;
+  color: white;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.vendor-settings-status {
+  color: #cccccc;
+  margin: 0;
 }
 
 @media (max-width: 720px) {
@@ -973,6 +1052,11 @@ body:has(.notes-popup-page),
     max-height: 220px;
   }
 
+  .assigned-vendors-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .notes-panel {
     min-height: 320px;
   }
@@ -999,5 +1083,16 @@ body:has(.notes-popup-page),
 
   .kit-products-meta {
     justify-items: start;
+  }
+
+  .vendor-products-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .vendor-build-time-display,
+  .vendor-build-time-field {
+    max-width: none;
+    width: 100%;
   }
 }

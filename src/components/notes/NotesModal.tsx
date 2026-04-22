@@ -119,6 +119,12 @@ function applyVendorQuantityUpdates(
   );
 }
 
+function getUnavailableAvailability(vendors: ProductVendor[]) {
+  return vendors.some((vendor) => vendor.builtToOrder)
+    ? "Built to Order"
+    : "Backorder";
+}
+
 function getProductStockUpdate(
   productDetails: ProductDetails,
   vendors: ProductVendor[]
@@ -139,7 +145,8 @@ function getProductStockUpdate(
   return {
     sku: productDetails.sku,
     qtyAvailable,
-    availability: qtyAvailable > 0 ? "Available" : "Backorder"
+    availability:
+      qtyAvailable > 0 ? "Available" : getUnavailableAvailability(vendors)
   };
 }
 
@@ -157,7 +164,8 @@ function getVendorDrivenAvailability(vendors: ProductVendor[]) {
 
   return {
     qtyAvailable,
-    availability: qtyAvailable > 0 ? "Available" : "Backorder"
+    availability:
+      qtyAvailable > 0 ? "Available" : getUnavailableAvailability(vendors)
   } as const;
 }
 
@@ -555,55 +563,68 @@ export function NotesModal({
                     <li className="assigned-vendor-item" key={vendor.vendorProductId}>
                       <span className="assigned-vendor-name">{vendor.name}</span>
 
-                      <div
-                        className={
-                          vendor.canUpdateStock
-                            ? "vendor-stock-switch"
-                            : "vendor-stock-switch readonly"
-                        }
-                        role="group"
-                        aria-label={`${vendor.name} stock ${
-                          vendor.canUpdateStock ? "override" : "status"
-                        }`}
-                        title={`Current quantity: ${vendor.quantity}`}
-                      >
-                        <button
-                          type="button"
-                          className={
-                            stockEnabled
-                              ? "vendor-stock-switch-option active"
-                              : "vendor-stock-switch-option"
-                          }
-                          aria-label={
-                            vendor.canUpdateStock
-                              ? `Turn on stock for ${vendor.name}`
-                              : `${vendor.name} has warehouse stock`
-                          }
-                          aria-pressed={stockEnabled}
-                          disabled={isPending || !vendor.canUpdateStock}
-                          onClick={() => handleVendorStockChange(vendor, true)}
+                      {vendor.builtToOrder ? (
+                        <div
+                          className="vendor-build-time-display"
+                          aria-label={`${vendor.name} build time`}
+                          title={vendor.buildTime || "Build time not set"}
                         >
-                          I
-                        </button>
-                        <button
-                          type="button"
+                          <span className="vendor-build-time-label">Build Time</span>
+                          <span className="vendor-build-time-value">
+                            {vendor.buildTime || "Not set"}
+                          </span>
+                        </div>
+                      ) : (
+                        <div
                           className={
-                            stockEnabled
-                              ? "vendor-stock-switch-option"
-                              : "vendor-stock-switch-option active off"
-                          }
-                          aria-label={
                             vendor.canUpdateStock
-                              ? `Turn off stock for ${vendor.name}`
-                              : `${vendor.name} has no warehouse stock`
+                              ? "vendor-stock-switch"
+                              : "vendor-stock-switch readonly"
                           }
-                          aria-pressed={!stockEnabled}
-                          disabled={isPending || !vendor.canUpdateStock}
-                          onClick={() => handleVendorStockChange(vendor, false)}
+                          role="group"
+                          aria-label={`${vendor.name} stock ${
+                            vendor.canUpdateStock ? "override" : "status"
+                          }`}
+                          title={`Current quantity: ${vendor.quantity}`}
                         >
-                          O
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            className={
+                              stockEnabled
+                                ? "vendor-stock-switch-option active"
+                                : "vendor-stock-switch-option"
+                            }
+                            aria-label={
+                              vendor.canUpdateStock
+                                ? `Turn on stock for ${vendor.name}`
+                                : `${vendor.name} has warehouse stock`
+                            }
+                            aria-pressed={stockEnabled}
+                            disabled={isPending || !vendor.canUpdateStock}
+                            onClick={() => handleVendorStockChange(vendor, true)}
+                          >
+                            I
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              stockEnabled
+                                ? "vendor-stock-switch-option"
+                                : "vendor-stock-switch-option active off"
+                            }
+                            aria-label={
+                              vendor.canUpdateStock
+                                ? `Turn off stock for ${vendor.name}`
+                                : `${vendor.name} has no warehouse stock`
+                            }
+                            aria-pressed={!stockEnabled}
+                            disabled={isPending || !vendor.canUpdateStock}
+                            onClick={() => handleVendorStockChange(vendor, false)}
+                          >
+                            O
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}

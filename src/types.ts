@@ -33,7 +33,7 @@ export type BackordersResponse = {
   total: number;
 };
 
-export type ProductAvailability = "Available" | "Backorder";
+export type ProductAvailability = "Available" | "Backorder" | "Built to Order";
 
 export type Product = {
   id: string;
@@ -80,6 +80,8 @@ export type ProductVendor = {
   stockSource: "vendor" | "warehouse";
   stockType: string;
   canUpdateStock: boolean;
+  builtToOrder: boolean;
+  buildTime: string;
 };
 
 export type ProductKitChild = {
@@ -108,6 +110,13 @@ export type VendorSummary = {
   vendor: string;
 };
 
+export type VendorDetails = {
+  id: string;
+  vendor: string;
+  builtToOrder: boolean;
+  buildTime: string;
+};
+
 export type VendorsResponse = {
   data: VendorSummary[];
   total: number;
@@ -125,6 +134,7 @@ export type VendorProduct = {
 };
 
 export type VendorProductsResponse = {
+  vendor: VendorDetails;
   data: VendorProduct[];
   total: number;
   totalPages: number;

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { getVendorProducts, getVendors } from "../../services/api";
-import type { VendorProduct, VendorSummary } from "../../types";
+import {
+  getVendorProducts,
+  getVendors,
+  updateVendorSettings
+} from "../../services/api";
+import type { VendorDetails, VendorProduct, VendorSummary } from "../../types";
 import { Pagination } from "../products/Pagination";
 import { VendorProductsTable } from "./VendorProductsTable";
 import { VendorsTable } from "./VendorsTable";
@@ -20,6 +24,9 @@ export function VendorsPage({
 }: VendorsPageProps) {
   const [vendors, setVendors] = useState<VendorSummary[]>([]);
   const [products, setProducts] = useState<VendorProduct[]>([]);
+  const [selectedVendorDetails, setSelectedVendorDetails] =
+    useState<VendorDetails | null>(null);
+  const [buildTimeDraft, setBuildTimeDraft] = useState("");
   const [vendorCurrentPage, setVendorCurrentPage] = useState(1);
   const [vendorSearchInput, setVendorSearchInput] = useState("");
   const [vendorSearchQuery, setVendorSearchQuery] = useState("");
@@ -30,6 +37,9 @@ export function VendorsPage({
   const [productTotalItems, setProductTotalItems] = useState(0);
   const [isVendorsLoading, setIsVendorsLoading] = useState(false);
   const [isProductsLoading, setIsProductsLoading] = useState(false);
+  const [isVendorSettingsSaving, setIsVendorSettingsSaving] = useState(false);
+  const [vendorSettingsStatus, setVendorSettingsStatus] = useState("");
+  const [productRefreshNonce, setProductRefreshNonce] = useState(0);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -92,6 +102,9 @@ export function VendorsPage({
   }, [selectedVendor, vendorCurrentPage, vendorSearchQuery]);
 
   useEffect(() => {
+    setSelectedVendorDetails(null);
+    setBuildTimeDraft("");
+    setVendorSettingsStatus("");
     setProductCurrentPage(1);
     setProductSearchInput("");
     setProductSearchQuery("");
@@ -103,6 +116,7 @@ export function VendorsPage({
     async function loadVendorProducts() {
       if (!selectedVendor) {
         setProducts([]);
+        setSelectedVendorDetails(null);
         setProductTotalItems(0);
         setIsProductsLoading(false);
         return;
@@ -121,6 +135,8 @@ export function VendorsPage({
 
         if (!ignore) {
           setProducts(result.data);
+          setSelectedVendorDetails(result.vendor);
+          setBuildTimeDraft(result.vendor.buildTime || "");
           setProductTotalItems(result.total);
         }
       } catch (err) {
@@ -141,12 +157,60 @@ export function VendorsPage({
     return () => {
       ignore = true;
     };
-  }, [selectedVendor, productCurrentPage, productSearchQuery]);
+  }, [selectedVendor, productCurrentPage, productRefreshNonce, productSearchQuery]);
 
-  const selectedVendorSummary = vendors.find(
-    (vendor) => vendor.id === selectedVendor
-  );
-  const selectedVendorName = selectedVendorSummary?.vendor || selectedVendor;
+  async function saveVendorDetails(nextBuiltToOrder: boolean, nextBuildTime: string) {
+    if (!selectedVendor) {
+      return;
+    }
+
+    setIsVendorSettingsSaving(true);
+    setVendorSettingsStatus("Saving vendor settings...");
+    setError("");
+
+    try {
+      const result = await updateVendorSettings({
+        vendorId: selectedVendor,
+        builtToOrder: nextBuiltToOrder,
+        buildTime: nextBuildTime
+      });
+
+      setSelectedVendorDetails(result);
+      setBuildTimeDraft(result.buildTime || "");
+      setVendorSettingsStatus("Vendor settings saved.");
+      setProductRefreshNonce((current) => current + 1);
+    } catch (err) {
+      setVendorSettingsStatus("");
+      setError(
+        err instanceof Error ? err.message : "Unable to save vendor settings."
+      );
+    } finally {
+      setIsVendorSettingsSaving(false);
+    }
+  }
+
+  function handleBuiltToOrderChange(checked: boolean) {
+    void saveVendorDetails(checked, buildTimeDraft);
+  }
+
+  function handleBuildTimeBlur() {
+    if (!selectedVendorDetails?.builtToOrder) {
+      return;
+    }
+
+    if (buildTimeDraft === selectedVendorDetails.buildTime) {
+      return;
+    }
+
+    void saveVendorDetails(true, buildTimeDraft);
+  }
+
+  const activeVendor: VendorDetails = selectedVendorDetails || {
+    id: selectedVendor,
+    vendor: selectedVendor,
+    builtToOrder: false,
+    buildTime: ""
+  };
 
   return (
     <section className="page" aria-labelledby="vendorsHeading">
@@ -159,11 +223,17 @@ export function VendorsPage({
       {selectedVendor ? (
         <>
           <VendorProductsTable
-            vendor={selectedVendorName}
+            vendor={activeVendor}
             products={products}
             totalItems={productTotalItems}
             searchValue={productSearchInput}
+            buildTimeValue={buildTimeDraft}
+            isSavingSettings={isVendorSettingsSaving}
+            settingsStatus={vendorSettingsStatus}
             onSearchChange={setProductSearchInput}
+            onBuiltToOrderChange={handleBuiltToOrderChange}
+            onBuildTimeChange={setBuildTimeDraft}
+            onBuildTimeBlur={handleBuildTimeBlur}
             onBackToVendors={onBackToVendors}
           />
 

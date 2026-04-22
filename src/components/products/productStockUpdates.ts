@@ -15,7 +15,7 @@ export function applyProductStockUpdate(
           qtyAvailable: productStockUpdate.qtyAvailable,
           availability: productStockUpdate.availability,
           followUpDate:
-            productStockUpdate.availability === "Backorder"
+            productStockUpdate.availability !== "Available"
               ? product.followUpDate
               : ""
         }
