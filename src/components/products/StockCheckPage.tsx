@@ -95,7 +95,7 @@ export function StockCheckPage({
       {isLoading && <p className="status-message">Loading stock check...</p>}
 
       <ProductsTable
-        emptyMessage="No backordered products found."
+        emptyMessage="No backordered or follow-up products found."
         products={products}
         onOpenNotes={onOpenNotes}
       />

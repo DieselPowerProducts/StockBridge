@@ -609,8 +609,7 @@ function mapProduct(
     name: row.name || "",
     qtyAvailable,
     availability,
-    followUpDate:
-      availability !== "Available" ? followUpsBySku?.get(sku) || "" : "",
+    followUpDate: followUpsBySku?.get(sku) || "",
     isKit
   };
 }
@@ -800,6 +799,22 @@ function dedupeAndSortProducts(rows) {
   );
 }
 
+function matchesProductSearch(product, search) {
+  if (!search) {
+    return true;
+  }
+
+  const terms = String(search)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const haystack = [product?.sku, product?.name]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+
+  return terms.every((term) => haystack.includes(term));
+}
+
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = [];
   let nextIndex = 0;
@@ -875,7 +890,7 @@ async function getStockCheckProducts(search) {
     return cached.data;
   }
 
-  const [zeroQtyRows, kitRows] = await Promise.all([
+  const [zeroQtyRows, kitRows, followUpsBySku] = await Promise.all([
     fetchAllProductRows((page) =>
       fetchZeroQtyProductsPage({
         page,
@@ -887,9 +902,15 @@ async function getStockCheckProducts(search) {
         page,
         search: cleanSearch
       })
-    )
+    ),
+    followUpsService.getAllFollowUps()
   ]);
-  const candidateRows = dedupeAndSortProducts([...zeroQtyRows, ...kitRows]);
+  const followUpRows = await fetchProductsBySkus(Array.from(followUpsBySku.keys()));
+  const candidateRows = dedupeAndSortProducts([
+    ...zeroQtyRows,
+    ...kitRows,
+    ...followUpRows
+  ]);
 
   if (candidateRows.length === 0) {
     stockCheckCache.set(cacheKey, {
@@ -906,17 +927,15 @@ async function getStockCheckProducts(search) {
     ),
     buildProductGraph(candidateRows)
   ]);
-  const activeVendorRows = candidateRows.filter((product) =>
-    productVendorAvailability.productIdsWithActiveVendors.has(product.id)
-  );
-  const followUpsBySku = await followUpsService.getFollowUpsForSkus(
-    activeVendorRows.map((product) => product.sku).filter(Boolean)
-  );
-  const data = activeVendorRows
+  const data = candidateRows
     .map((product) =>
       mapProduct(product, productVendorAvailability, followUpsBySku, productGraph)
     )
-    .filter((product) => product.availability !== "Available");
+    .filter(
+      (product) =>
+        product.availability !== "Available" || Boolean(product.followUpDate)
+    )
+    .filter((product) => matchesProductSearch(product, cleanSearch));
 
   stockCheckCache.set(cacheKey, {
     createdAt: Date.now(),

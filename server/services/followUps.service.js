@@ -99,6 +99,20 @@ async function getFollowUpsForSkus(skus) {
   );
 }
 
+async function getAllFollowUps() {
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT sku, follow_up_date::text AS follow_up_date
+    FROM product_follow_ups
+  `;
+
+  return new Map(
+    rows.map((row) => [normalizeSku(row.sku), formatDate(row.follow_up_date)])
+  );
+}
+
 async function getFollowUpForSku(sku) {
   assertSku(sku);
 
@@ -143,6 +157,7 @@ async function setFollowUp({ sku, followUpDate }) {
 }
 
 module.exports = {
+  getAllFollowUps,
   getFollowUpForSku,
   getFollowUpsForSkus,
   setFollowUp

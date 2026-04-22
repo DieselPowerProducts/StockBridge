@@ -77,7 +77,7 @@ export function ProductsTable({
               </td>
               {showFollowUp && (
                 <td>
-                  {product.availability !== "Available"
+                  {product.followUpDate
                     ? formatFollowUpDate(product.followUpDate)
                     : ""}
                 </td>

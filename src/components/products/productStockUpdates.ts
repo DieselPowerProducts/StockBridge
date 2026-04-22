@@ -14,10 +14,7 @@ export function applyProductStockUpdate(
           ...product,
           qtyAvailable: productStockUpdate.qtyAvailable,
           availability: productStockUpdate.availability,
-          followUpDate:
-            productStockUpdate.availability !== "Available"
-              ? product.followUpDate
-              : ""
+          followUpDate: product.followUpDate
         }
       : product
   );
