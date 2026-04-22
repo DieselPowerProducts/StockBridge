@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   createNote,
   deleteNote,
@@ -422,6 +422,18 @@ export function NotesModal({
     void loadProductDetails();
   }
 
+  function handleBackdropClick(event: MouseEvent<HTMLDivElement>) {
+    if (!isRouteMode && event.target === event.currentTarget) {
+      onClose();
+    }
+  }
+
+  function handleKitBackdropClick(event: MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) {
+      setIsKitModalOpen(false);
+    }
+  }
+
   async function handleAllVendorStockChange(enabled: boolean) {
     const vendorsToUpdate = editableVendors.filter(
       (vendor) =>
@@ -513,6 +525,7 @@ export function NotesModal({
       role={isRouteMode ? "region" : "dialog"}
       aria-modal={isRouteMode ? undefined : true}
       aria-labelledby="modalTitle"
+      onClick={handleBackdropClick}
     >
       <div className="modal-content notes-modal-content">
         <header className="notes-modal-header">
@@ -818,6 +831,7 @@ export function NotesModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="kitModalTitle"
+            onClick={handleKitBackdropClick}
           >
             <div className="kit-products-modal">
               <div className="kit-products-modal-header">
