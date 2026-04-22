@@ -1,16 +1,34 @@
 const { getSql } = require("../db/neon");
+const staticUserSeed = require("../data/user-seed");
 
 let schemaReady;
 let notesBackfillReady;
+let staticSeedReady;
 const recentUserTouches = new Map();
 const userTouchTtlMs = 5 * 60 * 1000;
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildSeedSub(email) {
+  return `seed:${normalizeEmail(email)}`;
+}
+
+function isMissingRelationError(error, relationName) {
+  return (
+    error &&
+    typeof error.message === "string" &&
+    error.message.toLowerCase().includes(relationName.toLowerCase())
+  );
+}
 
 function normalizeUser(user) {
   if (!user?.sub || !user?.email) {
     return null;
   }
 
-  const email = String(user.email).trim().toLowerCase();
+  const email = normalizeEmail(user.email);
 
   if (!email) {
     return null;
@@ -32,6 +50,23 @@ function formatUser(row) {
     name: row.name,
     picture: row.picture,
     hd: row.hd
+  });
+}
+
+function normalizeSeedUser(user) {
+  const email = normalizeEmail(user?.email);
+  const name = String(user?.name || "").trim();
+
+  if (!email || !name) {
+    return null;
+  }
+
+  return normalizeUser({
+    sub: buildSeedSub(email),
+    email,
+    name,
+    picture: "",
+    hd: email.split("@")[1] || ""
   });
 }
 
@@ -95,11 +130,7 @@ async function backfillUsersFromNotes() {
           });
         }
       } catch (error) {
-        if (
-          error &&
-          typeof error.message === "string" &&
-          error.message.toLowerCase().includes("product_notes")
-        ) {
+        if (isMissingRelationError(error, "product_notes")) {
           return;
         }
 
@@ -109,6 +140,101 @@ async function backfillUsersFromNotes() {
   }
 
   return notesBackfillReady;
+}
+
+async function updateNotificationRecipients(sql, oldSub, safeUser) {
+  try {
+    await sql`
+      UPDATE product_notifications
+      SET
+        recipient_sub = ${safeUser.sub},
+        recipient_email = ${safeUser.email},
+        recipient_name = ${safeUser.name},
+        recipient_picture = ${safeUser.picture || null}
+      WHERE recipient_sub = ${oldSub}
+    `;
+  } catch (error) {
+    if (isMissingRelationError(error, "product_notifications")) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function findUserByEmail(sql, email) {
+  const rows = await sql`
+    SELECT sub, email, name, picture, hd
+    FROM app_users
+    WHERE lower(email) = lower(${email})
+    LIMIT 1
+  `;
+
+  return rows[0] || null;
+}
+
+async function upsertSeedUser(user) {
+  const safeUser = normalizeSeedUser(user);
+
+  if (!safeUser) {
+    return null;
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const existingByEmail = await findUserByEmail(sql, safeUser.email);
+
+  if (existingByEmail) {
+    if (!String(existingByEmail.sub || "").startsWith("seed:")) {
+      return formatUser(existingByEmail);
+    }
+
+    const rows = await sql`
+      UPDATE app_users
+      SET
+        name = ${safeUser.name},
+        hd = ${safeUser.hd || null},
+        updated_at = now()
+      WHERE sub = ${existingByEmail.sub}
+      RETURNING sub, email, name, picture, hd
+    `;
+
+    return formatUser(rows[0]);
+  }
+
+  const rows = await sql`
+    INSERT INTO app_users (sub, email, name, picture, hd)
+    VALUES (
+      ${safeUser.sub},
+      ${safeUser.email},
+      ${safeUser.name},
+      ${safeUser.picture || null},
+      ${safeUser.hd || null}
+    )
+    ON CONFLICT (sub) DO UPDATE
+    SET email = EXCLUDED.email,
+        name = EXCLUDED.name,
+        hd = EXCLUDED.hd,
+        updated_at = now()
+    RETURNING sub, email, name, picture, hd
+  `;
+
+  return formatUser(rows[0]);
+}
+
+async function ensureStaticSeedUsers() {
+  if (!staticSeedReady) {
+    staticSeedReady = (async () => {
+      await initializeSchema();
+
+      for (const user of staticUserSeed) {
+        await upsertSeedUser(user);
+      }
+    })();
+  }
+
+  return staticSeedReady;
 }
 
 async function upsertUser(user) {
@@ -121,6 +247,43 @@ async function upsertUser(user) {
   await initializeSchema();
 
   const sql = getSql();
+  const existingByEmail = await findUserByEmail(sql, safeUser.email);
+
+  if (existingByEmail && existingByEmail.sub !== safeUser.sub) {
+    const oldSub = String(existingByEmail.sub || "").trim();
+    const existingBySubRows = await sql`
+      SELECT sub
+      FROM app_users
+      WHERE sub = ${safeUser.sub}
+      LIMIT 1
+    `;
+
+    if (existingBySubRows.length > 0) {
+      await updateNotificationRecipients(sql, oldSub, safeUser);
+      await sql`
+        DELETE FROM app_users
+        WHERE sub = ${oldSub}
+      `;
+    } else {
+      const rows = await sql`
+        UPDATE app_users
+        SET
+          sub = ${safeUser.sub},
+          email = ${safeUser.email},
+          name = ${safeUser.name},
+          picture = ${safeUser.picture || null},
+          hd = ${safeUser.hd || null},
+          updated_at = now(),
+          last_seen_at = now()
+        WHERE sub = ${oldSub}
+        RETURNING sub, email, name, picture, hd
+      `;
+
+      await updateNotificationRecipients(sql, oldSub, safeUser);
+      return formatUser(rows[0]);
+    }
+  }
+
   const rows = await sql`
     INSERT INTO app_users (sub, email, name, picture, hd)
     VALUES (
@@ -146,6 +309,7 @@ async function upsertUser(user) {
 async function listUsers() {
   await initializeSchema();
   await backfillUsersFromNotes();
+  await ensureStaticSeedUsers();
 
   const sql = getSql();
   const rows = await sql`
@@ -174,6 +338,7 @@ async function registerAuthenticatedUser(user) {
   recentUserTouches.set(safeUser.sub, now);
 
   try {
+    await ensureStaticSeedUsers();
     return await upsertUser(safeUser);
   } catch (error) {
     recentUserTouches.delete(safeUser.sub);
