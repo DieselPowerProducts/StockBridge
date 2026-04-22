@@ -142,6 +142,16 @@ export function getProductDetails(sku: string) {
   return request<ProductDetails>(`/products/details?${params.toString()}`);
 }
 
+export function refreshProductDetails(sku: string) {
+  return request<ProductDetails>("/products/details/refresh", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sku })
+  });
+}
+
 export function updateProductFollowUp({
   sku,
   followUpDate

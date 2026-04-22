@@ -10,7 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check": "tsc --noEmit",
-    "test": "npm run check && node --check api/index.js && node --check scripts/api-dev-server.js && node --check server/services/auth.service.js && node --check server/middleware/auth.js && node --check server/controllers/auth.controller.js && node --check server/routes/auth.routes.js && node -e \"require('./server/app'); require('./server/db/schema'); require('./server/services/products.service'); require('./server/services/vendors.service'); require('./server/services/notes.service'); require('./server/services/followUps.service'); require('./server/services/auth.service')\""
+    "test": "npm run check && node --check api/index.js && node --check api/cron/catalog-full-sync.js && node --check scripts/api-dev-server.js && node --check server/services/auth.service.js && node --check server/services/catalog.service.js && node --check server/middleware/auth.js && node --check server/controllers/auth.controller.js && node --check server/routes/auth.routes.js && node -e \"require('./server/app'); require('./server/db/schema'); require('./server/services/products.service'); require('./server/services/vendors.service'); require('./server/services/notes.service'); require('./server/services/followUps.service'); require('./server/services/auth.service'); require('./server/services/catalog.service')\""
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

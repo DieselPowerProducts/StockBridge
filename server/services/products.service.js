@@ -1,4 +1,5 @@
 const skunexus = require("./skunexus.service");
+const catalogService = require("./catalog.service");
 const followUpsService = require("./followUps.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
@@ -1042,174 +1043,28 @@ async function getStockCheckProducts({ search, sort = "all", referenceDate = "" 
 }
 
 async function listProducts(queryParams) {
-  const { page, limit } = normalizePaging(queryParams);
-  const search = normalizeSearch(queryParams.search);
-
-  if (!search) {
-    return emptyProductsResponse();
-  }
-
-  const data = await skunexus.query(
-    buildProductsQuery({
-      page,
-      limit,
-      search
-    })
-  );
-  const grid = data?.product?.grid || {};
-  const rows = grid.rows || [];
-  const [productVendorAvailability, productGraph] = await Promise.all([
-    getProductVendorAvailabilityInfo(rows.map((product) => product.id).filter(Boolean)),
-    buildProductGraph(rows)
-  ]);
-
-  return {
-    data: rows.map((product) =>
-      mapProduct(product, productVendorAvailability, undefined, productGraph)
-    ),
-    total: Number(grid.totalSize || 0),
-    totalPages: Number(grid.totalPages || 0),
-    isLastPage: Boolean(grid.isLastPage)
-  };
+  return catalogService.listProducts(queryParams);
 }
 
 async function listStockCheckProducts(queryParams) {
-  const { page, limit } = normalizePaging(queryParams);
-  const products = await getStockCheckProducts({
-    search: queryParams.search,
-    sort: queryParams.sort,
-    referenceDate: queryParams.referenceDate
-  });
-
-  return paginateRows(products, { page, limit });
+  return catalogService.listStockCheckProducts(queryParams);
 }
 
 async function getProductDetails(sku) {
-  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
-  const [vendorProducts, fullProduct, dppWarehouseStockRows, followUpDate] =
-    await Promise.all([
-    fetchVendorProductsForSku(safeSku),
-    fetchProductBySku(safeSku),
-    fetchDppWarehouseStockForSku(safeSku),
-    followUpsService.getFollowUpForSku(safeSku)
-  ]);
-  const relatedProduct = vendorProducts.find((vendorProduct) => vendorProduct.product)?.product;
-  const product =
-    fullProduct ||
-    (relatedProduct && relatedProduct.id
-      ? {
-          id: relatedProduct.id,
-          sku: relatedProduct.sku || safeSku,
-          name: relatedProduct.name || relatedProduct.sku || safeSku
-        }
-      : null);
+  return catalogService.getProductDetails(sku);
+}
 
-  if (!product) {
-    const error = new Error("Product not found.");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  const productGraph = await buildProductGraph([product]);
-  const productNode =
-    productGraph.productsBySku.get(product.sku || safeSku) ||
-    normalizeProductNode(product);
-  const qtyAvailable = productNode
-    ? getEffectiveQtyAvailable(
-        productNode.sku,
-        productGraph.productsBySku,
-        productGraph.qtyCache
-      )
-    : 0;
-  const baseAvailability = qtyAvailable > 0 ? "Available" : "Backorder";
-  const childProducts = buildKitChildProducts(productNode, productGraph);
-
-  const vendorIds = Array.from(
-    new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))
-  );
-  const [vendors, settingsByVendorId] = await Promise.all([
-    fetchVendorsByIds(vendorIds),
-    vendorSettingsService.getVendorSettingsByVendorIds(vendorIds)
-  ]);
-  const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
-  const hasBuiltToOrderVendor = vendorProducts.some((vendorProduct) => {
-    const settings = settingsByVendorId.get(vendorProduct.vendor_id);
-    const vendor = vendorsById.get(vendorProduct.vendor_id);
-
-    return Boolean(
-      vendorProduct.vendor_id &&
-        settings?.builtToOrder &&
-        isActiveVendor(vendor)
-    );
-  });
-  const availability =
-    baseAvailability === "Available"
-      ? "Available"
-      : getUnavailableAvailability(hasBuiltToOrderVendor);
-  const assignedVendors = vendorProducts
-    .filter((vendorProduct) => vendorProduct.id && vendorProduct.vendor_id)
-    .map((vendorProduct) => {
-      const vendor = vendorsById.get(vendorProduct.vendor_id);
-      const settings = settingsByVendorId.get(vendorProduct.vendor_id);
-
-      return {
-        id: vendorProduct.vendor_id,
-        vendorProductId: vendorProduct.id,
-        name: vendor?.name || vendor?.label || vendorProduct.vendor_id,
-        quantity: Number(vendorProduct.quantity || 0),
-        stockSource: "vendor",
-        stockType: "VENDOR",
-        canUpdateStock: !settings?.builtToOrder,
-        builtToOrder: Boolean(settings?.builtToOrder),
-        buildTime: String(settings?.buildTime || "")
-      };
-    });
-  const dppWarehouseStock = dppWarehouseStockRows.reduce(
-    (summary, row) => ({
-      id: row.location?.warehouse?.id || summary.id,
-      quantity: summary.quantity + Number(row.qty_available || 0)
-    }),
-    { id: "", quantity: 0 }
-  );
-  const assignedStockSources = [
-    ...assignedVendors,
-    ...(dppWarehouseStockRows.length > 0
-      ? [
-          {
-            id: dppWarehouseStock.id || dppWarehouseLabel,
-            vendorProductId: `warehouse:${dppWarehouseStock.id || dppWarehouseLabel}`,
-            name: dppWarehouseLabel,
-            quantity: dppWarehouseStock.quantity,
-            stockSource: "warehouse",
-            stockType: dppWarehouseStockType,
-            canUpdateStock: false,
-            builtToOrder: false,
-            buildTime: ""
-          }
-        ]
-      : [])
-  ]
-    .sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-    );
-
-  return {
-    id: product.id,
-    sku: product.sku || safeSku,
-    name: product.name || product.sku || safeSku,
-    qtyAvailable,
-    availability,
-    isKit: Boolean(productNode?.is_kit),
-    followUpDate,
-    childProducts,
-    vendors: assignedStockSources
-  };
+async function refreshProductDetails(sku) {
+  await catalogService.refreshProductBySku(sku);
+  stockCheckCache.clear();
+  return catalogService.getProductDetails(sku);
 }
 
 async function setProductFollowUp({ sku, followUpDate }) {
   const result = await followUpsService.setFollowUp({ sku, followUpDate });
 
   stockCheckCache.clear();
+  catalogService.clearCaches();
 
   return result;
 }
@@ -1292,6 +1147,12 @@ async function setProductVendorStock({
   );
 
   stockCheckCache.clear();
+  try {
+    await catalogService.refreshProductBySku(product.sku || safeSku);
+  } catch (error) {
+    console.error("Unable to refresh cached product after vendor stock update.", error);
+    catalogService.clearCaches();
+  }
 
   return {
     sku: product.sku || safeSku,
@@ -1304,6 +1165,7 @@ async function setProductVendorStock({
 
 function clearProductCaches() {
   stockCheckCache.clear();
+  catalogService.clearCaches();
 }
 
 module.exports = {
@@ -1311,6 +1173,7 @@ module.exports = {
   getProductDetails,
   listProducts,
   listStockCheckProducts,
+  refreshProductDetails,
   setProductFollowUp,
   setProductVendorStock
 };

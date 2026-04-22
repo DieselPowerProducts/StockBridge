@@ -1,4 +1,5 @@
 const skunexus = require("./skunexus.service");
+const catalogService = require("./catalog.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
 const vendorCacheTtlMs = 5 * 60 * 1000;
@@ -246,7 +247,7 @@ async function getVendorSummaries(queryParams) {
 }
 
 async function listVendors(queryParams = {}) {
-  return getVendorSummaries(queryParams);
+  return catalogService.listVendors(queryParams);
 }
 
 async function getVendorDetails(vendorId) {
@@ -433,42 +434,7 @@ async function mapVendorProducts(rows) {
 }
 
 async function listVendorProducts(vendorId, queryParams = {}) {
-  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
-  const { page, limit } = normalizePaging(queryParams);
-  const search = normalizeSearch(queryParams.search);
-  const vendor = await getVendorDetails(safeVendorId);
-
-  if (search) {
-    const rows = await fetchAllVendorProducts(safeVendorId);
-    const filteredRows = rows.filter((row) =>
-      matchesSearch(
-        [row.sku, row.label, row.product?.sku, row.product?.name],
-        search
-      )
-    );
-    const pageResult = paginateRows(filteredRows, { page, limit });
-
-    return {
-      ...pageResult,
-      vendor,
-      data: await mapVendorProducts(pageResult.data)
-    };
-  }
-
-  const grid = await fetchVendorProductsPage({
-    page,
-    limit,
-    vendorId: safeVendorId
-  });
-  const rows = grid.rows || [];
-
-  return {
-    vendor,
-    data: await mapVendorProducts(rows),
-    total: Number(grid.totalSize || 0),
-    totalPages: Number(grid.totalPages || 0),
-    isLastPage: Boolean(grid.isLastPage)
-  };
+  return catalogService.listVendorProducts(vendorId, queryParams);
 }
 
 async function updateVendorSettings(vendorId, settings) {

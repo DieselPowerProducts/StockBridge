@@ -45,10 +45,20 @@ async function updateProductVendorStock(req, res, next) {
   }
 }
 
+async function refreshProductDetails(req, res, next) {
+  try {
+    const result = await productsService.refreshProductDetails(req.body?.sku);
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getProductDetails,
   listProducts,
   listStockCheckProducts,
+  refreshProductDetails,
   updateProductFollowUp,
   updateProductVendorStock
 };

@@ -6,8 +6,17 @@
   "functions": {
     "api/index.js": {
       "includeFiles": "server/**"
+    },
+    "api/cron/catalog-full-sync.js": {
+      "includeFiles": "server/**"
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron/catalog-full-sync",
+      "schedule": "0 * * * *"
+    }
+  ],
   "routes": [
     {
       "handle": "filesystem"

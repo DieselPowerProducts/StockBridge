@@ -1,0 +1,2259 @@
+const { getSql } = require("../db/neon");
+const followUpsService = require("./followUps.service");
+const skunexus = require("./skunexus.service");
+const vendorSettingsService = require("./vendorSettings.service");
+
+const fullSyncPageSize = 1000;
+const productFetchConcurrency = 4;
+const stockCheckCacheTtlMs = 5 * 60 * 1000;
+const dppWarehouseLabel = "DPP Warehouse";
+const dppWarehouseStockType = "WAREHOUSE";
+const syncTimezone = process.env.CATALOG_SYNC_TIMEZONE || "America/Los_Angeles";
+const stockCheckSortValues = new Set(["all", "yesterday", "today", "tomorrow"]);
+const productSelectionFields = `
+  id
+  sku
+  name
+  qty_available
+  is_kit
+  relatedProduct {
+    sku
+    name
+    qty
+  }
+`;
+
+let schemaReady;
+let fullSyncPromise = null;
+let seedPromise = null;
+const productRefreshPromises = new Map();
+const stockCheckCache = new Map();
+
+function normalizePaging({ page = 1, limit = 50 } = {}) {
+  return {
+    page: Math.max(Number.parseInt(page, 10) || 1, 1),
+    limit: Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 100)
+  };
+}
+
+function normalizeSearch(search) {
+  return String(search || "").trim();
+}
+
+function normalizeStockCheckSort(sort) {
+  const normalized = String(sort || "all").trim().toLowerCase();
+  return stockCheckSortValues.has(normalized) ? normalized : "all";
+}
+
+function normalizeDateText(value) {
+  const normalized = String(value || "").trim();
+
+  if (!normalized) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const error = new Error("Reference date must use YYYY-MM-DD format.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
+}
+
+function normalizeRequiredString(value, message) {
+  const normalized = String(value || "").trim();
+
+  if (!normalized) {
+    const error = new Error(message);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
+}
+
+function parseDateText(value) {
+  const [year, month, day] = String(value).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== String(value)
+  ) {
+    const error = new Error("Reference date is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return date;
+}
+
+function formatDateText(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysToDateText(value, days) {
+  const date = parseDateText(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return formatDateText(date);
+}
+
+function emptyProductsResponse() {
+  return {
+    data: [],
+    total: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
+}
+
+function paginateRows(rows, { page, limit }) {
+  const total = rows.length;
+  const totalPages = Math.ceil(total / limit);
+  const start = (page - 1) * limit;
+
+  return {
+    data: rows.slice(start, start + limit),
+    total,
+    totalPages,
+    isLastPage: totalPages === 0 || page >= totalPages
+  };
+}
+
+function graphqlString(value) {
+  return JSON.stringify(String(value || ""));
+}
+
+function graphqlStringList(values) {
+  return values.map(graphqlString).join(", ");
+}
+
+function normalizeKitChild(row) {
+  const sku = String(row?.sku || "").trim();
+
+  if (!sku) {
+    return null;
+  }
+
+  return {
+    sku,
+    name: row?.name || sku,
+    qty: Math.max(Number(row?.qty || row?.qty_required || 0), 1)
+  };
+}
+
+function normalizeProductNode(row) {
+  const sku = String(row?.sku || "").trim();
+
+  if (!sku) {
+    return null;
+  }
+
+  return {
+    id: row?.id || row?.product_id || "",
+    sku,
+    name: row?.name || sku,
+    qty_available: Math.max(Number(row?.qty_available || 0), 0),
+    is_kit: Boolean(row?.is_kit),
+    relatedProduct: (row?.relatedProduct || [])
+      .map(normalizeKitChild)
+      .filter(Boolean)
+  };
+}
+
+function getKitChildSkus(products) {
+  return Array.from(
+    new Set(
+      products.flatMap((product) =>
+        (product?.relatedProduct || []).map((child) => child.sku).filter(Boolean)
+      )
+    )
+  );
+}
+
+function getUnavailableAvailability(hasBuiltToOrderVendor) {
+  return hasBuiltToOrderVendor ? "Built to Order" : "Backorder";
+}
+
+function mapAvailability(qtyAvailable, hasActiveVendor, hasBuiltToOrderVendor = false) {
+  if (Number(qtyAvailable || 0) > 0 || !hasActiveVendor) {
+    return "Available";
+  }
+
+  return getUnavailableAvailability(hasBuiltToOrderVendor);
+}
+
+function isActiveVendor(vendor) {
+  return Number(vendor?.status || 0) >= 2;
+}
+
+function getEffectiveQtyAvailable(
+  sku,
+  productsBySku,
+  qtyCache = new Map(),
+  visiting = new Set()
+) {
+  const safeSku = String(sku || "").trim();
+
+  if (!safeSku) {
+    return 0;
+  }
+
+  if (qtyCache.has(safeSku)) {
+    return qtyCache.get(safeSku);
+  }
+
+  const product = productsBySku.get(safeSku);
+
+  if (!product) {
+    qtyCache.set(safeSku, 0);
+    return 0;
+  }
+
+  if (!product.is_kit || product.relatedProduct.length === 0) {
+    const qtyAvailable = product.is_kit ? 0 : product.qty_available;
+    qtyCache.set(safeSku, qtyAvailable);
+    return qtyAvailable;
+  }
+
+  if (visiting.has(safeSku)) {
+    qtyCache.set(safeSku, 0);
+    return 0;
+  }
+
+  visiting.add(safeSku);
+  const childQtyAvailable = product.relatedProduct.map((child) => {
+    const requiredQty = Math.max(Number(child.qty || 0), 1);
+    const childQty = getEffectiveQtyAvailable(
+      child.sku,
+      productsBySku,
+      qtyCache,
+      visiting
+    );
+
+    return Math.floor(childQty / requiredQty);
+  });
+  visiting.delete(safeSku);
+
+  const qtyAvailable =
+    childQtyAvailable.length > 0 ? Math.min(...childQtyAvailable) : 0;
+  qtyCache.set(safeSku, qtyAvailable);
+
+  return qtyAvailable;
+}
+
+function matchesProductSearch(product, search) {
+  if (!search) {
+    return true;
+  }
+
+  const terms = String(search)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const haystack = [product?.sku, product?.name]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+
+  return terms.every((term) => haystack.includes(term));
+}
+
+function compareStockCheckProducts(left, right) {
+  const leftDate = String(left?.followUpDate || "");
+  const rightDate = String(right?.followUpDate || "");
+
+  if (leftDate && rightDate && leftDate !== rightDate) {
+    return leftDate.localeCompare(rightDate);
+  }
+
+  if (leftDate && !rightDate) {
+    return -1;
+  }
+
+  if (!leftDate && rightDate) {
+    return 1;
+  }
+
+  return String(left?.sku || "").localeCompare(String(right?.sku || ""), undefined, {
+    sensitivity: "base"
+  });
+}
+
+function filterStockCheckProducts(products, sort, referenceDate) {
+  if (sort === "all") {
+    return [...products].sort(compareStockCheckProducts);
+  }
+
+  const offsetBySort = {
+    yesterday: -1,
+    today: 0,
+    tomorrow: 1
+  };
+  const targetDate = addDaysToDateText(referenceDate, offsetBySort[sort] || 0);
+
+  return products
+    .filter((product) => product.followUpDate === targetDate)
+    .sort(compareStockCheckProducts);
+}
+
+function getTimeZoneDateParts(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    hourCycle: "h23"
+  });
+  const parts = formatter.formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return {
+    localDate: `${byType.year}-${byType.month}-${byType.day}`,
+    localHour: Number.parseInt(byType.hour || "0", 10) || 0
+  };
+}
+
+function flattenProductComponents(products) {
+  return products.flatMap((product) =>
+    (product?.relatedProduct || [])
+      .map(normalizeKitChild)
+      .filter(Boolean)
+      .map((child) => ({
+        parent_product_id: String(product.id || product.product_id || "").trim(),
+        child_sku: child.sku,
+        child_name: child.name || child.sku,
+        qty_required: Math.max(Number(child.qty || 0), 1)
+      }))
+  );
+}
+
+function dedupeRows(rows, keySelector) {
+  const rowsByKey = new Map();
+
+  for (const row of rows) {
+    const key = String(keySelector(row) || "").trim();
+
+    if (key) {
+      rowsByKey.set(key, row);
+    }
+  }
+
+  return Array.from(rowsByKey.values());
+}
+
+function normalizeProductRow(row) {
+  return {
+    product_id: String(row?.id || row?.product_id || "").trim(),
+    sku: String(row?.sku || "").trim(),
+    name: String(row?.name || "").trim(),
+    qty_available: Math.max(Number(row?.qty_available || 0), 0),
+    is_kit: Boolean(row?.is_kit),
+    relatedProduct: Array.isArray(row?.relatedProduct) ? row.relatedProduct : []
+  };
+}
+
+function normalizeVendorRow(row) {
+  return {
+    vendor_id: String(row?.id || row?.vendor_id || "").trim(),
+    name: String(row?.name || "").trim(),
+    label: String(row?.label || "").trim(),
+    status: Number.parseInt(String(row?.status || 0), 10) || 0
+  };
+}
+
+function normalizeVendorProductRow(row) {
+  return {
+    vendor_product_id: String(row?.id || row?.vendor_product_id || "").trim(),
+    vendor_id: String(row?.vendor_id || "").trim(),
+    product_id: String(row?.product_id || "").trim(),
+    sku: String(row?.sku || "").trim(),
+    label: String(row?.label || "").trim(),
+    quantity: Number(row?.quantity || 0),
+    status:
+      row?.status === null || row?.status === undefined || row?.status === ""
+        ? null
+        : Number(row.status),
+    price:
+      row?.price === null || row?.price === undefined || row?.price === ""
+        ? null
+        : Number(row.price)
+  };
+}
+
+function aggregateWarehouseStockRows(rows) {
+  const aggregated = new Map();
+
+  for (const row of rows) {
+    const productId = String(row?.product?.id || row?.product_id || "").trim();
+
+    if (!productId) {
+      continue;
+    }
+
+    const existing = aggregated.get(productId) || {
+      product_id: productId,
+      stock_id: String(row?.id || "").trim(),
+      warehouse_label:
+        String(row?.location?.warehouse?.label || row?.warehouse_label || "").trim() ||
+        dppWarehouseLabel,
+      stock_type: String(row?.type || row?.stock_type || "").trim() || dppWarehouseStockType,
+      qty: 0,
+      qty_available: 0
+    };
+
+    existing.qty += Number(row?.qty || 0);
+    existing.qty_available += Number(row?.qty_available || 0);
+
+    if (!existing.stock_id) {
+      existing.stock_id = String(row?.id || "").trim();
+    }
+
+    aggregated.set(productId, existing);
+  }
+
+  return Array.from(aggregated.values());
+}
+
+async function initializeSchema() {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      await vendorSettingsService.initializeSchema();
+      const sql = getSql();
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS catalog_products (
+          product_id TEXT PRIMARY KEY,
+          sku TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL DEFAULT '',
+          qty_available INTEGER NOT NULL DEFAULT 0,
+          is_kit BOOLEAN NOT NULL DEFAULT FALSE,
+          last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_products_sku_idx
+        ON catalog_products (sku)
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_products_name_idx
+        ON catalog_products (name)
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS catalog_product_components (
+          parent_product_id TEXT NOT NULL,
+          child_sku TEXT NOT NULL,
+          child_name TEXT NOT NULL DEFAULT '',
+          qty_required INTEGER NOT NULL DEFAULT 1,
+          last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (parent_product_id, child_sku)
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_product_components_parent_idx
+        ON catalog_product_components (parent_product_id)
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_product_components_child_idx
+        ON catalog_product_components (child_sku)
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS catalog_vendors (
+          vendor_id TEXT PRIMARY KEY,
+          name TEXT NOT NULL DEFAULT '',
+          label TEXT NOT NULL DEFAULT '',
+          status INTEGER NOT NULL DEFAULT 0,
+          last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_vendors_name_idx
+        ON catalog_vendors (name)
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS catalog_vendor_products (
+          vendor_product_id TEXT PRIMARY KEY,
+          vendor_id TEXT NOT NULL,
+          product_id TEXT NOT NULL,
+          sku TEXT NOT NULL DEFAULT '',
+          label TEXT NOT NULL DEFAULT '',
+          quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+          status DOUBLE PRECISION,
+          price DOUBLE PRECISION,
+          last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_vendor_products_vendor_idx
+        ON catalog_vendor_products (vendor_id)
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_vendor_products_product_idx
+        ON catalog_vendor_products (product_id)
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_vendor_products_sku_idx
+        ON catalog_vendor_products (sku)
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS catalog_warehouse_stock (
+          product_id TEXT PRIMARY KEY,
+          stock_id TEXT NOT NULL DEFAULT '',
+          warehouse_label TEXT NOT NULL DEFAULT '',
+          stock_type TEXT NOT NULL DEFAULT '',
+          qty DOUBLE PRECISION NOT NULL DEFAULT 0,
+          qty_available DOUBLE PRECISION NOT NULL DEFAULT 0,
+          last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS catalog_sync_state (
+          sync_key TEXT PRIMARY KEY,
+          sync_value TEXT NOT NULL DEFAULT '',
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
+    })();
+  }
+
+  return schemaReady;
+}
+
+async function getSyncState(key) {
+  await initializeSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT sync_value
+    FROM catalog_sync_state
+    WHERE sync_key = ${key}
+  `;
+
+  return String(rows[0]?.sync_value || "");
+}
+
+async function setSyncState(key, value) {
+  await initializeSchema();
+  const sql = getSql();
+
+  await sql`
+    INSERT INTO catalog_sync_state (sync_key, sync_value)
+    VALUES (${key}, ${String(value || "")})
+    ON CONFLICT (sync_key) DO UPDATE
+    SET sync_value = EXCLUDED.sync_value,
+        updated_at = now()
+  `;
+}
+
+async function getCatalogProductCount() {
+  await initializeSchema();
+  const sql = getSql();
+  const rows = await sql`SELECT COUNT(*)::int AS count FROM catalog_products`;
+  return Number(rows[0]?.count || 0);
+}
+
+function buildTermsSearchClause(params, terms, expressions) {
+  if (terms.length === 0) {
+    return "";
+  }
+
+  const index = params.length + 1;
+  params.push(JSON.stringify(terms));
+  const haystackClause = expressions
+    .map((expression) => `lower(coalesce(${expression}, '')) LIKE '%' || lower(term.value) || '%'`)
+    .join(" OR ");
+
+  return `
+    AND NOT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements_text($${index}::jsonb) AS term(value)
+      WHERE NOT (${haystackClause})
+    )
+  `;
+}
+
+function getSearchTerms(search) {
+  return normalizeSearch(search)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+async function queryProductsPage({ page, limit, search }) {
+  const sql = getSql();
+  const offset = (page - 1) * limit;
+  const terms = getSearchTerms(search);
+  const baseParams = [];
+  const whereClause = buildTermsSearchClause(baseParams, terms, ["p.sku", "p.name"]);
+  const countRows = await sql.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM catalog_products p
+      WHERE 1 = 1
+      ${whereClause}
+    `,
+    baseParams
+  );
+  const total = Number(countRows[0]?.count || 0);
+  const dataParams = [...baseParams, limit, offset];
+  const rows = await sql.query(
+    `
+      SELECT
+        p.product_id AS id,
+        p.sku,
+        p.name,
+        p.qty_available,
+        p.is_kit
+      FROM catalog_products p
+      WHERE 1 = 1
+      ${whereClause}
+      ORDER BY p.sku ASC
+      LIMIT $${dataParams.length - 1}
+      OFFSET $${dataParams.length}
+    `,
+    dataParams
+  );
+
+  return {
+    data: rows,
+    total,
+    totalPages: Math.ceil(total / limit),
+    isLastPage: total === 0 || page >= Math.ceil(total / limit)
+  };
+}
+
+async function queryAllVendors() {
+  const sql = getSql();
+  return sql`
+    SELECT vendor_id, name, label, status
+    FROM catalog_vendors
+    ORDER BY COALESCE(NULLIF(name, ''), label, vendor_id) ASC
+  `;
+}
+
+async function queryVendorById(vendorId) {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT vendor_id, name, label, status
+    FROM catalog_vendors
+    WHERE vendor_id = ${vendorId}
+    LIMIT 1
+  `;
+
+  return rows[0] || null;
+}
+
+async function queryVendorProductsPage({ vendorId, page, limit, search }) {
+  const sql = getSql();
+  const offset = (page - 1) * limit;
+  const terms = getSearchTerms(search);
+  const baseParams = [vendorId];
+  const searchClause = buildTermsSearchClause(baseParams, terms, [
+    "vp.sku",
+    "vp.label",
+    "p.sku",
+    "p.name"
+  ]);
+  const countRows = await sql.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM catalog_vendor_products vp
+      LEFT JOIN catalog_products p
+        ON p.product_id = vp.product_id
+      WHERE vp.vendor_id = $1
+      ${searchClause}
+    `,
+    baseParams
+  );
+  const total = Number(countRows[0]?.count || 0);
+  const dataParams = [...baseParams, limit, offset];
+  const rows = await sql.query(
+    `
+      SELECT
+        vp.vendor_product_id,
+        vp.vendor_id,
+        vp.product_id,
+        vp.sku,
+        vp.label,
+        vp.quantity,
+        p.sku AS product_sku,
+        p.name AS product_name,
+        p.qty_available
+      FROM catalog_vendor_products vp
+      LEFT JOIN catalog_products p
+        ON p.product_id = vp.product_id
+      WHERE vp.vendor_id = $1
+      ${searchClause}
+      ORDER BY COALESCE(NULLIF(p.sku, ''), vp.sku, vp.label, vp.vendor_product_id) ASC
+      LIMIT $${dataParams.length - 1}
+      OFFSET $${dataParams.length}
+    `,
+    dataParams
+  );
+
+  return {
+    data: rows,
+    total,
+    totalPages: Math.ceil(total / limit),
+    isLastPage: total === 0 || page >= Math.ceil(total / limit)
+  };
+}
+
+async function queryProductsBySkus(skus) {
+  const uniqueSkus = Array.from(
+    new Set((skus || []).map((sku) => String(sku || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueSkus.length === 0) {
+    return [];
+  }
+
+  const sql = getSql();
+  const skuJson = JSON.stringify(uniqueSkus);
+
+  return sql.query(
+    `
+      SELECT
+        product_id AS id,
+        sku,
+        name,
+        qty_available,
+        is_kit
+      FROM catalog_products
+      WHERE sku IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [skuJson]
+  );
+}
+
+async function queryProductsByIds(productIds) {
+  const uniqueIds = Array.from(
+    new Set((productIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const sql = getSql();
+  const idJson = JSON.stringify(uniqueIds);
+
+  return sql.query(
+    `
+      SELECT
+        product_id AS id,
+        sku,
+        name,
+        qty_available,
+        is_kit
+      FROM catalog_products
+      WHERE product_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [idJson]
+  );
+}
+
+async function queryProductBySku(sku) {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      product_id AS id,
+      sku,
+      name,
+      qty_available,
+      is_kit
+    FROM catalog_products
+    WHERE sku = ${sku}
+    LIMIT 1
+  `;
+
+  return rows[0] || null;
+}
+
+async function queryAllProducts() {
+  const sql = getSql();
+  return sql`
+    SELECT
+      product_id AS id,
+      sku,
+      name,
+      qty_available,
+      is_kit
+    FROM catalog_products
+    ORDER BY sku ASC
+  `;
+}
+
+async function queryComponentsByParentIds(productIds) {
+  const uniqueIds = Array.from(
+    new Set((productIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const sql = getSql();
+  const idJson = JSON.stringify(uniqueIds);
+
+  return sql.query(
+    `
+      SELECT
+        parent_product_id,
+        child_sku,
+        child_name,
+        qty_required
+      FROM catalog_product_components
+      WHERE parent_product_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [idJson]
+  );
+}
+
+async function queryAllComponents() {
+  const sql = getSql();
+  return sql`
+    SELECT
+      parent_product_id,
+      child_sku,
+      child_name,
+      qty_required
+    FROM catalog_product_components
+  `;
+}
+
+async function queryVendorProductsByProductId(productId) {
+  const sql = getSql();
+  return sql`
+    SELECT
+      vendor_product_id AS id,
+      vendor_id,
+      product_id,
+      sku,
+      label,
+      quantity,
+      status,
+      price
+    FROM catalog_vendor_products
+    WHERE product_id = ${productId}
+    ORDER BY COALESCE(NULLIF(sku, ''), label, vendor_product_id) ASC
+  `;
+}
+
+async function queryVendorsByIds(vendorIds) {
+  const uniqueIds = Array.from(
+    new Set((vendorIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const sql = getSql();
+  const idJson = JSON.stringify(uniqueIds);
+
+  return sql.query(
+    `
+      SELECT vendor_id AS id, name, label, status
+      FROM catalog_vendors
+      WHERE vendor_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [idJson]
+  );
+}
+
+async function queryWarehouseStockByProductId(productId) {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      product_id,
+      stock_id,
+      warehouse_label,
+      stock_type,
+      qty,
+      qty_available
+    FROM catalog_warehouse_stock
+    WHERE product_id = ${productId}
+    LIMIT 1
+  `;
+
+  return rows[0] || null;
+}
+
+async function queryVendorAvailabilityRows(productIds) {
+  const sql = getSql();
+
+  if (!productIds) {
+    return sql`
+      SELECT
+        vp.product_id,
+        vp.vendor_id,
+        v.status,
+        COALESCE(vs.built_to_order, FALSE) AS built_to_order
+      FROM catalog_vendor_products vp
+      JOIN catalog_vendors v
+        ON v.vendor_id = vp.vendor_id
+      LEFT JOIN vendor_settings vs
+        ON vs.vendor_id = vp.vendor_id
+    `;
+  }
+
+  const uniqueIds = Array.from(
+    new Set((productIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const idJson = JSON.stringify(uniqueIds);
+
+  return sql.query(
+    `
+      SELECT
+        vp.product_id,
+        vp.vendor_id,
+        v.status,
+        COALESCE(vs.built_to_order, FALSE) AS built_to_order
+      FROM catalog_vendor_products vp
+      JOIN catalog_vendors v
+        ON v.vendor_id = vp.vendor_id
+      LEFT JOIN vendor_settings vs
+        ON vs.vendor_id = vp.vendor_id
+      WHERE vp.product_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [idJson]
+  );
+}
+
+function attachComponentsToProducts(products, componentRows) {
+  const componentsByProductId = new Map();
+
+  for (const row of componentRows) {
+    const parentProductId = String(row?.parent_product_id || "").trim();
+    const childSku = String(row?.child_sku || "").trim();
+
+    if (!parentProductId || !childSku) {
+      continue;
+    }
+
+    const items = componentsByProductId.get(parentProductId) || [];
+
+    items.push({
+      sku: childSku,
+      name: String(row?.child_name || row?.child_sku || "").trim(),
+      qty: Math.max(Number(row?.qty_required || 0), 1)
+    });
+    componentsByProductId.set(parentProductId, items);
+  }
+
+  return products.map((product) => ({
+    ...product,
+    relatedProduct: componentsByProductId.get(String(product?.id || "").trim()) || []
+  }));
+}
+
+async function enrichProductsWithComponents(products) {
+  if (products.length === 0) {
+    return [];
+  }
+
+  const componentRows = await queryComponentsByParentIds(
+    products.map((product) => product.id).filter(Boolean)
+  );
+
+  return attachComponentsToProducts(products, componentRows);
+}
+
+async function buildProductGraph(rows) {
+  const productsBySku = new Map();
+  let nextRows = await enrichProductsWithComponents(rows);
+
+  while (nextRows.length > 0) {
+    for (const row of nextRows) {
+      const product = normalizeProductNode(row);
+
+      if (product) {
+        productsBySku.set(product.sku, product);
+      }
+    }
+
+    const nextSkus = getKitChildSkus(nextRows).filter((sku) => !productsBySku.has(sku));
+
+    if (nextSkus.length === 0) {
+      break;
+    }
+
+    const fetchedRows = await queryProductsBySkus(nextSkus);
+
+    if (fetchedRows.length === 0) {
+      break;
+    }
+
+    nextRows = await enrichProductsWithComponents(fetchedRows);
+  }
+
+  return {
+    productsBySku,
+    qtyCache: new Map()
+  };
+}
+
+async function buildFullProductGraph() {
+  const [products, components] = await Promise.all([queryAllProducts(), queryAllComponents()]);
+  const productsWithComponents = attachComponentsToProducts(products, components);
+
+  return {
+    rows: productsWithComponents,
+    graph: {
+      productsBySku: new Map(
+        productsWithComponents
+          .map(normalizeProductNode)
+          .filter(Boolean)
+          .map((product) => [product.sku, product])
+      ),
+      qtyCache: new Map()
+    }
+  };
+}
+
+function buildProductVendorAvailability(rows) {
+  const productIdsWithActiveVendors = new Set();
+  const productIdsWithBuiltToOrderVendors = new Set();
+
+  for (const row of rows) {
+    if (!row?.product_id || !isActiveVendor(row)) {
+      continue;
+    }
+
+    productIdsWithActiveVendors.add(row.product_id);
+
+    if (Boolean(row?.built_to_order)) {
+      productIdsWithBuiltToOrderVendors.add(row.product_id);
+    }
+  }
+
+  return {
+    productIdsWithActiveVendors,
+    productIdsWithBuiltToOrderVendors
+  };
+}
+
+async function getProductVendorAvailabilityInfo(productIds) {
+  const rows = await queryVendorAvailabilityRows(productIds);
+  return buildProductVendorAvailability(rows);
+}
+
+function mapProduct(
+  row,
+  productVendorAvailability,
+  followUpsBySku,
+  { productsBySku = new Map(), qtyCache = new Map() } = {}
+) {
+  const normalizedRow = normalizeProductNode(row);
+  const sku = normalizedRow?.sku || row?.sku || "";
+  const product = normalizedRow?.sku
+    ? productsBySku.get(normalizedRow.sku) || normalizedRow
+    : null;
+  const isKit = Boolean(product?.is_kit);
+  const hasActiveVendor = productVendorAvailability.productIdsWithActiveVendors.has(row.id);
+  const hasBuiltToOrderVendor =
+    productVendorAvailability.productIdsWithBuiltToOrderVendors.has(row.id);
+  const qtyAvailable = isKit
+    ? getEffectiveQtyAvailable(sku, productsBySku, qtyCache)
+    : Math.max(Number(row?.qty_available || 0), 0);
+  const availability = isKit
+    ? qtyAvailable > 0
+      ? "Available"
+      : getUnavailableAvailability(hasBuiltToOrderVendor)
+    : mapAvailability(qtyAvailable, hasActiveVendor, hasBuiltToOrderVendor);
+
+  return {
+    id: row.id,
+    sku,
+    name: row.name || "",
+    qtyAvailable,
+    availability,
+    followUpDate: followUpsBySku?.get(sku) || "",
+    isKit
+  };
+}
+
+function buildKitChildProducts(product, productGraph) {
+  if (!product?.is_kit) {
+    return [];
+  }
+
+  return product.relatedProduct.map((child) => {
+    const childProduct = productGraph.productsBySku.get(child.sku);
+    const qtyAvailable = getEffectiveQtyAvailable(
+      child.sku,
+      productGraph.productsBySku,
+      productGraph.qtyCache
+    );
+
+    return {
+      sku: child.sku,
+      name: childProduct?.name || child.name || child.sku,
+      qtyRequired: Math.max(Number(child.qty || 0), 1),
+      qtyAvailable,
+      availability: qtyAvailable > 0 ? "Available" : "Backorder",
+      isKit: Boolean(childProduct?.is_kit)
+    };
+  });
+}
+
+async function ensureCatalogReady() {
+  await initializeSchema();
+
+  if (!seedPromise) {
+    seedPromise = (async () => {
+      const productCount = await getCatalogProductCount();
+
+      if (productCount > 0) {
+        return;
+      }
+
+      await runFullSync({ reason: "initial-seed" });
+    })().finally(() => {
+      seedPromise = null;
+    });
+  }
+
+  return seedPromise;
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = [];
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker()
+  );
+
+  await Promise.all(workers);
+  return results;
+}
+
+async function fetchAllPages(fetchPage) {
+  const firstPage = await fetchPage(1);
+  const totalPages = Math.max(Number(firstPage.totalPages || 1), 1);
+  const rows = [...(firstPage.rows || [])];
+
+  if (totalPages > 1) {
+    const remainingPages = Array.from({ length: totalPages - 1 }, (_, index) => index + 2);
+    const remainingResults = await mapWithConcurrency(
+      remainingPages,
+      productFetchConcurrency,
+      (page) => fetchPage(page)
+    );
+
+    for (const grid of remainingResults) {
+      rows.push(...(grid.rows || []));
+    }
+  }
+
+  return rows;
+}
+
+async function fetchProductsPageFromSkuNexus(page) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      product {
+        grid(
+          sort: { sku: ASC }
+          limit: { size: ${fullSyncPageSize}, page: ${page} }
+        ) {
+          totalSize
+          totalPages
+          isLastPage
+          rows {
+            ${productSelectionFields}
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.product?.grid || {
+    rows: [],
+    totalSize: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
+}
+
+async function fetchVendorsPageFromSkuNexus(page) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      vendor {
+        grid(
+          sort: { name: ASC }
+          limit: { size: ${fullSyncPageSize}, page: ${page} }
+        ) {
+          totalSize
+          totalPages
+          isLastPage
+          rows {
+            id
+            name
+            label
+            status
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.vendor?.grid || {
+    rows: [],
+    totalSize: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
+}
+
+async function fetchVendorProductsPageFromSkuNexus(page) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      vendorProduct {
+        grid(
+          sort: { sku: ASC }
+          limit: { size: ${fullSyncPageSize}, page: ${page} }
+        ) {
+          totalSize
+          totalPages
+          isLastPage
+          rows {
+            id
+            vendor_id
+            product_id
+            sku
+            label
+            quantity
+            status
+            price
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.vendorProduct?.grid || {
+    rows: [],
+    totalSize: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
+}
+
+async function fetchWarehouseStockPageFromSkuNexus(page) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      stock {
+        stocksGrid(
+          filter: {
+            type: [${dppWarehouseStockType}]
+            location: {
+              warehouse_label: { operator: eq, value: [${graphqlString(dppWarehouseLabel)}] }
+            }
+          }
+          limit: { size: ${fullSyncPageSize}, page: ${page} }
+        ) {
+          totalSize
+          totalPages
+          isLastPage
+          rows {
+            id
+            qty
+            qty_available
+            type
+            product {
+              id
+              sku
+            }
+            location {
+              warehouse {
+                id
+                label
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.stock?.stocksGrid || {
+    rows: [],
+    totalSize: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
+}
+
+async function fetchProductBySkuFromSkuNexus(sku) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      product {
+        grid(
+          filter: { sku: { operator: eq, value: [${graphqlString(sku)}] } }
+          limit: { size: 1, page: 1 }
+        ) {
+          rows {
+            ${productSelectionFields}
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.product?.grid?.rows?.[0] || null;
+}
+
+async function fetchProductsBySkusFromSkuNexus(skus) {
+  const uniqueSkus = Array.from(
+    new Set((skus || []).map((sku) => String(sku || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueSkus.length === 0) {
+    return [];
+  }
+
+  const data = await skunexus.query(`
+    query V1Queries {
+      product {
+        grid(
+          filter: { sku: { operator: in, value: [${graphqlStringList(uniqueSkus)}] } }
+          limit: { size: ${uniqueSkus.length}, page: 1 }
+        ) {
+          rows {
+            ${productSelectionFields}
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.product?.grid?.rows || [];
+}
+
+async function fetchProductGraphBySkusFromSkuNexus(skus) {
+  const productsBySku = new Map();
+  let nextSkus = Array.from(
+    new Set((skus || []).map((sku) => String(sku || "").trim()).filter(Boolean))
+  );
+
+  while (nextSkus.length > 0) {
+    const missingSkus = nextSkus.filter((sku) => !productsBySku.has(sku));
+
+    if (missingSkus.length === 0) {
+      break;
+    }
+
+    const rows = await fetchProductsBySkusFromSkuNexus(missingSkus);
+
+    if (rows.length === 0) {
+      break;
+    }
+
+    for (const row of rows) {
+      const normalized = normalizeProductRow(row);
+
+      if (normalized.product_id && normalized.sku) {
+        productsBySku.set(normalized.sku, normalized);
+      }
+    }
+
+    nextSkus = getKitChildSkus(Array.from(productsBySku.values()));
+  }
+
+  return Array.from(productsBySku.values());
+}
+
+async function fetchVendorProductsForSkuFromSkuNexus(sku) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      vendorProduct {
+        grid(
+          filter: {
+            product: { sku: { operator: eq, value: [${graphqlString(sku)}] } }
+          }
+          limit: { size: ${fullSyncPageSize}, page: 1 }
+        ) {
+          rows {
+            id
+            vendor_id
+            product_id
+            sku
+            label
+            quantity
+            status
+            price
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.vendorProduct?.grid?.rows || [];
+}
+
+async function fetchVendorsByIdsFromSkuNexus(vendorIds) {
+  const uniqueIds = Array.from(
+    new Set((vendorIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const data = await skunexus.query(`
+    query V1Queries {
+      vendor {
+        grid(
+          filter: { id: { operator: in, value: [${graphqlStringList(uniqueIds)}] } }
+          limit: { size: ${uniqueIds.length}, page: 1 }
+        ) {
+          rows {
+            id
+            name
+            label
+            status
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.vendor?.grid?.rows || [];
+}
+
+async function fetchWarehouseStockForSkuFromSkuNexus(sku) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      stock {
+        stocksGrid(
+          filter: {
+            product: { sku: { operator: eq, value: [${graphqlString(sku)}] } }
+            type: [${dppWarehouseStockType}]
+            location: {
+              warehouse_label: { operator: eq, value: [${graphqlString(dppWarehouseLabel)}] }
+            }
+          }
+          limit: { size: 100, page: 1 }
+        ) {
+          rows {
+            id
+            qty
+            qty_available
+            type
+            product {
+              id
+              sku
+            }
+            location {
+              warehouse {
+                id
+                label
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.stock?.stocksGrid?.rows || [];
+}
+
+async function upsertProducts(rows, syncStamp) {
+  const normalizedRows = dedupeRows(
+    rows
+      .map(normalizeProductRow)
+      .filter((row) => row.product_id && row.sku)
+      .map(({ product_id, sku, name, qty_available, is_kit }) => ({
+        product_id,
+        sku,
+        name,
+        qty_available,
+        is_kit
+      })),
+    (row) => row.product_id
+  );
+
+  if (normalizedRows.length === 0) {
+    return;
+  }
+
+  const sql = getSql();
+  await sql.query(
+    `
+      INSERT INTO catalog_products (
+        product_id,
+        sku,
+        name,
+        qty_available,
+        is_kit,
+        last_synced_at
+      )
+      SELECT
+        row.product_id,
+        row.sku,
+        row.name,
+        row.qty_available,
+        row.is_kit,
+        $2::timestamptz
+      FROM jsonb_to_recordset($1::jsonb) AS row(
+        product_id text,
+        sku text,
+        name text,
+        qty_available integer,
+        is_kit boolean
+      )
+      ON CONFLICT (product_id) DO UPDATE
+      SET sku = EXCLUDED.sku,
+          name = EXCLUDED.name,
+          qty_available = EXCLUDED.qty_available,
+          is_kit = EXCLUDED.is_kit,
+          last_synced_at = EXCLUDED.last_synced_at
+    `,
+    [JSON.stringify(normalizedRows), syncStamp]
+  );
+}
+
+async function upsertComponents(rows, syncStamp) {
+  const normalizedRows = dedupeRows(
+    rows
+      .map((row) => ({
+        parent_product_id: String(row?.parent_product_id || "").trim(),
+        child_sku: String(row?.child_sku || "").trim(),
+        child_name: String(row?.child_name || row?.child_sku || "").trim(),
+        qty_required: Math.max(Number(row?.qty_required || 0), 1)
+      }))
+      .filter((row) => row.parent_product_id && row.child_sku),
+    (row) => `${row.parent_product_id}:${row.child_sku}`
+  );
+
+  if (normalizedRows.length === 0) {
+    return;
+  }
+
+  const sql = getSql();
+  await sql.query(
+    `
+      INSERT INTO catalog_product_components (
+        parent_product_id,
+        child_sku,
+        child_name,
+        qty_required,
+        last_synced_at
+      )
+      SELECT
+        row.parent_product_id,
+        row.child_sku,
+        row.child_name,
+        row.qty_required,
+        $2::timestamptz
+      FROM jsonb_to_recordset($1::jsonb) AS row(
+        parent_product_id text,
+        child_sku text,
+        child_name text,
+        qty_required integer
+      )
+      ON CONFLICT (parent_product_id, child_sku) DO UPDATE
+      SET child_name = EXCLUDED.child_name,
+          qty_required = EXCLUDED.qty_required,
+          last_synced_at = EXCLUDED.last_synced_at
+    `,
+    [JSON.stringify(normalizedRows), syncStamp]
+  );
+}
+
+async function upsertVendors(rows, syncStamp) {
+  const normalizedRows = dedupeRows(
+    rows
+      .map(normalizeVendorRow)
+      .filter((row) => row.vendor_id),
+    (row) => row.vendor_id
+  );
+
+  if (normalizedRows.length === 0) {
+    return;
+  }
+
+  const sql = getSql();
+  await sql.query(
+    `
+      INSERT INTO catalog_vendors (
+        vendor_id,
+        name,
+        label,
+        status,
+        last_synced_at
+      )
+      SELECT
+        row.vendor_id,
+        row.name,
+        row.label,
+        row.status,
+        $2::timestamptz
+      FROM jsonb_to_recordset($1::jsonb) AS row(
+        vendor_id text,
+        name text,
+        label text,
+        status integer
+      )
+      ON CONFLICT (vendor_id) DO UPDATE
+      SET name = EXCLUDED.name,
+          label = EXCLUDED.label,
+          status = EXCLUDED.status,
+          last_synced_at = EXCLUDED.last_synced_at
+    `,
+    [JSON.stringify(normalizedRows), syncStamp]
+  );
+}
+
+async function upsertVendorProducts(rows, syncStamp) {
+  const normalizedRows = dedupeRows(
+    rows
+      .map(normalizeVendorProductRow)
+      .filter((row) => row.vendor_product_id && row.vendor_id && row.product_id),
+    (row) => row.vendor_product_id
+  );
+
+  if (normalizedRows.length === 0) {
+    return;
+  }
+
+  const sql = getSql();
+  await sql.query(
+    `
+      INSERT INTO catalog_vendor_products (
+        vendor_product_id,
+        vendor_id,
+        product_id,
+        sku,
+        label,
+        quantity,
+        status,
+        price,
+        last_synced_at
+      )
+      SELECT
+        row.vendor_product_id,
+        row.vendor_id,
+        row.product_id,
+        row.sku,
+        row.label,
+        row.quantity,
+        row.status,
+        row.price,
+        $2::timestamptz
+      FROM jsonb_to_recordset($1::jsonb) AS row(
+        vendor_product_id text,
+        vendor_id text,
+        product_id text,
+        sku text,
+        label text,
+        quantity double precision,
+        status double precision,
+        price double precision
+      )
+      ON CONFLICT (vendor_product_id) DO UPDATE
+      SET vendor_id = EXCLUDED.vendor_id,
+          product_id = EXCLUDED.product_id,
+          sku = EXCLUDED.sku,
+          label = EXCLUDED.label,
+          quantity = EXCLUDED.quantity,
+          status = EXCLUDED.status,
+          price = EXCLUDED.price,
+          last_synced_at = EXCLUDED.last_synced_at
+    `,
+    [JSON.stringify(normalizedRows), syncStamp]
+  );
+}
+
+async function upsertWarehouseStock(rows, syncStamp) {
+  const normalizedRows = dedupeRows(
+    rows
+      .map((row) => ({
+        product_id: String(row?.product_id || "").trim(),
+        stock_id: String(row?.stock_id || "").trim(),
+        warehouse_label: String(row?.warehouse_label || dppWarehouseLabel).trim(),
+        stock_type: String(row?.stock_type || dppWarehouseStockType).trim(),
+        qty: Number(row?.qty || 0),
+        qty_available: Number(row?.qty_available || 0)
+      }))
+      .filter((row) => row.product_id),
+    (row) => row.product_id
+  );
+
+  if (normalizedRows.length === 0) {
+    return;
+  }
+
+  const sql = getSql();
+  await sql.query(
+    `
+      INSERT INTO catalog_warehouse_stock (
+        product_id,
+        stock_id,
+        warehouse_label,
+        stock_type,
+        qty,
+        qty_available,
+        last_synced_at
+      )
+      SELECT
+        row.product_id,
+        row.stock_id,
+        row.warehouse_label,
+        row.stock_type,
+        row.qty,
+        row.qty_available,
+        $2::timestamptz
+      FROM jsonb_to_recordset($1::jsonb) AS row(
+        product_id text,
+        stock_id text,
+        warehouse_label text,
+        stock_type text,
+        qty double precision,
+        qty_available double precision
+      )
+      ON CONFLICT (product_id) DO UPDATE
+      SET stock_id = EXCLUDED.stock_id,
+          warehouse_label = EXCLUDED.warehouse_label,
+          stock_type = EXCLUDED.stock_type,
+          qty = EXCLUDED.qty,
+          qty_available = EXCLUDED.qty_available,
+          last_synced_at = EXCLUDED.last_synced_at
+    `,
+    [JSON.stringify(normalizedRows), syncStamp]
+  );
+}
+
+async function deleteStaleFullSyncRows(syncStamp, { includeWarehouse = true } = {}) {
+  const sql = getSql();
+
+  await sql.query(
+    `DELETE FROM catalog_products WHERE last_synced_at < $1::timestamptz`,
+    [syncStamp]
+  );
+  await sql.query(
+    `DELETE FROM catalog_product_components WHERE last_synced_at < $1::timestamptz`,
+    [syncStamp]
+  );
+  await sql.query(
+    `DELETE FROM catalog_vendors WHERE last_synced_at < $1::timestamptz`,
+    [syncStamp]
+  );
+  await sql.query(
+    `DELETE FROM catalog_vendor_products WHERE last_synced_at < $1::timestamptz`,
+    [syncStamp]
+  );
+  if (includeWarehouse) {
+    await sql.query(
+      `DELETE FROM catalog_warehouse_stock WHERE last_synced_at < $1::timestamptz`,
+      [syncStamp]
+    );
+  }
+}
+
+async function runFullSync({ reason = "manual" } = {}) {
+  await initializeSchema();
+
+  if (fullSyncPromise) {
+    return fullSyncPromise;
+  }
+
+  fullSyncPromise = (async () => {
+    const syncStamp = new Date().toISOString();
+    const products = await fetchAllPages(fetchProductsPageFromSkuNexus);
+    const vendors = await fetchAllPages(fetchVendorsPageFromSkuNexus);
+    const vendorProducts = await fetchAllPages(fetchVendorProductsPageFromSkuNexus);
+    let warehouseStockRows = [];
+    let didSyncWarehouse = false;
+
+    try {
+      const rawWarehouseRows = await fetchAllPages(fetchWarehouseStockPageFromSkuNexus);
+      warehouseStockRows = aggregateWarehouseStockRows(rawWarehouseRows);
+      didSyncWarehouse = true;
+    } catch (error) {
+      console.error("Warehouse stock sync failed; continuing without warehouse cache.", error);
+    }
+
+    const normalizedProducts = products
+      .map(normalizeProductRow)
+      .filter((row) => row.product_id && row.sku);
+    const componentRows = flattenProductComponents(normalizedProducts);
+
+    await upsertProducts(normalizedProducts, syncStamp);
+    await upsertComponents(componentRows, syncStamp);
+    await upsertVendors(vendors, syncStamp);
+    await upsertVendorProducts(vendorProducts, syncStamp);
+    if (didSyncWarehouse) {
+      await upsertWarehouseStock(warehouseStockRows, syncStamp);
+    }
+    await deleteStaleFullSyncRows(syncStamp, { includeWarehouse: didSyncWarehouse });
+    await setSyncState("catalog_last_full_sync_at", syncStamp);
+    await setSyncState("catalog_last_full_sync_reason", reason);
+    clearCaches();
+
+    return {
+      syncedAt: syncStamp,
+      products: normalizedProducts.length,
+      vendors: vendors.length,
+      vendorProducts: vendorProducts.length,
+      warehouseProducts: warehouseStockRows.length
+    };
+  })();
+
+  try {
+    return await fullSyncPromise;
+  } finally {
+    fullSyncPromise = null;
+  }
+}
+
+async function refreshProductBySku(sku) {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+
+  if (fullSyncPromise) {
+    await fullSyncPromise;
+  }
+
+  if (productRefreshPromises.has(safeSku)) {
+    return productRefreshPromises.get(safeSku);
+  }
+
+  const refreshPromise = (async () => {
+    await initializeSchema();
+    const syncStamp = new Date().toISOString();
+    const rootProduct = await fetchProductBySkuFromSkuNexus(safeSku);
+
+    if (!rootProduct) {
+      const error = new Error("Product not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const productGraphRows = await fetchProductGraphBySkusFromSkuNexus([safeSku]);
+    const normalizedProducts = productGraphRows
+      .map(normalizeProductRow)
+      .filter((row) => row.product_id && row.sku);
+    const componentRows = flattenProductComponents(normalizedProducts);
+    const vendorProducts = await fetchVendorProductsForSkuFromSkuNexus(safeSku);
+    const vendorIds = Array.from(
+      new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))
+    );
+    const vendors = await fetchVendorsByIdsFromSkuNexus(vendorIds);
+    let warehouseStockRows = [];
+    let didRefreshWarehouse = false;
+
+    try {
+      warehouseStockRows = aggregateWarehouseStockRows(
+        await fetchWarehouseStockForSkuFromSkuNexus(safeSku)
+      );
+      didRefreshWarehouse = true;
+    } catch (error) {
+      console.error("Product warehouse refresh failed.", error);
+    }
+
+    await upsertProducts(normalizedProducts, syncStamp);
+    await upsertComponents(componentRows, syncStamp);
+    await upsertVendors(vendors, syncStamp);
+    await upsertVendorProducts(vendorProducts, syncStamp);
+    if (didRefreshWarehouse) {
+      await upsertWarehouseStock(warehouseStockRows, syncStamp);
+    }
+
+    const sql = getSql();
+    const parentProductIds = Array.from(
+      new Set(normalizedProducts.map((row) => row.product_id).filter(Boolean))
+    );
+    const vendorProductProductId =
+      normalizedProducts.find((row) => row.sku === safeSku)?.product_id ||
+      String(rootProduct?.id || "").trim();
+
+    if (parentProductIds.length > 0) {
+      await sql.query(
+        `
+          DELETE FROM catalog_product_components
+          WHERE parent_product_id IN (
+            SELECT jsonb_array_elements_text($1::jsonb)
+          )
+          AND last_synced_at < $2::timestamptz
+        `,
+        [JSON.stringify(parentProductIds), syncStamp]
+      );
+    }
+
+    if (vendorProductProductId) {
+      await sql.query(
+        `
+          DELETE FROM catalog_vendor_products
+          WHERE product_id = $1
+          AND last_synced_at < $2::timestamptz
+        `,
+        [vendorProductProductId, syncStamp]
+      );
+      if (didRefreshWarehouse && warehouseStockRows.length === 0) {
+        await sql.query(`DELETE FROM catalog_warehouse_stock WHERE product_id = $1`, [
+          vendorProductProductId
+        ]);
+      }
+    }
+
+    clearCaches();
+
+    return {
+      syncedAt: syncStamp,
+      products: normalizedProducts.length,
+      vendorProducts: vendorProducts.length
+    };
+  })();
+
+  productRefreshPromises.set(safeSku, refreshPromise);
+
+  try {
+    return await refreshPromise;
+  } finally {
+    productRefreshPromises.delete(safeSku);
+  }
+}
+
+async function listProducts(queryParams = {}) {
+  await ensureCatalogReady();
+  const { page, limit } = normalizePaging(queryParams);
+  const search = normalizeSearch(queryParams.search);
+
+  if (!search) {
+    return emptyProductsResponse();
+  }
+
+  const result = await queryProductsPage({ page, limit, search });
+  const rows = result.data || [];
+  const [productVendorAvailability, productGraph, followUpsBySku] = await Promise.all([
+    getProductVendorAvailabilityInfo(rows.map((product) => product.id).filter(Boolean)),
+    buildProductGraph(rows),
+    followUpsService.getFollowUpsForSkus(rows.map((product) => product.sku).filter(Boolean))
+  ]);
+
+  return {
+    ...result,
+    data: rows.map((product) =>
+      mapProduct(product, productVendorAvailability, followUpsBySku, productGraph)
+    )
+  };
+}
+
+async function getProductDetails(sku) {
+  await ensureCatalogReady();
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const product = await queryProductBySku(safeSku);
+
+  if (!product) {
+    const error = new Error("Product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const [productGraph, vendorProducts, warehouseStock, followUpDate] = await Promise.all([
+    buildProductGraph([product]),
+    queryVendorProductsByProductId(product.id),
+    queryWarehouseStockByProductId(product.id),
+    followUpsService.getFollowUpForSku(safeSku)
+  ]);
+  const productNode =
+    productGraph.productsBySku.get(product.sku || safeSku) || normalizeProductNode(product);
+  const qtyAvailable = productNode
+    ? getEffectiveQtyAvailable(
+        productNode.sku,
+        productGraph.productsBySku,
+        productGraph.qtyCache
+      )
+    : 0;
+  const baseAvailability = qtyAvailable > 0 ? "Available" : "Backorder";
+  const childProducts = buildKitChildProducts(productNode, productGraph);
+  const vendorIds = Array.from(
+    new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))
+  );
+  const [vendors, settingsByVendorId] = await Promise.all([
+    queryVendorsByIds(vendorIds),
+    vendorSettingsService.getVendorSettingsByVendorIds(vendorIds)
+  ]);
+  const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
+  const hasBuiltToOrderVendor = vendorProducts.some((vendorProduct) => {
+    const settings = settingsByVendorId.get(vendorProduct.vendor_id);
+    const vendor = vendorsById.get(vendorProduct.vendor_id);
+
+    return Boolean(
+      vendorProduct.vendor_id && settings?.builtToOrder && isActiveVendor(vendor)
+    );
+  });
+  const availability =
+    baseAvailability === "Available"
+      ? "Available"
+      : getUnavailableAvailability(hasBuiltToOrderVendor);
+  const assignedVendors = vendorProducts
+    .filter((vendorProduct) => vendorProduct.id && vendorProduct.vendor_id)
+    .map((vendorProduct) => {
+      const vendor = vendorsById.get(vendorProduct.vendor_id);
+      const settings = settingsByVendorId.get(vendorProduct.vendor_id);
+
+      return {
+        id: vendorProduct.vendor_id,
+        vendorProductId: vendorProduct.id,
+        name: vendor?.name || vendor?.label || vendorProduct.vendor_id,
+        quantity: Number(vendorProduct.quantity || 0),
+        stockSource: "vendor",
+        stockType: "VENDOR",
+        canUpdateStock: !settings?.builtToOrder,
+        builtToOrder: Boolean(settings?.builtToOrder),
+        buildTime: String(settings?.buildTime || "")
+      };
+    });
+  const assignedStockSources = [
+    ...assignedVendors,
+    ...(warehouseStock
+      ? [
+          {
+            id: warehouseStock.stock_id || dppWarehouseLabel,
+            vendorProductId: `warehouse:${warehouseStock.stock_id || dppWarehouseLabel}`,
+            name: warehouseStock.warehouse_label || dppWarehouseLabel,
+            quantity: Number(warehouseStock.qty_available || 0),
+            stockSource: "warehouse",
+            stockType: warehouseStock.stock_type || dppWarehouseStockType,
+            canUpdateStock: false,
+            builtToOrder: false,
+            buildTime: ""
+          }
+        ]
+      : [])
+  ].sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+  );
+
+  return {
+    id: product.id,
+    sku: product.sku || safeSku,
+    name: product.name || product.sku || safeSku,
+    qtyAvailable,
+    availability,
+    isKit: Boolean(productNode?.is_kit),
+    followUpDate,
+    childProducts,
+    vendors: assignedStockSources
+  };
+}
+
+async function getStockCheckProducts({ search, sort = "all", referenceDate = "" } = {}) {
+  await ensureCatalogReady();
+  const cleanSearch = normalizeSearch(search);
+  const cleanSort = normalizeStockCheckSort(sort);
+  const cleanReferenceDate = normalizeDateText(referenceDate);
+  const cacheKey = `${cleanSearch.toLowerCase()}:${cleanSort}:${cleanReferenceDate}`;
+  const cached = stockCheckCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.createdAt < stockCheckCacheTtlMs) {
+    return cached.data;
+  }
+
+  const [{ rows, graph }, followUpsBySku, productVendorAvailability] = await Promise.all([
+    buildFullProductGraph(),
+    followUpsService.getAllFollowUps(),
+    getProductVendorAvailabilityInfo()
+  ]);
+
+  const data = rows
+    .map((product) =>
+      mapProduct(product, productVendorAvailability, followUpsBySku, graph)
+    )
+    .filter(
+      (product) =>
+        product.availability !== "Available" || Boolean(product.followUpDate)
+    )
+    .filter((product) => matchesProductSearch(product, cleanSearch));
+  const filteredData = filterStockCheckProducts(
+    data,
+    cleanSort,
+    cleanReferenceDate
+  );
+
+  stockCheckCache.set(cacheKey, {
+    createdAt: Date.now(),
+    data: filteredData
+  });
+
+  return filteredData;
+}
+
+async function listStockCheckProducts(queryParams = {}) {
+  const { page, limit } = normalizePaging(queryParams);
+  const products = await getStockCheckProducts({
+    search: queryParams.search,
+    sort: queryParams.sort,
+    referenceDate: queryParams.referenceDate
+  });
+
+  return paginateRows(products, { page, limit });
+}
+
+function mapVendorSummary(row) {
+  return {
+    id: String(row?.vendor_id || "").trim(),
+    vendor: String(row?.name || row?.label || row?.vendor_id || "").trim()
+  };
+}
+
+async function listVendors(queryParams = {}) {
+  await ensureCatalogReady();
+  const { page, limit } = normalizePaging(queryParams);
+  const search = normalizeSearch(queryParams.search).toLowerCase();
+  const rows = await queryAllVendors();
+  const filtered = rows
+    .map(mapVendorSummary)
+    .filter((vendor) => vendor.id && vendor.vendor)
+    .filter((vendor) =>
+      !search ? true : vendor.vendor.toLowerCase().includes(search)
+    );
+
+  return paginateRows(filtered, { page, limit });
+}
+
+async function getVendorDetails(vendorId) {
+  await ensureCatalogReady();
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const [vendor, settings] = await Promise.all([
+    queryVendorById(safeVendorId),
+    vendorSettingsService.getVendorSettings(safeVendorId)
+  ]);
+
+  if (!vendor) {
+    const error = new Error("Vendor not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return {
+    id: safeVendorId,
+    vendor: vendor.name || vendor.label || safeVendorId,
+    builtToOrder: Boolean(settings?.builtToOrder),
+    buildTime: String(settings?.buildTime || "")
+  };
+}
+
+async function listVendorProducts(vendorId, queryParams = {}) {
+  await ensureCatalogReady();
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const { page, limit } = normalizePaging(queryParams);
+  const search = normalizeSearch(queryParams.search);
+  const [vendor, pageResult] = await Promise.all([
+    getVendorDetails(safeVendorId),
+    queryVendorProductsPage({
+      vendorId: safeVendorId,
+      page,
+      limit,
+      search
+    })
+  ]);
+  const productIds = pageResult.data.map((row) => row.product_id).filter(Boolean);
+  const builtToOrderProductIds = (
+    await getProductVendorAvailabilityInfo(productIds)
+  ).productIdsWithBuiltToOrderVendors;
+
+  return {
+    ...pageResult,
+    vendor,
+    data: pageResult.data.map((row) => {
+      const qtyAvailable = Number(row.qty_available || 0);
+
+      return {
+        id: row.product_id || row.vendor_product_id,
+        vendorProductId: row.vendor_product_id,
+        sku: row.product_sku || row.sku || row.label || "",
+        name: row.product_name || "",
+        qtyAvailable,
+        availability: mapAvailability(
+          qtyAvailable,
+          true,
+          builtToOrderProductIds.has(row.product_id)
+        )
+      };
+    })
+  };
+}
+
+async function runScheduledFullSync() {
+  const { localDate, localHour } = getTimeZoneDateParts(new Date(), syncTimezone);
+  const lastLocalDate = await getSyncState("catalog_last_full_sync_local_date");
+
+  if (localHour !== 0) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: `Waiting for midnight in ${syncTimezone}.`,
+      localDate,
+      localHour
+    };
+  }
+
+  if (lastLocalDate === localDate) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: `Full sync already ran for ${localDate} in ${syncTimezone}.`,
+      localDate,
+      localHour
+    };
+  }
+
+  const result = await runFullSync({ reason: "scheduled-full-sync" });
+  await setSyncState("catalog_last_full_sync_local_date", localDate);
+
+  return {
+    ok: true,
+    skipped: false,
+    localDate,
+    localHour,
+    ...result
+  };
+}
+
+function clearCaches() {
+  stockCheckCache.clear();
+}
+
+module.exports = {
+  clearCaches,
+  getProductDetails,
+  getVendorDetails,
+  listProducts,
+  listStockCheckProducts,
+  listVendorProducts,
+  listVendors,
+  refreshProductBySku,
+  runFullSync,
+  runScheduledFullSync
+};

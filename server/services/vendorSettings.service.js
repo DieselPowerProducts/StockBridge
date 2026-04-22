@@ -146,6 +146,7 @@ async function setVendorSettings({ vendorId, builtToOrder, buildTime }) {
 }
 
 module.exports = {
+  initializeSchema,
   getVendorSettings,
   getVendorSettingsByVendorIds,
   setVendorSettings

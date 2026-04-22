@@ -4,6 +4,7 @@ import {
   deleteNote,
   getProductDetails,
   getNotes,
+  refreshProductDetails,
   updateProductFollowUp,
   updateProductVendorStock,
   updateNote
@@ -189,6 +190,7 @@ export function NotesModal({
   const [isFollowUpPickerOpen, setIsFollowUpPickerOpen] = useState(false);
   const [isFollowUpSaving, setIsFollowUpSaving] = useState(false);
   const [isProductDetailsLoading, setIsProductDetailsLoading] = useState(false);
+  const [isProductRefreshing, setIsProductRefreshing] = useState(false);
   const [pendingVendorStock, setPendingVendorStock] = useState<
     Record<string, boolean>
   >({});
@@ -380,6 +382,26 @@ export function NotesModal({
 
         return next;
       });
+    }
+  }
+
+  async function handleRefreshProduct() {
+    setDetailsError("");
+    setIsProductRefreshing(true);
+
+    try {
+      const result = await refreshProductDetails(sku);
+      setProductDetails(result);
+      setFollowUpDate(result.followUpDate || "");
+      setFollowUpMessage("");
+      onProductStockChanged?.(getProductStockUpdate(result, result.vendors));
+      onFollowUpSaved();
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error ? err.message : "Unable to refresh this product."
+      );
+    } finally {
+      setIsProductRefreshing(false);
     }
   }
 
@@ -653,6 +675,14 @@ export function NotesModal({
                     Kits
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="follow-up-button"
+                  disabled={isProductRefreshing}
+                  onClick={handleRefreshProduct}
+                >
+                  {isProductRefreshing ? "Refreshing..." : "Refresh"}
+                </button>
                 <button
                   type="button"
                   className="follow-up-button"
