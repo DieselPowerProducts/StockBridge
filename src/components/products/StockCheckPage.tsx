@@ -25,7 +25,6 @@ export function StockCheckPage({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const hasKitResults = products.some((product) => product.isKit);
 
   useEffect(() => {
     latestProductStockUpdate.current = productStockUpdate;
@@ -81,11 +80,8 @@ export function StockCheckPage({
     setProducts((current) =>
       applyProductStockUpdate(current, productStockUpdate)
     );
-
-    if (hasKitResults) {
-      setRefreshNonce((current) => current + 1);
-    }
-  }, [hasKitResults, productStockUpdate]);
+    setRefreshNonce((current) => current + 1);
+  }, [productStockUpdate]);
 
   return (
     <section className="page" aria-labelledby="stockCheckHeading">
