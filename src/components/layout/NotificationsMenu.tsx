@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getNotifications, markNotificationRead } from "../../services/api";
+import { updateFaviconBadge } from "../../utils/faviconBadge";
 import type { AppNotification } from "../../types";
 
 type NotificationsMenuProps = {
@@ -114,6 +115,12 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
       document.removeEventListener("mousedown", handlePointerDown);
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    void updateFaviconBadge(unreadCount).catch((error) => {
+      console.error("Unable to update favicon badge.", error);
+    });
+  }, [unreadCount]);
 
   async function handleNotificationClick(notification: AppNotification) {
     setIsOpen(false);

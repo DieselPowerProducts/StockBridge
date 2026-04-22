@@ -29,6 +29,27 @@ function assertNoteInput({ sku, note }) {
   }
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isNoteOwnedByUser(note, user = {}) {
+  const safeUserSub = String(user?.sub || "").trim();
+  const safeUserEmail = normalizeEmail(user?.email);
+  const noteAuthorSub = String(note?.author_sub || "").trim();
+  const noteAuthorEmail = normalizeEmail(note?.author_email);
+
+  if (noteAuthorSub && safeUserSub) {
+    return noteAuthorSub === safeUserSub;
+  }
+
+  if (noteAuthorEmail && safeUserEmail) {
+    return noteAuthorEmail === safeUserEmail;
+  }
+
+  return false;
+}
+
 async function initializeSchema() {
   if (!schemaReady) {
     schemaReady = (async () => {
@@ -123,6 +144,42 @@ async function getNotesForSku(sku) {
   return rows.map(formatNote);
 }
 
+async function getOwnedNoteRecord(id, user = {}) {
+  await initializeSchema();
+
+  const safeId = getSafeId(id);
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      id::text,
+      sku,
+      author_sub,
+      author_email
+    FROM product_notes
+    WHERE id = ${safeId}
+    LIMIT 1
+  `;
+
+  const note = rows[0];
+
+  if (!note) {
+    const error = new Error("Note not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (!isNoteOwnedByUser(note, user)) {
+    const error = new Error("Only the note author can edit or delete this note.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return {
+    id: String(note.id || safeId),
+    sku: String(note.sku || "")
+  };
+}
+
 async function addNote({ sku, note, productId = "" }, author = {}) {
   assertNoteInput({ sku, note });
   await initializeSchema();
@@ -165,9 +222,8 @@ async function addNote({ sku, note, productId = "" }, author = {}) {
   };
 }
 
-async function deleteNote(id) {
-  await initializeSchema();
-
+async function deleteNote(id, author = {}) {
+  const ownedNote = await getOwnedNoteRecord(id, author);
   const safeId = getSafeId(id);
   const sql = getSql();
   const rows = await sql`
@@ -192,8 +248,7 @@ async function updateNote(id, note, author = {}) {
     throw error;
   }
 
-  await initializeSchema();
-
+  const ownedNote = await getOwnedNoteRecord(id, author);
   const safeId = getSafeId(id);
   const safeNote = String(note).trim();
   const sql = getSql();
@@ -207,7 +262,7 @@ async function updateNote(id, note, author = {}) {
   if (rows.length > 0) {
     await notificationsService.syncNoteNotifications({
       noteId: String(rows[0].id || safeId),
-      sku: rows[0].sku || "",
+      sku: rows[0].sku || ownedNote.sku,
       note: safeNote,
       sender: author
     });

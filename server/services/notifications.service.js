@@ -285,10 +285,20 @@ async function syncNoteNotifications({ noteId, sku, note, sender }) {
   return { count: recipients.length };
 }
 
-async function getNotificationsForUser(userSub, { limit = 20 } = {}) {
-  const safeUserSub = String(userSub || "").trim();
+function buildRecipientConditions(user) {
+  const safeUserSub = String(user?.sub || user || "").trim();
+  const safeUserEmail = normalizeText(user?.email || "").toLowerCase();
 
-  if (!safeUserSub) {
+  return {
+    safeUserEmail,
+    safeUserSub
+  };
+}
+
+async function getNotificationsForUser(user, { limit = 20 } = {}) {
+  const { safeUserSub, safeUserEmail } = buildRecipientConditions(user);
+
+  if (!safeUserSub && !safeUserEmail) {
     return {
       items: [],
       unreadCount: 0
@@ -313,14 +323,26 @@ async function getNotificationsForUser(userSub, { limit = 20 } = {}) {
         created_at,
         read_at
       FROM product_notifications
-      WHERE recipient_sub = ${safeUserSub}
+      WHERE (
+        recipient_sub = ${safeUserSub}
+        OR (
+          ${safeUserEmail} <> ''
+          AND lower(COALESCE(recipient_email, '')) = ${safeUserEmail}
+        )
+      )
       ORDER BY read_at ASC NULLS FIRST, created_at DESC
       LIMIT ${safeLimit}
     `,
     sql`
       SELECT COUNT(*)::int AS count
       FROM product_notifications
-      WHERE recipient_sub = ${safeUserSub}
+      WHERE (
+        recipient_sub = ${safeUserSub}
+        OR (
+          ${safeUserEmail} <> ''
+          AND lower(COALESCE(recipient_email, '')) = ${safeUserEmail}
+        )
+      )
         AND read_at IS NULL
     `
   ]);
@@ -331,15 +353,22 @@ async function getNotificationsForUser(userSub, { limit = 20 } = {}) {
   };
 }
 
-async function markNotificationRead(id, userSub) {
+async function markNotificationRead(id, user) {
   await initializeSchema();
 
+  const { safeUserSub, safeUserEmail } = buildRecipientConditions(user);
   const sql = getSql();
   const rows = await sql`
     UPDATE product_notifications
     SET read_at = COALESCE(read_at, now())
     WHERE id = ${getSafeId(id)}
-      AND recipient_sub = ${String(userSub || "").trim()}
+      AND (
+        recipient_sub = ${safeUserSub}
+        OR (
+          ${safeUserEmail} <> ''
+          AND lower(COALESCE(recipient_email, '')) = ${safeUserEmail}
+        )
+      )
     RETURNING id
   `;
 

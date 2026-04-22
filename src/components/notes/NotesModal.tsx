@@ -116,6 +116,31 @@ function getInitials(name: string) {
     .join("");
 }
 
+function canManageNote(note: Note, currentUser: AuthUser | null) {
+  if (!currentUser) {
+    return false;
+  }
+
+  const noteAuthorSub = String(note.author?.sub || "").trim();
+  const noteAuthorEmail = String(note.author?.email || "")
+    .trim()
+    .toLowerCase();
+  const currentUserSub = String(currentUser.sub || "").trim();
+  const currentUserEmail = String(currentUser.email || "")
+    .trim()
+    .toLowerCase();
+
+  if (noteAuthorSub && currentUserSub) {
+    return noteAuthorSub === currentUserSub;
+  }
+
+  if (noteAuthorEmail && currentUserEmail) {
+    return noteAuthorEmail === currentUserEmail;
+  }
+
+  return false;
+}
+
 function applyVendorQuantityUpdates(
   vendors: ProductVendor[],
   quantitiesByVendorProductId: Map<string, number>
@@ -447,8 +472,14 @@ export function NotesModal({
   }
 
   async function handleDeleteNote(id: string) {
-    await deleteNote(id);
-    loadNotes();
+    setNotesError("");
+
+    try {
+      await deleteNote(id);
+      loadNotes();
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : "Unable to delete note.");
+    }
   }
 
   async function handleEditNote(note: Note) {
@@ -458,8 +489,14 @@ export function NotesModal({
       return;
     }
 
-    await updateNote(note.id, nextNote);
-    loadNotes();
+    setNotesError("");
+
+    try {
+      await updateNote(note.id, nextNote);
+      loadNotes();
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : "Unable to update note.");
+    }
   }
 
   async function handleFollowUpDateChange(value: string) {
@@ -919,6 +956,7 @@ export function NotesModal({
               ) : (
                 notes.map((note, index) => {
                   const authorName = note.author?.name || "StockBridge";
+                  const canManageCurrentNote = canManageNote(note, currentUser);
                   const dateLabel = formatNoteDate(note.created_at);
                   const previousDateLabel =
                     index > 0 ? formatNoteDate(notes[index - 1].created_at) : "";
@@ -951,36 +989,38 @@ export function NotesModal({
                                 <time dateTime={note.created_at}>{noteTime}</time>
                               )}
 
-                              <div className="note-icon-actions">
-                                <button
-                                  type="button"
-                                  aria-label="Edit note"
-                                  title="Edit note"
-                                  onClick={() => handleEditNote(note)}
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    viewBox="0 0 24 24"
-                                    focusable="false"
+                              {canManageCurrentNote && (
+                                <div className="note-icon-actions">
+                                  <button
+                                    type="button"
+                                    aria-label="Edit note"
+                                    title="Edit note"
+                                    onClick={() => handleEditNote(note)}
                                   >
-                                    <path d="M4 16.7V20h3.3L17.1 10.2l-3.3-3.3L4 16.7Zm15.7-9.1c.4-.4.4-1 0-1.4l-1.9-1.9c-.4-.4-1-.4-1.4 0l-1.5 1.5 3.3 3.3 1.5-1.5Z" />
-                                  </svg>
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label="Delete note"
-                                  title="Delete note"
-                                  onClick={() => handleDeleteNote(note.id)}
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    viewBox="0 0 24 24"
-                                    focusable="false"
+                                    <svg
+                                      aria-hidden="true"
+                                      viewBox="0 0 24 24"
+                                      focusable="false"
+                                    >
+                                      <path d="M4 16.7V20h3.3L17.1 10.2l-3.3-3.3L4 16.7Zm15.7-9.1c.4-.4.4-1 0-1.4l-1.9-1.9c-.4-.4-1-.4-1.4 0l-1.5 1.5 3.3 3.3 1.5-1.5Z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label="Delete note"
+                                    title="Delete note"
+                                    onClick={() => handleDeleteNote(note.id)}
                                   >
-                                    <path d="M8 5V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v1h4v2H4V5h4Zm2 0h4V4h-4v1Zm-3 4h10l-.7 11.1c-.1 1.1-1 1.9-2 1.9H9.7c-1.1 0-1.9-.8-2-1.9L7 9Zm3 2v8h2v-8h-2Zm4 0v8h2v-8h-2Z" />
-                                  </svg>
-                                </button>
-                              </div>
+                                    <svg
+                                      aria-hidden="true"
+                                      viewBox="0 0 24 24"
+                                      focusable="false"
+                                    >
+                                      <path d="M8 5V4c0-1.1.9-2 2-2h4c1.1 0 2 .9 2 2v1h4v2H4V5h4Zm2 0h4V4h-4v1Zm-3 4h10l-.7 11.1c-.1 1.1-1 1.9-2 1.9H9.7c-1.1 0-1.9-.8-2-1.9L7 9Zm3 2v8h2v-8h-2Zm4 0v8h2v-8h-2Z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </header>
 

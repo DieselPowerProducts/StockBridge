@@ -20,7 +20,7 @@ async function createNote(req, res, next) {
 
 async function deleteNote(req, res, next) {
   try {
-    const result = await notesService.deleteNote(req.params.id);
+    const result = await notesService.deleteNote(req.params.id, req.user);
     res.send({ deleted: result.changes });
   } catch (err) {
     next(err);
