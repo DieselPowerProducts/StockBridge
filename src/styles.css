@@ -431,8 +431,8 @@ body:has(.notes-popup-page),
 }
 
 .notes-modal-content {
-  height: min(620px, calc(100vh - 32px));
-  max-height: min(620px, calc(100vh - 32px));
+  height: min(600px, calc(100vh - 32px));
+  max-height: min(600px, calc(100vh - 32px));
   overflow: hidden;
   padding: 0;
   position: relative;
