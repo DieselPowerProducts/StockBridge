@@ -26,6 +26,7 @@ const productSelectionFields = `
 let schemaReady;
 let fullSyncPromise = null;
 let seedPromise = null;
+let warehouseSyncPromise = null;
 const productRefreshPromises = new Map();
 const stockCheckCache = new Map();
 
@@ -1780,6 +1781,14 @@ async function deleteStaleFullSyncRows(syncStamp, { includeWarehouse = true } = 
   }
 }
 
+async function deleteStaleWarehouseRows(syncStamp) {
+  const sql = getSql();
+  await sql.query(
+    `DELETE FROM catalog_warehouse_stock WHERE last_synced_at < $1::timestamptz`,
+    [syncStamp]
+  );
+}
+
 async function runFullSync({ reason = "manual" } = {}) {
   await initializeSchema();
 
@@ -1833,6 +1842,41 @@ async function runFullSync({ reason = "manual" } = {}) {
     return await fullSyncPromise;
   } finally {
     fullSyncPromise = null;
+  }
+}
+
+async function runWarehouseSync({ reason = "manual" } = {}) {
+  await initializeSchema();
+
+  if (fullSyncPromise) {
+    return fullSyncPromise;
+  }
+
+  if (warehouseSyncPromise) {
+    return warehouseSyncPromise;
+  }
+
+  warehouseSyncPromise = (async () => {
+    const syncStamp = new Date().toISOString();
+    const rawWarehouseRows = await fetchAllPages(fetchWarehouseStockPageFromSkuNexus);
+    const warehouseStockRows = aggregateWarehouseStockRows(rawWarehouseRows);
+
+    await upsertWarehouseStock(warehouseStockRows, syncStamp);
+    await deleteStaleWarehouseRows(syncStamp);
+    await setSyncState("catalog_last_warehouse_sync_at", syncStamp);
+    await setSyncState("catalog_last_warehouse_sync_reason", reason);
+    clearCaches();
+
+    return {
+      syncedAt: syncStamp,
+      warehouseProducts: warehouseStockRows.length
+    };
+  })();
+
+  try {
+    return await warehouseSyncPromise;
+  } finally {
+    warehouseSyncPromise = null;
   }
 }
 
@@ -2205,40 +2249,56 @@ async function listVendorProducts(vendorId, queryParams = {}) {
   };
 }
 
-async function runScheduledFullSync() {
+async function runScheduledCatalogSync() {
   const { localDate, localHour } = getTimeZoneDateParts(new Date(), syncTimezone);
   const lastLocalDate = await getSyncState("catalog_last_full_sync_local_date");
+  const localHourKey = `${localDate}-${String(localHour).padStart(2, "0")}`;
 
-  if (localHour !== 0) {
+  if (localHour === 0 && lastLocalDate !== localDate) {
+    const result = await runFullSync({ reason: "scheduled-full-sync" });
+    await setSyncState("catalog_last_full_sync_local_date", localDate);
+    await setSyncState("catalog_last_warehouse_sync_local_hour", localHourKey);
+
+    return {
+      ok: true,
+      skipped: false,
+      mode: "full",
+      localDate,
+      localHour,
+      ...result
+    };
+  }
+
+  const lastWarehouseLocalHour = await getSyncState(
+    "catalog_last_warehouse_sync_local_hour"
+  );
+
+  if (lastWarehouseLocalHour === localHourKey) {
     return {
       ok: true,
       skipped: true,
-      reason: `Waiting for midnight in ${syncTimezone}.`,
+      mode: "warehouse",
+      reason: `Warehouse sync already ran for ${localHourKey} in ${syncTimezone}.`,
       localDate,
       localHour
     };
   }
 
-  if (lastLocalDate === localDate) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: `Full sync already ran for ${localDate} in ${syncTimezone}.`,
-      localDate,
-      localHour
-    };
-  }
-
-  const result = await runFullSync({ reason: "scheduled-full-sync" });
-  await setSyncState("catalog_last_full_sync_local_date", localDate);
+  const result = await runWarehouseSync({ reason: "scheduled-warehouse-sync" });
+  await setSyncState("catalog_last_warehouse_sync_local_hour", localHourKey);
 
   return {
     ok: true,
     skipped: false,
+    mode: "warehouse",
     localDate,
     localHour,
     ...result
   };
+}
+
+async function runScheduledFullSync() {
+  return runScheduledCatalogSync();
 }
 
 function clearCaches() {
@@ -2254,6 +2314,8 @@ module.exports = {
   listVendorProducts,
   listVendors,
   refreshProductBySku,
+  runScheduledCatalogSync,
+  runScheduledFullSync,
   runFullSync,
-  runScheduledFullSync
+  runWarehouseSync
 };
