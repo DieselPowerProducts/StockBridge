@@ -217,7 +217,8 @@ function formatOrderResult(node, storeDomain) {
     customerEmail: node.email || "",
     id: node.id,
     legacyResourceId: String(node.legacyResourceId || ""),
-    orderNumber: node.name || ""
+    orderNumber: node.name || "",
+    shopifyOrderNumber: Number(node.number || 0)
   };
 }
 
@@ -230,6 +231,7 @@ async function searchOrders(query) {
             id
             legacyResourceId
             name
+            number
             email
             createdAt
           }
@@ -252,8 +254,9 @@ async function resolveOrder({ orderNumber, customerEmail }) {
   const normalizedEmail = normalizeEmail(customerEmail);
   const { storeDomain } = getShopifyConfig();
   const searchQueries = [
-    `email:${quoteSearchValue(normalizedEmail)} name:${quoteSearchValue(normalizedOrderNumber)}`,
-    `email:${quoteSearchValue(normalizedEmail)} name:${quoteSearchValue(`#${normalizedOrderNumber}`)}`,
+    quoteSearchValue(`#${normalizedOrderNumber}`),
+    quoteSearchValue(normalizedOrderNumber),
+    `email:${quoteSearchValue(normalizedEmail)} ${quoteSearchValue(`#${normalizedOrderNumber}`)}`,
     `email:${quoteSearchValue(normalizedEmail)}`
   ];
 
@@ -270,10 +273,14 @@ async function resolveOrder({ orderNumber, customerEmail }) {
       }
     }
 
-    const exactMatches = Array.from(candidates.values()).filter(
+    const allCandidates = Array.from(candidates.values());
+    const exactNumberMatches = allCandidates.filter(
       (node) =>
-        normalizeEmail(node.email) === normalizedEmail &&
-        normalizeOrderNumber(node.name) === normalizedOrderNumber
+        normalizeOrderNumber(node.name) === normalizedOrderNumber ||
+        String(node.number || "") === normalizedOrderNumber
+    );
+    const exactMatches = exactNumberMatches.filter(
+      (node) => normalizeEmail(node.email) === normalizedEmail
     );
 
     if (exactMatches.length === 1) {
@@ -282,6 +289,17 @@ async function resolveOrder({ orderNumber, customerEmail }) {
 
     if (exactMatches.length > 1) {
       throw createHttpError(409, "Multiple Shopify orders matched this order number and email.");
+    }
+
+    if (exactNumberMatches.length === 1) {
+      return formatOrderResult(exactNumberMatches[0], storeDomain);
+    }
+
+    if (exactNumberMatches.length > 1) {
+      throw createHttpError(
+        409,
+        "Multiple Shopify orders matched this order number. Refine the lookup."
+      );
     }
   }
 
