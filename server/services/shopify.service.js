@@ -26,12 +26,52 @@ function getRequiredEnv(name) {
   return value;
 }
 
+function normalizeStoreDomain(value) {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    throw createHttpError(500, "SHOPIFY_STORE_DOMAIN is not configured.");
+  }
+
+  try {
+    const normalizedUrl = new URL(
+      /^https?:\/\//i.test(rawValue) ? rawValue : `https://${rawValue}`
+    );
+    const hostname = normalizedUrl.hostname.toLowerCase();
+
+    if (hostname === "admin.shopify.com") {
+      throw createHttpError(
+        500,
+        "SHOPIFY_STORE_DOMAIN must be your store's .myshopify.com domain, not the Shopify admin URL."
+      );
+    }
+
+    if (!hostname.endsWith(".myshopify.com")) {
+      throw createHttpError(
+        500,
+        "SHOPIFY_STORE_DOMAIN must be your store's .myshopify.com domain."
+      );
+    }
+
+    return hostname;
+  } catch (error) {
+    if (error && typeof error === "object" && "statusCode" in error) {
+      throw error;
+    }
+
+    throw createHttpError(
+      500,
+      "SHOPIFY_STORE_DOMAIN is invalid. Use a value like your-store.myshopify.com."
+    );
+  }
+}
+
 function getShopifyConfig() {
   return {
     apiVersion: String(process.env.SHOPIFY_API_VERSION || DEFAULT_API_VERSION).trim(),
     clientId: getRequiredEnv("SHOPIFY_CLIENT_ID"),
     clientSecret: getRequiredEnv("SHOPIFY_CLIENT_SECRET"),
-    storeDomain: getRequiredEnv("SHOPIFY_STORE_DOMAIN")
+    storeDomain: normalizeStoreDomain(getRequiredEnv("SHOPIFY_STORE_DOMAIN"))
   };
 }
 
@@ -67,23 +107,39 @@ function assertLookupInput({ orderNumber, customerEmail }) {
   }
 }
 
+async function fetchFromShopify(url, init, contextLabel) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    console.error(`[shopify] ${contextLabel} failed`, error);
+    throw createHttpError(
+      502,
+      "Unable to reach Shopify. Check SHOPIFY_STORE_DOMAIN and your network connection."
+    );
+  }
+}
+
 async function fetchShopifyAccessToken() {
   if (accessTokenCache.token && accessTokenCache.expiresAt > Date.now() + TOKEN_EXPIRY_SAFETY_MS) {
     return accessTokenCache.token;
   }
 
   const { clientId, clientSecret, storeDomain } = getShopifyConfig();
-  const response = await fetch(`https://${storeDomain}/admin/oauth/access_token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
+  const response = await fetchFromShopify(
+    `https://${storeDomain}/admin/oauth/access_token`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: clientId,
+        client_secret: clientSecret
+      }).toString()
     },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: clientId,
-      client_secret: clientSecret
-    }).toString()
-  });
+    "access token request"
+  );
 
   let payload = null;
 
@@ -115,7 +171,7 @@ async function fetchShopifyAccessToken() {
 async function shopifyGraphQL(query, variables) {
   const { apiVersion, storeDomain } = getShopifyConfig();
   const accessToken = await fetchShopifyAccessToken();
-  const response = await fetch(
+  const response = await fetchFromShopify(
     `https://${storeDomain}/admin/api/${apiVersion}/graphql.json`,
     {
       method: "POST",
@@ -124,7 +180,8 @@ async function shopifyGraphQL(query, variables) {
         "X-Shopify-Access-Token": accessToken
       },
       body: JSON.stringify({ query, variables })
-    }
+    },
+    "GraphQL request"
   );
 
   let payload = null;
