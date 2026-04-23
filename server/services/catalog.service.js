@@ -25,7 +25,6 @@ const productSelectionFields = `
 
 let schemaReady;
 let fullSyncPromise = null;
-let seedPromise = null;
 let warehouseSyncPromise = null;
 const productRefreshPromises = new Map();
 const stockCheckCache = new Map();
@@ -547,13 +546,6 @@ async function setSyncState(key, value) {
   `;
 }
 
-async function getCatalogProductCount() {
-  await initializeSchema();
-  const sql = getSql();
-  const rows = await sql`SELECT COUNT(*)::int AS count FROM catalog_products`;
-  return Number(rows[0]?.count || 0);
-}
-
 function buildTermsSearchClause(params, terms, expressions) {
   if (terms.length === 0) {
     return "";
@@ -848,6 +840,46 @@ async function queryVendorProductsByProductId(productId) {
   `;
 }
 
+async function queryVendorProductById(vendorProductId) {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      vendor_product_id AS id,
+      vendor_id,
+      product_id,
+      sku,
+      label,
+      quantity,
+      status,
+      price
+    FROM catalog_vendor_products
+    WHERE vendor_product_id = ${vendorProductId}
+    LIMIT 1
+  `;
+
+  return rows[0] || null;
+}
+
+async function updateCatalogVendorProductQuantity(vendorProductId, quantity) {
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE catalog_vendor_products
+    SET quantity = ${quantity}
+    WHERE vendor_product_id = ${vendorProductId}
+    RETURNING
+      vendor_product_id AS id,
+      vendor_id,
+      product_id,
+      sku,
+      label,
+      quantity,
+      status,
+      price
+  `;
+
+  return rows[0] || null;
+}
+
 async function queryVendorsByIds(vendorIds) {
   const uniqueIds = Array.from(
     new Set((vendorIds || []).map((value) => String(value || "").trim()).filter(Boolean))
@@ -1116,23 +1148,7 @@ function buildKitChildProducts(product, productGraph) {
 }
 
 async function ensureCatalogReady() {
-  await initializeSchema();
-
-  if (!seedPromise) {
-    seedPromise = (async () => {
-      const productCount = await getCatalogProductCount();
-
-      if (productCount > 0) {
-        return;
-      }
-
-      await runFullSync({ reason: "initial-seed" });
-    })().finally(() => {
-      seedPromise = null;
-    });
-  }
-
-  return seedPromise;
+  return initializeSchema();
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -2307,6 +2323,8 @@ function clearCaches() {
 
 module.exports = {
   clearCaches,
+  getCatalogProductBySku: queryProductBySku,
+  getCatalogVendorProductById: queryVendorProductById,
   getProductDetails,
   getVendorDetails,
   listProducts,
@@ -2317,5 +2335,6 @@ module.exports = {
   runScheduledCatalogSync,
   runScheduledFullSync,
   runFullSync,
-  runWarehouseSync
+  runWarehouseSync,
+  updateCatalogVendorProductQuantity
 };
