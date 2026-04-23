@@ -6,6 +6,7 @@ const importRoutes = require("./routes/import.routes");
 const notesRoutes = require("./routes/notes.routes");
 const notificationsRoutes = require("./routes/notifications.routes");
 const productsRoutes = require("./routes/products.routes");
+const shopifyRoutes = require("./routes/shopify.routes");
 const usersRoutes = require("./routes/users.routes");
 const vendorsRoutes = require("./routes/vendors.routes");
 const { requireAuth } = require("./middleware/auth");
@@ -26,10 +27,14 @@ app.use(
       const allowedOrigins = new Set([
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://dpp.skunexus.com",
         "https://stockbridgedpp.vercel.app"
       ]);
 
-      callback(null, allowedOrigins.has(origin));
+      callback(
+        null,
+        allowedOrigins.has(origin) || origin.startsWith("chrome-extension://")
+      );
     }
   })
 );
@@ -41,6 +46,7 @@ app.use(importRoutes);
 app.use(notesRoutes);
 app.use(notificationsRoutes);
 app.use(productsRoutes);
+app.use(shopifyRoutes);
 app.use(usersRoutes);
 app.use(vendorsRoutes);
 
