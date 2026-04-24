@@ -87,9 +87,26 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeSku(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/gi, "")
+    .toUpperCase();
+}
+
 function getCandidateEmails(node) {
   return Array.from(
     new Set([normalizeEmail(node?.email), normalizeEmail(node?.customer?.email)].filter(Boolean))
+  );
+}
+
+function getCandidateSkus(node) {
+  return Array.from(
+    new Set(
+      (Array.isArray(node?.lineItems?.nodes) ? node.lineItems.nodes : [])
+        .map((lineItem) => normalizeSku(lineItem?.sku))
+        .filter(Boolean)
+    )
   );
 }
 
@@ -97,7 +114,7 @@ function quoteSearchValue(value) {
   return `"${String(value).replace(/(["\\])/g, "\\$1")}"`;
 }
 
-function assertLookupInput({ orderNumber, customerEmail }) {
+function assertLookupInput({ orderNumber, customerEmail, createdAt, skus }) {
   if (!normalizeOrderNumber(orderNumber)) {
     throw createHttpError(400, "Order number is required.");
   }
@@ -110,6 +127,14 @@ function assertLookupInput({ orderNumber, customerEmail }) {
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)) {
     throw createHttpError(400, "Customer email is invalid.");
+  }
+
+  if (createdAt && Number.isNaN(Date.parse(String(createdAt)))) {
+    throw createHttpError(400, "Created date is invalid.");
+  }
+
+  if (skus !== undefined && !Array.isArray(skus)) {
+    throw createHttpError(400, "SKUs must be an array.");
   }
 }
 
@@ -243,6 +268,11 @@ async function searchOrders(query) {
             customer {
               email
             }
+            lineItems(first: 25) {
+              nodes {
+                sku
+              }
+            }
           }
         }
       }
@@ -256,11 +286,73 @@ async function searchOrders(query) {
   return Array.isArray(data?.orders?.nodes) ? data.orders.nodes : [];
 }
 
-async function resolveOrder({ orderNumber, customerEmail }) {
-  assertLookupInput({ orderNumber, customerEmail });
+function scoreCandidate(node, { normalizedEmail, lookupCreatedAt, normalizedSkus }) {
+  let score = 0;
+
+  if (getCandidateEmails(node).includes(normalizedEmail)) {
+    score += 60;
+  }
+
+  const candidateSkus = getCandidateSkus(node);
+  const sharedSkuCount = normalizedSkus.filter((sku) => candidateSkus.includes(sku)).length;
+
+  if (sharedSkuCount > 0) {
+    score += sharedSkuCount * 25;
+  }
+
+  if (lookupCreatedAt) {
+    const lookupTime = Date.parse(lookupCreatedAt);
+    const candidateTime = Date.parse(String(node?.createdAt || ""));
+
+    if (!Number.isNaN(lookupTime) && !Number.isNaN(candidateTime)) {
+      const minutesApart = Math.abs(lookupTime - candidateTime) / 60000;
+
+      if (minutesApart <= 5) {
+        score += 40;
+      } else if (minutesApart <= 30) {
+        score += 30;
+      } else if (minutesApart <= 120) {
+        score += 18;
+      } else if (minutesApart <= 1440) {
+        score += 8;
+      }
+    }
+  }
+
+  return score;
+}
+
+function pickBestCandidate(candidates, rankingContext) {
+  if (candidates.length <= 1) {
+    return candidates[0] || null;
+  }
+
+  const rankedCandidates = candidates
+    .map((candidate) => ({
+      candidate,
+      score: scoreCandidate(candidate, rankingContext)
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  if (rankedCandidates[0].score <= 0) {
+    return null;
+  }
+
+  if (!rankedCandidates[1] || rankedCandidates[0].score > rankedCandidates[1].score) {
+    return rankedCandidates[0].candidate;
+  }
+
+  return null;
+}
+
+async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
+  assertLookupInput({ orderNumber, customerEmail, createdAt, skus });
 
   const normalizedOrderNumber = normalizeOrderNumber(orderNumber);
   const normalizedEmail = normalizeEmail(customerEmail);
+  const normalizedSkus = Array.from(
+    new Set((Array.isArray(skus) ? skus : []).map((sku) => normalizeSku(sku)).filter(Boolean))
+  );
   const { storeDomain } = getShopifyConfig();
   const searchQueries = [
     `name:${normalizedOrderNumber}`,
@@ -298,6 +390,16 @@ async function resolveOrder({ orderNumber, customerEmail }) {
     }
 
     if (exactMatches.length > 1) {
+      const rankedExactMatch = pickBestCandidate(exactMatches, {
+        lookupCreatedAt: createdAt,
+        normalizedEmail,
+        normalizedSkus
+      });
+
+      if (rankedExactMatch) {
+        return formatOrderResult(rankedExactMatch, storeDomain);
+      }
+
       throw createHttpError(409, "Multiple Shopify orders matched this order number and email.");
     }
 
@@ -306,6 +408,16 @@ async function resolveOrder({ orderNumber, customerEmail }) {
     }
 
     if (exactNumberMatches.length > 1) {
+      const rankedNumberMatch = pickBestCandidate(exactNumberMatches, {
+        lookupCreatedAt: createdAt,
+        normalizedEmail,
+        normalizedSkus
+      });
+
+      if (rankedNumberMatch) {
+        return formatOrderResult(rankedNumberMatch, storeDomain);
+      }
+
       throw createHttpError(
         409,
         "Multiple Shopify orders matched this order number. Refine the lookup."
