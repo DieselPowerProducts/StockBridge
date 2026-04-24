@@ -87,6 +87,12 @@ function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function getCandidateEmails(node) {
+  return Array.from(
+    new Set([normalizeEmail(node?.email), normalizeEmail(node?.customer?.email)].filter(Boolean))
+  );
+}
+
 function quoteSearchValue(value) {
   return `"${String(value).replace(/(["\\])/g, "\\$1")}"`;
 }
@@ -214,7 +220,7 @@ function formatOrderResult(node, storeDomain) {
   return {
     adminUrl: formatAdminOrderUrl(storeDomain, node.legacyResourceId),
     createdAt: node.createdAt,
-    customerEmail: node.email || "",
+    customerEmail: node.email || node.customer?.email || "",
     id: node.id,
     legacyResourceId: String(node.legacyResourceId || ""),
     orderNumber: node.name || "",
@@ -234,6 +240,9 @@ async function searchOrders(query) {
             number
             email
             createdAt
+            customer {
+              email
+            }
           }
         }
       }
@@ -254,9 +263,10 @@ async function resolveOrder({ orderNumber, customerEmail }) {
   const normalizedEmail = normalizeEmail(customerEmail);
   const { storeDomain } = getShopifyConfig();
   const searchQueries = [
-    quoteSearchValue(`#${normalizedOrderNumber}`),
-    quoteSearchValue(normalizedOrderNumber),
-    `email:${quoteSearchValue(normalizedEmail)} ${quoteSearchValue(`#${normalizedOrderNumber}`)}`,
+    `name:${normalizedOrderNumber}`,
+    `name:${quoteSearchValue(`#${normalizedOrderNumber}`)}`,
+    `email:${quoteSearchValue(normalizedEmail)} name:${normalizedOrderNumber}`,
+    `email:${quoteSearchValue(normalizedEmail)} name:${quoteSearchValue(`#${normalizedOrderNumber}`)}`,
     `email:${quoteSearchValue(normalizedEmail)}`
   ];
 
@@ -280,7 +290,7 @@ async function resolveOrder({ orderNumber, customerEmail }) {
         String(node.number || "") === normalizedOrderNumber
     );
     const exactMatches = exactNumberMatches.filter(
-      (node) => normalizeEmail(node.email) === normalizedEmail
+      (node) => getCandidateEmails(node).includes(normalizedEmail)
     );
 
     if (exactMatches.length === 1) {
