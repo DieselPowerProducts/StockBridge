@@ -670,6 +670,39 @@ body:has(.notes-popup-page),
   min-width: 0;
 }
 
+.assigned-vendor-main {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vendor-email-button {
+  align-items: center;
+  background: #242f3d;
+  border: 1px solid #5d7188;
+  border-radius: 6px;
+  color: #dcecff;
+  display: inline-flex;
+  flex: 0 0 30px;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+  width: 30px;
+}
+
+.vendor-email-button:hover {
+  background: #2e4259;
+  color: white;
+}
+
+.vendor-email-button svg {
+  fill: currentColor;
+  height: 18px;
+  width: 18px;
+}
+
 .vendor-build-time-display {
   background: #293326;
   border: 1px solid #5d7d52;
@@ -783,6 +816,215 @@ body:has(.notes-popup-page),
   color: white;
   flex: 0 0 auto;
   padding: 6px 10px;
+}
+
+.vendor-email-composer {
+  background: #141718;
+  border: 1px solid #2c3033;
+  border-radius: 8px;
+  bottom: 18px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+  color: #f1f3f4;
+  display: flex;
+  flex-direction: column;
+  height: min(520px, calc(100% - 36px));
+  overflow: hidden;
+  position: absolute;
+  right: 24px;
+  width: min(584px, calc(100% - 48px));
+  z-index: 5;
+}
+
+.vendor-email-composer-header {
+  align-items: center;
+  background: #1d2021;
+  display: flex;
+  flex: 0 0 40px;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 0 14px;
+}
+
+.vendor-email-composer-header h3 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.vendor-email-composer-header button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #d6d8da;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+
+.vendor-email-composer-header button:hover {
+  color: white;
+}
+
+.vendor-email-composer-header svg {
+  fill: currentColor;
+  height: 20px;
+  width: 20px;
+}
+
+.vendor-email-fields {
+  border-bottom: 1px solid #242829;
+  display: grid;
+}
+
+.vendor-email-row {
+  align-items: center;
+  border-bottom: 1px solid #242829;
+  display: flex;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.vendor-email-row:last-child {
+  border-bottom: 0;
+}
+
+.vendor-email-row span {
+  color: #d6d8da;
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.vendor-email-row select,
+.vendor-email-row input {
+  background: transparent;
+  border: 0;
+  color: #f1f3f4;
+  font: inherit;
+  min-width: 0;
+  outline: none;
+}
+
+.vendor-email-row select {
+  color-scheme: dark;
+  flex: 1 1 auto;
+}
+
+.vendor-email-subject-row select {
+  flex: 0 1 170px;
+}
+
+.vendor-email-subject-row input {
+  flex: 1 1 auto;
+}
+
+.vendor-email-save-template {
+  background: #30363b;
+  border: 1px solid #56626d;
+  border-radius: 6px;
+  color: #f1f3f4;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.vendor-email-save-template:hover {
+  background: #3a444d;
+}
+
+.vendor-email-body {
+  background: transparent;
+  border: 0;
+  color: #f1f3f4;
+  flex: 1 1 auto;
+  font: inherit;
+  line-height: 1.5;
+  min-height: 180px;
+  outline: none;
+  padding: 14px;
+  resize: none;
+}
+
+.vendor-email-footer {
+  align-items: center;
+  background: #141718;
+  display: flex;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 14px;
+}
+
+.vendor-email-send {
+  background: #0b57d0;
+  border: 0;
+  border-radius: 18px;
+  color: white;
+  font-weight: 700;
+  min-width: 76px;
+  padding: 9px 18px;
+}
+
+.vendor-email-send:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.vendor-email-send:not(:disabled):hover {
+  background: #1b66d9;
+}
+
+.vendor-email-message {
+  color: #b7f2c9;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.vendor-email-message p {
+  margin: 0;
+}
+
+.template-name-modal-backdrop {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.64);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: absolute;
+  z-index: 2;
+}
+
+.template-name-modal {
+  background: #222222;
+  border: 1px solid #555555;
+  border-radius: 8px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.4);
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  width: min(360px, 100%);
+}
+
+.template-name-modal h4 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.template-name-modal input {
+  background: #2b2b2b;
+  border: 1px solid #555555;
+  border-radius: 6px;
+  color: white;
+  font: inherit;
+  outline: none;
+  padding: 9px 10px;
+}
+
+.template-name-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .notes-submodal-backdrop {
@@ -1350,6 +1592,30 @@ body:has(.notes-popup-page),
   .assigned-vendors-list li {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .assigned-vendor-main {
+    width: 100%;
+  }
+
+  .vendor-email-composer {
+    bottom: 12px;
+    height: calc(100% - 24px);
+    right: 12px;
+    width: calc(100% - 24px);
+  }
+
+  .vendor-email-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+  }
+
+  .vendor-email-row select,
+  .vendor-email-row input,
+  .vendor-email-subject-row select,
+  .vendor-email-save-template {
+    flex-basis: 100%;
   }
 
   .notes-panel {

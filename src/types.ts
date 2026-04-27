@@ -105,6 +105,22 @@ export type ProductVendor = {
   buildTime: string;
 };
 
+export type VendorContact = {
+  id: string;
+  vendorId: string;
+  name: string;
+  email: string;
+  phone: string;
+  label: string;
+};
+
+export type EmailTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+};
+
 export type ProductKitChild = {
   sku: string;
   name: string;

@@ -20,6 +20,15 @@ async function listVendorProducts(req, res, next) {
   }
 }
 
+async function listVendorContacts(req, res, next) {
+  try {
+    const contacts = await vendorsService.listVendorContacts(req.params.vendorId);
+    res.send(contacts);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function updateVendorSettings(req, res, next) {
   try {
     const result = await vendorsService.updateVendorSettings(
@@ -35,6 +44,7 @@ async function updateVendorSettings(req, res, next) {
 }
 
 module.exports = {
+  listVendorContacts,
   listVendors,
   listVendorProducts,
   updateVendorSettings

@@ -2,10 +2,14 @@ import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react
 import {
   createNote,
   deleteNote,
+  getEmailTemplates,
   getProductDetails,
   getUsers,
   getNotes,
+  getVendorContacts,
   refreshProductDetails,
+  saveEmailTemplate,
+  sendVendorStockCheckEmail,
   updateProductFollowUp,
   updateProductVendorStock,
   updateNote
@@ -13,10 +17,12 @@ import {
 import { getMentionSeedUsers } from "../../data/mentionSeed";
 import type {
   AuthUser,
+  EmailTemplate,
   Note,
   ProductDetails,
   ProductKitChild,
   ProductStockUpdate,
+  VendorContact,
   ProductVendor
 } from "../../types";
 
@@ -35,6 +41,18 @@ type ActiveMention = {
   end: number;
   query: string;
 };
+
+type EmailComposerState = {
+  vendor: ProductVendor;
+  contacts: VendorContact[];
+  selectedContactEmail: string;
+  selectedTemplateId: string;
+  isNewTemplate: boolean;
+  subject: string;
+  body: string;
+};
+
+const newTemplateValue = "__new_template__";
 
 function formatFollowUpDate(value: string) {
   if (!value) {
@@ -292,6 +310,16 @@ function getMentionSuggestions(
     .slice(0, 6);
 }
 
+function renderTemplateText(value: string, sku: string) {
+  return String(value || "").replace(/\{SKU\}/g, sku);
+}
+
+function formatContactLabel(contact: VendorContact) {
+  const name = contact.name || contact.label || contact.email;
+
+  return name && name !== contact.email ? `${name} <${contact.email}>` : contact.email;
+}
+
 export function NotesModal({
   closeLabel = "Close",
   currentUser = null,
@@ -324,6 +352,18 @@ export function NotesModal({
   const [selectedChildSku, setSelectedChildSku] = useState("");
   const [activeMention, setActiveMention] = useState<ActiveMention | null>(null);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
+  const [emailComposer, setEmailComposer] = useState<EmailComposerState | null>(
+    null
+  );
+  const [isEmailTemplatesLoading, setIsEmailTemplatesLoading] = useState(false);
+  const [isVendorContactsLoading, setIsVendorContactsLoading] = useState(false);
+  const [isEmailSending, setIsEmailSending] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [emailStatus, setEmailStatus] = useState("");
+  const [isTemplateNameModalOpen, setIsTemplateNameModalOpen] = useState(false);
+  const [templateNameDraft, setTemplateNameDraft] = useState("");
+  const [isTemplateSaving, setIsTemplateSaving] = useState(false);
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
   const notesListRef = useRef<HTMLDivElement | null>(null);
   const noteInputRef = useRef<HTMLInputElement | null>(null);
@@ -371,6 +411,21 @@ export function NotesModal({
     }
   }, []);
 
+  const loadEmailTemplates = useCallback(async () => {
+    setIsEmailTemplatesLoading(true);
+
+    try {
+      const result = await getEmailTemplates();
+      setEmailTemplates(result);
+    } catch (err) {
+      setEmailError(
+        err instanceof Error ? err.message : "Unable to load email templets."
+      );
+    } finally {
+      setIsEmailTemplatesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadNotes();
   }, [loadNotes]);
@@ -396,6 +451,11 @@ export function NotesModal({
     setSelectedChildSku("");
     setActiveMention(null);
     setSelectedMentionIndex(0);
+    setEmailComposer(null);
+    setEmailError("");
+    setEmailStatus("");
+    setIsTemplateNameModalOpen(false);
+    setTemplateNameDraft("");
   }, [sku]);
 
   useEffect(() => {
@@ -621,6 +681,207 @@ export function NotesModal({
     }
   }
 
+  function updateEmailComposer(patch: Partial<EmailComposerState>) {
+    setEmailComposer((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  async function handleOpenEmailComposer(vendor: ProductVendor) {
+    if (vendor.stockSource !== "vendor") {
+      return;
+    }
+
+    setEmailError("");
+    setEmailStatus("");
+    setIsTemplateNameModalOpen(false);
+    setTemplateNameDraft("");
+    setEmailComposer({
+      vendor,
+      contacts: [],
+      selectedContactEmail: "",
+      selectedTemplateId: "",
+      isNewTemplate: false,
+      subject: "",
+      body: ""
+    });
+    void loadEmailTemplates();
+    setIsVendorContactsLoading(true);
+
+    try {
+      const contacts = await getVendorContacts(vendor.id);
+
+      setEmailComposer((current) =>
+        current?.vendor.vendorProductId === vendor.vendorProductId
+          ? {
+              ...current,
+              contacts,
+              selectedContactEmail: contacts[0]?.email || ""
+            }
+          : current
+      );
+
+      if (contacts.length === 0) {
+        setEmailError("No vendor contacts with email addresses were found.");
+      }
+    } catch (err) {
+      setEmailError(
+        err instanceof Error ? err.message : "Unable to load vendor contacts."
+      );
+    } finally {
+      setIsVendorContactsLoading(false);
+    }
+  }
+
+  function handleCloseEmailComposer() {
+    setEmailComposer(null);
+    setEmailError("");
+    setEmailStatus("");
+    setIsTemplateNameModalOpen(false);
+    setTemplateNameDraft("");
+  }
+
+  function handleTemplateSelect(value: string) {
+    if (value === newTemplateValue) {
+      updateEmailComposer({
+        selectedTemplateId: newTemplateValue,
+        isNewTemplate: true,
+        subject: "",
+        body: ""
+      });
+      setEmailError("");
+      setEmailStatus("");
+      return;
+    }
+
+    const template = emailTemplates.find((item) => item.id === value);
+
+    if (!template) {
+      updateEmailComposer({
+        selectedTemplateId: "",
+        isNewTemplate: false,
+        subject: "",
+        body: ""
+      });
+      return;
+    }
+
+    updateEmailComposer({
+      selectedTemplateId: template.id,
+      isNewTemplate: false,
+      subject: renderTemplateText(template.subject, sku),
+      body: renderTemplateText(template.body, sku)
+    });
+    setEmailError("");
+    setEmailStatus("");
+  }
+
+  async function handleSendVendorEmail() {
+    if (!emailComposer || isEmailSending) {
+      return;
+    }
+
+    const subject = renderTemplateText(emailComposer.subject, sku).trim();
+    const body = renderTemplateText(emailComposer.body, sku).trim();
+
+    if (!emailComposer.selectedContactEmail) {
+      setEmailError("Choose a vendor contact before sending.");
+      return;
+    }
+
+    if (!subject || !body) {
+      setEmailError("Add a subject and message before sending.");
+      return;
+    }
+
+    setEmailError("");
+    setEmailStatus("");
+    setIsEmailSending(true);
+
+    try {
+      await sendVendorStockCheckEmail({
+        vendorId: emailComposer.vendor.id,
+        to: emailComposer.selectedContactEmail,
+        subject,
+        body
+      });
+      setEmailStatus("Email sent.");
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : "Unable to send email.");
+    } finally {
+      setIsEmailSending(false);
+    }
+  }
+
+  function handleRequestSaveTemplate() {
+    if (!emailComposer) {
+      return;
+    }
+
+    if (!emailComposer.subject.trim() || !emailComposer.body.trim()) {
+      setEmailError("Add a subject and message before saving the templet.");
+      return;
+    }
+
+    setEmailError("");
+    setTemplateNameDraft("");
+    setIsTemplateNameModalOpen(true);
+  }
+
+  async function handleSaveTemplateName() {
+    if (!emailComposer || isTemplateSaving) {
+      return;
+    }
+
+    const name = templateNameDraft.trim();
+
+    if (!name) {
+      setEmailError("Add a templet name before saving.");
+      return;
+    }
+
+    setEmailError("");
+    setIsTemplateSaving(true);
+
+    try {
+      const savedTemplate = await saveEmailTemplate({
+        name,
+        subject: emailComposer.subject,
+        body: emailComposer.body
+      });
+      setEmailTemplates((current) =>
+        [
+          ...current.filter(
+            (template) =>
+              template.id !== savedTemplate.id &&
+              template.name.toLowerCase() !== savedTemplate.name.toLowerCase()
+          ),
+          savedTemplate
+        ].sort((left, right) =>
+          left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+        )
+      );
+      setEmailComposer((current) =>
+        current
+          ? {
+              ...current,
+              selectedTemplateId: savedTemplate.id,
+              isNewTemplate: false,
+              subject: renderTemplateText(savedTemplate.subject, sku),
+              body: renderTemplateText(savedTemplate.body, sku)
+            }
+          : current
+      );
+      setIsTemplateNameModalOpen(false);
+      setTemplateNameDraft("");
+      setEmailStatus("Templet saved.");
+    } catch (err) {
+      setEmailError(
+        err instanceof Error ? err.message : "Unable to save this templet."
+      );
+    } finally {
+      setIsTemplateSaving(false);
+    }
+  }
+
   const title = productDetails?.name || "";
   const modalTitle = title && title !== sku ? `${sku} | ${title}` : sku;
   const vendors = productDetails?.vendors || [];
@@ -822,7 +1083,27 @@ export function NotesModal({
 
                   return (
                     <li className="assigned-vendor-item" key={vendor.vendorProductId}>
-                      <span className="assigned-vendor-name">{vendor.name}</span>
+                      <div className="assigned-vendor-main">
+                        <span className="assigned-vendor-name">{vendor.name}</span>
+
+                        {vendor.stockSource === "vendor" && (
+                          <button
+                            type="button"
+                            className="vendor-email-button"
+                            aria-label={`Email ${vendor.name}`}
+                            title={`Email ${vendor.name}`}
+                            onClick={() => handleOpenEmailComposer(vendor)}
+                          >
+                            <svg
+                              aria-hidden="true"
+                              viewBox="0 0 24 24"
+                              focusable="false"
+                            >
+                              <path d="M4 5h16c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2Zm0 3.2V17h16V8.2l-8 5-8-5Zm1.2-1.2 6.8 4.2L18.8 7H5.2Z" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
 
                       {vendor.builtToOrder ? (
                         <div
@@ -1161,6 +1442,182 @@ export function NotesModal({
             </div>
           </section>
         </div>
+
+        {emailComposer && (
+          <section
+            className="vendor-email-composer"
+            aria-labelledby="vendorEmailTitle"
+          >
+            <header className="vendor-email-composer-header">
+              <h3 id="vendorEmailTitle">New Message</h3>
+              <button
+                type="button"
+                aria-label="Close email composer"
+                title="Close"
+                onClick={handleCloseEmailComposer}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                  <path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z" />
+                </svg>
+              </button>
+            </header>
+
+            <div className="vendor-email-fields">
+              <label className="vendor-email-row">
+                <span>To</span>
+                <select
+                  value={emailComposer.selectedContactEmail}
+                  disabled={isVendorContactsLoading || emailComposer.contacts.length === 0}
+                  onChange={(event) =>
+                    updateEmailComposer({
+                      selectedContactEmail: event.target.value
+                    })
+                  }
+                >
+                  {isVendorContactsLoading ? (
+                    <option value="">Loading contacts...</option>
+                  ) : emailComposer.contacts.length === 0 ? (
+                    <option value="">No contacts found</option>
+                  ) : (
+                    emailComposer.contacts.map((contact) => (
+                      <option key={contact.id} value={contact.email}>
+                        {formatContactLabel(contact)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              <div className="vendor-email-row vendor-email-subject-row">
+                <select
+                  aria-label="Email templet"
+                  value={emailComposer.selectedTemplateId}
+                  disabled={isEmailTemplatesLoading}
+                  onChange={(event) => handleTemplateSelect(event.target.value)}
+                >
+                  <option value="">
+                    {isEmailTemplatesLoading ? "Loading templets..." : "Subject"}
+                  </option>
+                  {emailTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                  <option value={newTemplateValue}>New Templet</option>
+                </select>
+
+                <input
+                  type="text"
+                  value={emailComposer.subject}
+                  placeholder="Subject"
+                  aria-label="Email subject"
+                  onChange={(event) =>
+                    updateEmailComposer({
+                      subject: event.target.value,
+                      selectedTemplateId: emailComposer.isNewTemplate
+                        ? newTemplateValue
+                        : ""
+                    })
+                  }
+                />
+
+                {emailComposer.isNewTemplate && (
+                  <button
+                    type="button"
+                    className="vendor-email-save-template"
+                    onClick={handleRequestSaveTemplate}
+                  >
+                    Save Templet
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <textarea
+              className="vendor-email-body"
+              value={emailComposer.body}
+              placeholder={`Ask ${emailComposer.vendor.name} to check stock for ${sku}`}
+              aria-label="Email message"
+              onChange={(event) =>
+                updateEmailComposer({
+                  body: event.target.value,
+                  selectedTemplateId: emailComposer.isNewTemplate
+                    ? newTemplateValue
+                    : ""
+                })
+              }
+            />
+
+            <footer className="vendor-email-footer">
+              <button
+                type="button"
+                className="vendor-email-send"
+                disabled={
+                  isEmailSending ||
+                  isVendorContactsLoading ||
+                  !emailComposer.selectedContactEmail
+                }
+                onClick={handleSendVendorEmail}
+              >
+                {isEmailSending ? "Sending..." : "Send"}
+              </button>
+
+              <div className="vendor-email-message" aria-live="polite">
+                {emailError && <p className="error-message">{emailError}</p>}
+                {!emailError && emailStatus && <p>{emailStatus}</p>}
+              </div>
+            </footer>
+
+            {isTemplateNameModalOpen && (
+              <div
+                className="template-name-modal-backdrop"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="templateNameTitle"
+                onClick={(event) => {
+                  if (event.target === event.currentTarget) {
+                    setIsTemplateNameModalOpen(false);
+                  }
+                }}
+              >
+                <div className="template-name-modal">
+                  <h4 id="templateNameTitle">Name templet</h4>
+                  <input
+                    type="text"
+                    value={templateNameDraft}
+                    placeholder="Templet name"
+                    aria-label="Templet name"
+                    autoFocus
+                    onChange={(event) => setTemplateNameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void handleSaveTemplateName();
+                      }
+                    }}
+                  />
+                  <div className="template-name-actions">
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => setIsTemplateNameModalOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="vendor-email-send"
+                      disabled={isTemplateSaving}
+                      onClick={handleSaveTemplateName}
+                    >
+                      {isTemplateSaving ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {isKitModalOpen && (
           <div

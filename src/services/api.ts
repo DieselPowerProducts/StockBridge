@@ -3,10 +3,12 @@ import type {
   AuthSession,
   AuthUser,
   BackordersResponse,
+  EmailTemplate,
   Note,
   ProductDetails,
   ProductsResponse,
   StockCheckSort,
+  VendorContact,
   VendorDetails,
   VendorProductsResponse,
   VendorsResponse
@@ -210,6 +212,57 @@ export function updateProductVendorStock({
     },
     body: JSON.stringify({ sku, vendorId, vendorProductId, enabled })
   });
+}
+
+export function getVendorContacts(vendorId: string) {
+  return request<VendorContact[]>(
+    `/vendors/${encodeURIComponent(vendorId)}/contacts`
+  );
+}
+
+export function getEmailTemplates() {
+  return request<EmailTemplate[]>("/email/templates");
+}
+
+export function saveEmailTemplate({
+  name,
+  subject,
+  body
+}: {
+  name: string;
+  subject: string;
+  body: string;
+}) {
+  return request<EmailTemplate>("/email/templates", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ name, subject, body })
+  });
+}
+
+export function sendVendorStockCheckEmail({
+  vendorId,
+  to,
+  subject,
+  body
+}: {
+  vendorId: string;
+  to: string;
+  subject: string;
+  body: string;
+}) {
+  return request<{ messageId: string; accepted: string[] }>(
+    "/email/vendor-stock-check",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ vendorId, to, subject, body })
+    }
+  );
 }
 
 export function importBackorders(formData: FormData) {
