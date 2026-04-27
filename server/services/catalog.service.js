@@ -15,6 +15,7 @@ const productSelectionFields = `
   id
   sku
   name
+  state
   qty_available
   is_kit
   relatedProduct {
@@ -39,6 +40,10 @@ function normalizePaging({ page = 1, limit = 50 } = {}) {
 
 function normalizeSearch(search) {
   return String(search || "").trim();
+}
+
+function normalizeProductState(state) {
+  return String(state || "Active").trim() || "Active";
 }
 
 function normalizeStockCheckSort(sort) {
@@ -155,6 +160,7 @@ function normalizeProductNode(row) {
     id: row?.id || row?.product_id || "",
     sku,
     name: row?.name || sku,
+    state: normalizeProductState(row?.state),
     qty_available: Math.max(Number(row?.qty_available || 0), 0),
     is_kit: Boolean(row?.is_kit),
     relatedProduct: (row?.relatedProduct || [])
@@ -460,6 +466,7 @@ function normalizeProductRow(row) {
     product_id: String(row?.id || row?.product_id || "").trim(),
     sku: String(row?.sku || "").trim(),
     name: String(row?.name || "").trim(),
+    state: normalizeProductState(row?.state),
     qty_available: Math.max(Number(row?.qty_available || 0), 0),
     is_kit: Boolean(row?.is_kit),
     relatedProduct: Array.isArray(row?.relatedProduct) ? row.relatedProduct : []
@@ -539,10 +546,15 @@ async function initializeSchema() {
           product_id TEXT PRIMARY KEY,
           sku TEXT NOT NULL UNIQUE,
           name TEXT NOT NULL DEFAULT '',
+          state TEXT NOT NULL DEFAULT 'Active',
           qty_available INTEGER NOT NULL DEFAULT 0,
           is_kit BOOLEAN NOT NULL DEFAULT FALSE,
           last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+      `;
+      await sql`
+        ALTER TABLE catalog_products
+        ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'Active'
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS catalog_products_sku_idx
@@ -551,6 +563,10 @@ async function initializeSchema() {
       await sql`
         CREATE INDEX IF NOT EXISTS catalog_products_name_idx
         ON catalog_products (name)
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_products_state_idx
+        ON catalog_products (state)
       `;
       await sql`
         CREATE TABLE IF NOT EXISTS catalog_product_components (
@@ -694,7 +710,7 @@ async function queryProductsPage({ page, limit, search }) {
     `
       SELECT COUNT(*)::int AS count
       FROM catalog_products p
-      WHERE 1 = 1
+      WHERE lower(COALESCE(p.state, 'Active')) = 'active'
       ${whereClause}
     `,
     baseParams
@@ -707,10 +723,11 @@ async function queryProductsPage({ page, limit, search }) {
         p.product_id AS id,
         p.sku,
         p.name,
+        p.state,
         p.qty_available,
         p.is_kit
       FROM catalog_products p
-      WHERE 1 = 1
+      WHERE lower(COALESCE(p.state, 'Active')) = 'active'
       ${whereClause}
       ORDER BY p.sku ASC
       LIMIT $${dataParams.length - 1}
@@ -763,9 +780,10 @@ async function queryVendorProductsPage({ vendorId, page, limit, search }) {
     `
       SELECT COUNT(*)::int AS count
       FROM catalog_vendor_products vp
-      LEFT JOIN catalog_products p
+      JOIN catalog_products p
         ON p.product_id = vp.product_id
       WHERE vp.vendor_id = $1
+      AND lower(COALESCE(p.state, 'Active')) = 'active'
       ${searchClause}
     `,
     baseParams
@@ -785,9 +803,10 @@ async function queryVendorProductsPage({ vendorId, page, limit, search }) {
         p.name AS product_name,
         p.qty_available
       FROM catalog_vendor_products vp
-      LEFT JOIN catalog_products p
+      JOIN catalog_products p
         ON p.product_id = vp.product_id
       WHERE vp.vendor_id = $1
+      AND lower(COALESCE(p.state, 'Active')) = 'active'
       ${searchClause}
       ORDER BY COALESCE(NULLIF(p.sku, ''), vp.sku, vp.label, vp.vendor_product_id) ASC
       LIMIT $${dataParams.length - 1}
@@ -822,12 +841,14 @@ async function queryProductsBySkus(skus) {
         product_id AS id,
         sku,
         name,
+        state,
         qty_available,
         is_kit
       FROM catalog_products
       WHERE sku IN (
         SELECT jsonb_array_elements_text($1::jsonb)
       )
+      AND lower(COALESCE(state, 'Active')) = 'active'
     `,
     [skuJson]
   );
@@ -851,12 +872,14 @@ async function queryProductsByIds(productIds) {
         product_id AS id,
         sku,
         name,
+        state,
         qty_available,
         is_kit
       FROM catalog_products
       WHERE product_id IN (
         SELECT jsonb_array_elements_text($1::jsonb)
       )
+      AND lower(COALESCE(state, 'Active')) = 'active'
     `,
     [idJson]
   );
@@ -869,10 +892,12 @@ async function queryProductBySku(sku) {
       product_id AS id,
       sku,
       name,
+      state,
       qty_available,
       is_kit
     FROM catalog_products
     WHERE sku = ${sku}
+    AND lower(COALESCE(state, 'Active')) = 'active'
     LIMIT 1
   `;
 
@@ -886,9 +911,11 @@ async function queryAllProducts() {
       product_id AS id,
       sku,
       name,
+      state,
       qty_available,
       is_kit
     FROM catalog_products
+    WHERE lower(COALESCE(state, 'Active')) = 'active'
     ORDER BY sku ASC
   `;
 }
@@ -1352,6 +1379,7 @@ async function fetchProductsPageFromSkuNexus(page) {
       product {
         grid(
           sort: { sku: ASC }
+          filter: { state: { operator: eq, value: [${graphqlString("Active")}] } }
           limit: { size: ${fullSyncPageSize}, page: ${page} }
         ) {
           totalSize
@@ -1487,7 +1515,10 @@ async function fetchProductBySkuFromSkuNexus(sku) {
     query V1Queries {
       product {
         grid(
-          filter: { sku: { operator: eq, value: [${graphqlString(sku)}] } }
+          filter: {
+            sku: { operator: eq, value: [${graphqlString(sku)}] }
+            state: { operator: eq, value: [${graphqlString("Active")}] }
+          }
           limit: { size: 1, page: 1 }
         ) {
           rows {
@@ -1514,7 +1545,10 @@ async function fetchProductsBySkusFromSkuNexus(skus) {
     query V1Queries {
       product {
         grid(
-          filter: { sku: { operator: in, value: [${graphqlStringList(uniqueSkus)}] } }
+          filter: {
+            sku: { operator: in, value: [${graphqlStringList(uniqueSkus)}] }
+            state: { operator: eq, value: [${graphqlString("Active")}] }
+          }
           limit: { size: ${uniqueSkus.length}, page: 1 }
         ) {
           rows {
@@ -1662,10 +1696,11 @@ async function upsertProducts(rows, syncStamp) {
     rows
       .map(normalizeProductRow)
       .filter((row) => row.product_id && row.sku)
-      .map(({ product_id, sku, name, qty_available, is_kit }) => ({
+      .map(({ product_id, sku, name, state, qty_available, is_kit }) => ({
         product_id,
         sku,
         name,
+        state,
         qty_available,
         is_kit
       })),
@@ -1683,6 +1718,7 @@ async function upsertProducts(rows, syncStamp) {
         product_id,
         sku,
         name,
+        state,
         qty_available,
         is_kit,
         last_synced_at
@@ -1691,6 +1727,7 @@ async function upsertProducts(rows, syncStamp) {
         row.product_id,
         row.sku,
         row.name,
+        row.state,
         row.qty_available,
         row.is_kit,
         $2::timestamptz
@@ -1698,12 +1735,14 @@ async function upsertProducts(rows, syncStamp) {
         product_id text,
         sku text,
         name text,
+        state text,
         qty_available integer,
         is_kit boolean
       )
       ON CONFLICT (product_id) DO UPDATE
       SET sku = EXCLUDED.sku,
           name = EXCLUDED.name,
+          state = EXCLUDED.state,
           qty_available = EXCLUDED.qty_available,
           is_kit = EXCLUDED.is_kit,
           last_synced_at = EXCLUDED.last_synced_at
