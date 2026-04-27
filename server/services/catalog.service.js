@@ -244,6 +244,84 @@ function getEffectiveQtyAvailable(
   return qtyAvailable;
 }
 
+function hasActiveVendor(product, productVendorAvailability) {
+  return Boolean(
+    product?.id &&
+      productVendorAvailability?.productIdsWithActiveVendors?.has(product.id)
+  );
+}
+
+function hasBuiltToOrderVendor(product, productVendorAvailability) {
+  return Boolean(
+    product?.id &&
+      productVendorAvailability?.productIdsWithBuiltToOrderVendors?.has(product.id)
+  );
+}
+
+function getEffectiveAvailability(
+  sku,
+  productsBySku,
+  productVendorAvailability,
+  availabilityCache = new Map(),
+  visiting = new Set()
+) {
+  const safeSku = String(sku || "").trim();
+
+  if (!safeSku) {
+    return "Backorder";
+  }
+
+  if (availabilityCache.has(safeSku)) {
+    return availabilityCache.get(safeSku);
+  }
+
+  const product = productsBySku.get(safeSku);
+
+  if (!product) {
+    availabilityCache.set(safeSku, "Backorder");
+    return "Backorder";
+  }
+
+  if (!product.is_kit || product.relatedProduct.length === 0) {
+    const availability = mapAvailability(
+      product.qty_available,
+      hasActiveVendor(product, productVendorAvailability),
+      hasBuiltToOrderVendor(product, productVendorAvailability)
+    );
+
+    availabilityCache.set(safeSku, availability);
+    return availability;
+  }
+
+  if (visiting.has(safeSku)) {
+    availabilityCache.set(safeSku, "Backorder");
+    return "Backorder";
+  }
+
+  visiting.add(safeSku);
+  const childAvailabilities = product.relatedProduct.map((child) =>
+    getEffectiveAvailability(
+      child.sku,
+      productsBySku,
+      productVendorAvailability,
+      availabilityCache,
+      visiting
+    )
+  );
+  visiting.delete(safeSku);
+
+  const availability = childAvailabilities.includes("Backorder")
+    ? "Backorder"
+    : childAvailabilities.includes("Built to Order")
+      ? "Built to Order"
+      : childAvailabilities.length > 0
+        ? "Available"
+        : "Backorder";
+
+  availabilityCache.set(safeSku, availability);
+  return availability;
+}
+
 function matchesProductSearch(product, search) {
   if (!search) {
     return true;
@@ -1040,7 +1118,8 @@ async function buildProductGraph(rows) {
 
   return {
     productsBySku,
-    qtyCache: new Map()
+    qtyCache: new Map(),
+    availabilityCache: new Map()
   };
 }
 
@@ -1057,9 +1136,16 @@ async function buildFullProductGraph() {
           .filter(Boolean)
           .map((product) => [product.sku, product])
       ),
-      qtyCache: new Map()
+      qtyCache: new Map(),
+      availabilityCache: new Map()
     }
   };
+}
+
+function getProductGraphProductIds(productGraph) {
+  return Array.from(productGraph?.productsBySku?.values?.() || [])
+    .map((product) => String(product?.id || "").trim())
+    .filter(Boolean);
 }
 
 function buildProductVendorAvailability(rows) {
@@ -1093,7 +1179,11 @@ function mapProduct(
   row,
   productVendorAvailability,
   followUpsBySku,
-  { productsBySku = new Map(), qtyCache = new Map() } = {}
+  {
+    productsBySku = new Map(),
+    qtyCache = new Map(),
+    availabilityCache = new Map()
+  } = {}
 ) {
   const normalizedRow = normalizeProductNode(row);
   const sku = normalizedRow?.sku || row?.sku || "";
@@ -1108,9 +1198,12 @@ function mapProduct(
     ? getEffectiveQtyAvailable(sku, productsBySku, qtyCache)
     : Math.max(Number(row?.qty_available || 0), 0);
   const availability = isKit
-    ? qtyAvailable > 0
-      ? "Available"
-      : getUnavailableAvailability(hasBuiltToOrderVendor)
+    ? getEffectiveAvailability(
+        sku,
+        productsBySku,
+        productVendorAvailability,
+        availabilityCache
+      )
     : mapAvailability(qtyAvailable, hasActiveVendor, hasBuiltToOrderVendor);
 
   return {
@@ -1124,7 +1217,7 @@ function mapProduct(
   };
 }
 
-function buildKitChildProducts(product, productGraph) {
+function buildKitChildProducts(product, productGraph, productVendorAvailability) {
   if (!product?.is_kit) {
     return [];
   }
@@ -1142,7 +1235,12 @@ function buildKitChildProducts(product, productGraph) {
       name: childProduct?.name || child.name || child.sku,
       qtyRequired: Math.max(Number(child.qty || 0), 1),
       qtyAvailable,
-      availability: qtyAvailable > 0 ? "Available" : "Backorder",
+      availability: getEffectiveAvailability(
+        child.sku,
+        productGraph.productsBySku,
+        productVendorAvailability,
+        productGraph.availabilityCache
+      ),
       isKit: Boolean(childProduct?.is_kit)
     };
   });
@@ -2015,11 +2113,13 @@ async function listProducts(queryParams = {}) {
 
   const result = await queryProductsPage({ page, limit, search });
   const rows = result.data || [];
-  const [productVendorAvailability, productGraph, followUpsBySku] = await Promise.all([
-    getProductVendorAvailabilityInfo(rows.map((product) => product.id).filter(Boolean)),
+  const [productGraph, followUpsBySku] = await Promise.all([
     buildProductGraph(rows),
     followUpsService.getFollowUpsForSkus(rows.map((product) => product.sku).filter(Boolean))
   ]);
+  const productVendorAvailability = await getProductVendorAvailabilityInfo(
+    getProductGraphProductIds(productGraph)
+  );
 
   return {
     ...result,
@@ -2048,6 +2148,9 @@ async function getProductDetails(sku) {
   ]);
   const productNode =
     productGraph.productsBySku.get(product.sku || safeSku) || normalizeProductNode(product);
+  const productVendorAvailability = await getProductVendorAvailabilityInfo(
+    getProductGraphProductIds(productGraph)
+  );
   const qtyAvailable = productNode
     ? getEffectiveQtyAvailable(
         productNode.sku,
@@ -2055,8 +2158,19 @@ async function getProductDetails(sku) {
         productGraph.qtyCache
       )
     : 0;
-  const baseAvailability = qtyAvailable > 0 ? "Available" : "Backorder";
-  const childProducts = buildKitChildProducts(productNode, productGraph);
+  const availability = productNode
+    ? getEffectiveAvailability(
+        productNode.sku,
+        productGraph.productsBySku,
+        productVendorAvailability,
+        productGraph.availabilityCache
+      )
+    : "Backorder";
+  const childProducts = buildKitChildProducts(
+    productNode,
+    productGraph,
+    productVendorAvailability
+  );
   const vendorIds = Array.from(
     new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))
   );
@@ -2065,18 +2179,6 @@ async function getProductDetails(sku) {
     vendorSettingsService.getVendorSettingsByVendorIds(vendorIds)
   ]);
   const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
-  const hasBuiltToOrderVendor = vendorProducts.some((vendorProduct) => {
-    const settings = settingsByVendorId.get(vendorProduct.vendor_id);
-    const vendor = vendorsById.get(vendorProduct.vendor_id);
-
-    return Boolean(
-      vendorProduct.vendor_id && settings?.builtToOrder && isActiveVendor(vendor)
-    );
-  });
-  const availability =
-    baseAvailability === "Available"
-      ? "Available"
-      : getUnavailableAvailability(hasBuiltToOrderVendor);
   const assignedVendors = vendorProducts
     .filter((vendorProduct) => vendorProduct.id && vendorProduct.vendor_id)
     .map((vendorProduct) => {
