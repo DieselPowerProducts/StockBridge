@@ -2151,6 +2151,7 @@ async function getStockCheckProducts({ search, sort = "all", referenceDate = "" 
     .map((product) =>
       mapProduct(product, productVendorAvailability, followUpsBySku, graph)
     )
+    .filter((product) => product.availability !== "Built to Order")
     .filter(
       (product) =>
         product.availability !== "Available" || Boolean(product.followUpDate)
