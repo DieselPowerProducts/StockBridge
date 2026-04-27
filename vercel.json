@@ -22,7 +22,7 @@
       "handle": "filesystem"
     },
     {
-      "src": "/(auth|backorders|status|import|notes|notifications|products|shopify|users|vendors)(.*)",
+      "src": "/(auth|backorders|status|email|import|notes|notifications|products|shopify|users|vendors)(.*)",
       "dest": "api/index.js"
     }
   ]
