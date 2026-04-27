@@ -193,7 +193,8 @@ function getEffectiveQtyAvailable(
   sku,
   productsBySku,
   qtyCache = new Map(),
-  visiting = new Set()
+  visiting = new Set(),
+  productVendorAvailability = null
 ) {
   const safeSku = String(sku || "").trim();
 
@@ -212,8 +213,17 @@ function getEffectiveQtyAvailable(
     return 0;
   }
 
+  const vendorQtyAvailable = getVendorQtyAvailable(product, productVendorAvailability);
+
+  if (vendorQtyAvailable > 0) {
+    qtyCache.set(safeSku, vendorQtyAvailable);
+    return vendorQtyAvailable;
+  }
+
   if (!product.is_kit || product.relatedProduct.length === 0) {
-    const qtyAvailable = product.is_kit ? 0 : product.qty_available;
+    const qtyAvailable = product.is_kit
+      ? 0
+      : Math.max(product.qty_available, vendorQtyAvailable);
     qtyCache.set(safeSku, qtyAvailable);
     return qtyAvailable;
   }
@@ -230,7 +240,8 @@ function getEffectiveQtyAvailable(
       child.sku,
       productsBySku,
       qtyCache,
-      visiting
+      visiting,
+      productVendorAvailability
     );
 
     return Math.floor(childQty / requiredQty);
@@ -258,6 +269,17 @@ function hasBuiltToOrderVendor(product, productVendorAvailability) {
   );
 }
 
+function getVendorQtyAvailable(product, productVendorAvailability) {
+  if (!product?.id || !productVendorAvailability?.vendorQuantityByProductId) {
+    return 0;
+  }
+
+  return Math.max(
+    Number(productVendorAvailability.vendorQuantityByProductId.get(product.id) || 0),
+    0
+  );
+}
+
 function getEffectiveAvailability(
   sku,
   productsBySku,
@@ -282,9 +304,19 @@ function getEffectiveAvailability(
     return "Backorder";
   }
 
+  const qtyAvailable = Math.max(
+    product.is_kit ? 0 : product.qty_available,
+    getVendorQtyAvailable(product, productVendorAvailability)
+  );
+
+  if (qtyAvailable > 0) {
+    availabilityCache.set(safeSku, "Available");
+    return "Available";
+  }
+
   if (!product.is_kit || product.relatedProduct.length === 0) {
     const availability = mapAvailability(
-      product.qty_available,
+      qtyAvailable,
       hasActiveVendor(product, productVendorAvailability),
       hasBuiltToOrderVendor(product, productVendorAvailability)
     );
@@ -1009,6 +1041,7 @@ async function queryVendorAvailabilityRows(productIds) {
       SELECT
         vp.product_id,
         vp.vendor_id,
+        vp.quantity,
         v.status,
         COALESCE(vs.built_to_order, FALSE) AS built_to_order
       FROM catalog_vendor_products vp
@@ -1034,6 +1067,7 @@ async function queryVendorAvailabilityRows(productIds) {
       SELECT
         vp.product_id,
         vp.vendor_id,
+        vp.quantity,
         v.status,
         COALESCE(vs.built_to_order, FALSE) AS built_to_order
       FROM catalog_vendor_products vp
@@ -1151,6 +1185,7 @@ function getProductGraphProductIds(productGraph) {
 function buildProductVendorAvailability(rows) {
   const productIdsWithActiveVendors = new Set();
   const productIdsWithBuiltToOrderVendors = new Set();
+  const vendorQuantityByProductId = new Map();
 
   for (const row of rows) {
     if (!row?.product_id || !isActiveVendor(row)) {
@@ -1161,12 +1196,20 @@ function buildProductVendorAvailability(rows) {
 
     if (Boolean(row?.built_to_order)) {
       productIdsWithBuiltToOrderVendors.add(row.product_id);
+      continue;
     }
+
+    vendorQuantityByProductId.set(
+      row.product_id,
+      (vendorQuantityByProductId.get(row.product_id) || 0) +
+        Math.max(Number(row.quantity || 0), 0)
+    );
   }
 
   return {
     productIdsWithActiveVendors,
-    productIdsWithBuiltToOrderVendors
+    productIdsWithBuiltToOrderVendors,
+    vendorQuantityByProductId
   };
 }
 
@@ -1195,8 +1238,17 @@ function mapProduct(
   const hasBuiltToOrderVendor =
     productVendorAvailability.productIdsWithBuiltToOrderVendors.has(row.id);
   const qtyAvailable = isKit
-    ? getEffectiveQtyAvailable(sku, productsBySku, qtyCache)
-    : Math.max(Number(row?.qty_available || 0), 0);
+    ? getEffectiveQtyAvailable(
+        sku,
+        productsBySku,
+        qtyCache,
+        new Set(),
+        productVendorAvailability
+      )
+    : Math.max(
+        Number(row?.qty_available || 0),
+        getVendorQtyAvailable(product || { id: row.id }, productVendorAvailability)
+      );
   const availability = isKit
     ? getEffectiveAvailability(
         sku,
@@ -1227,7 +1279,9 @@ function buildKitChildProducts(product, productGraph, productVendorAvailability)
     const qtyAvailable = getEffectiveQtyAvailable(
       child.sku,
       productGraph.productsBySku,
-      productGraph.qtyCache
+      productGraph.qtyCache,
+      new Set(),
+      productVendorAvailability
     );
 
     return {
@@ -2155,7 +2209,9 @@ async function getProductDetails(sku) {
     ? getEffectiveQtyAvailable(
         productNode.sku,
         productGraph.productsBySku,
-        productGraph.qtyCache
+        productGraph.qtyCache,
+        new Set(),
+        productVendorAvailability
       )
     : 0;
   const availability = productNode
