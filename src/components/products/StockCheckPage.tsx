@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { getStockCheckProducts } from "../../services/api";
-import type { Product, ProductStockUpdate, StockCheckSort } from "../../types";
+import type {
+  Product,
+  ProductStockUpdate,
+  StockCheckSort,
+  VendorEmailSentUpdate
+} from "../../types";
 import { Pagination } from "./Pagination";
 import { ProductsTable } from "./ProductsTable";
 import { applyProductStockUpdate } from "./productStockUpdates";
 
 type StockCheckPageProps = {
   productStockUpdate: ProductStockUpdate | null;
+  vendorEmailSentUpdate: VendorEmailSentUpdate | null;
   onOpenNotes: (sku: string) => void;
   refreshKey: number;
 };
@@ -29,6 +35,7 @@ function getLocalDateText() {
 
 export function StockCheckPage({
   productStockUpdate,
+  vendorEmailSentUpdate,
   onOpenNotes,
   refreshKey
 }: StockCheckPageProps) {
@@ -100,6 +107,23 @@ export function StockCheckPage({
     setRefreshNonce((current) => current + 1);
   }, [productStockUpdate]);
 
+  useEffect(() => {
+    if (!vendorEmailSentUpdate?.sku) {
+      return;
+    }
+
+    setProducts((current) =>
+      current.map((product) =>
+        product.sku === vendorEmailSentUpdate.sku
+          ? {
+              ...product,
+              vendorEmailSent: true
+            }
+          : product
+      )
+    );
+  }, [vendorEmailSentUpdate]);
+
   const emptyMessageBySort: Record<StockCheckSort, string> = {
     yesterday: "No stock check products with follow-up dates from yesterday.",
     today: "No stock check products with follow-up dates from today.",
@@ -138,6 +162,7 @@ export function StockCheckPage({
         emptyMessage={emptyMessageBySort[sort]}
         products={products}
         onOpenNotes={onOpenNotes}
+        showVendorEmailStatus
       />
 
       <Pagination

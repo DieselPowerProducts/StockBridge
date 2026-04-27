@@ -34,6 +34,7 @@ type NotesModalProps = {
   onClose: () => void;
   onFollowUpSaved: () => void;
   onProductStockChanged?: (update: ProductStockUpdate) => void;
+  onVendorEmailSent?: (sku: string) => void;
 };
 
 type ActiveMention = {
@@ -327,7 +328,8 @@ export function NotesModal({
   sku,
   onClose,
   onFollowUpSaved,
-  onProductStockChanged
+  onProductStockChanged,
+  onVendorEmailSent
 }: NotesModalProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(
@@ -798,12 +800,15 @@ export function NotesModal({
 
     try {
       await sendVendorStockCheckEmail({
+        sku,
         vendorId: emailComposer.vendor.id,
+        vendorName: emailComposer.vendor.name,
         to: emailComposer.selectedContactEmail,
         subject,
         body
       });
       setEmailStatus("Email sent.");
+      onVendorEmailSent?.(sku);
     } catch (err) {
       setEmailError(err instanceof Error ? err.message : "Unable to send email.");
     } finally {
@@ -1681,6 +1686,7 @@ export function NotesModal({
             onClose={handleCloseChildNotes}
             onFollowUpSaved={onFollowUpSaved}
             onProductStockChanged={onProductStockChanged}
+            onVendorEmailSent={onVendorEmailSent}
           />
         )}
       </div>

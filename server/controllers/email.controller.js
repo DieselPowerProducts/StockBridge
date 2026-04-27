@@ -1,5 +1,6 @@
 const emailService = require("../services/email.service");
 const emailTemplatesService = require("../services/emailTemplates.service");
+const stockCheckEmailsService = require("../services/stockCheckEmails.service");
 const vendorsService = require("../services/vendors.service");
 
 function normalizeEmail(value) {
@@ -26,8 +27,16 @@ async function saveTemplate(req, res, next) {
 
 async function sendVendorStockCheck(req, res, next) {
   try {
+    const sku = String(req.body?.sku || "").trim();
     const vendorId = String(req.body?.vendorId || "").trim();
     const to = normalizeEmail(req.body?.to);
+
+    if (!sku) {
+      const error = new Error("Product SKU is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const contacts = await vendorsService.listVendorContacts(vendorId);
     const isVendorContact = contacts.some(
       (contact) => normalizeEmail(contact.email) === to
@@ -40,7 +49,21 @@ async function sendVendorStockCheck(req, res, next) {
     }
 
     const result = await emailService.sendVendorStockCheckEmail(req.body, req.user);
-    res.send(result);
+    await stockCheckEmailsService.recordVendorEmail(
+      {
+        sku,
+        vendorId,
+        vendorName: req.body?.vendorName,
+        recipientEmail: to,
+        subject: req.body?.subject
+      },
+      req.user
+    );
+
+    res.send({
+      ...result,
+      sku
+    });
   } catch (err) {
     next(err);
   }

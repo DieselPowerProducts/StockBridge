@@ -64,6 +64,12 @@ export type Product = {
   availability: ProductAvailability;
   followUpDate: string;
   isKit: boolean;
+  vendorEmailSent?: boolean;
+};
+
+export type VendorEmailSentUpdate = {
+  sku: string;
+  token: number;
 };
 
 export type ProductStockUpdate = {

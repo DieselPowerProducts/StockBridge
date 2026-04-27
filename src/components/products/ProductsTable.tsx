@@ -5,6 +5,7 @@ type ProductsTableProps = {
   products: Product[];
   onOpenNotes: (sku: string) => void;
   showFollowUp?: boolean;
+  showVendorEmailStatus?: boolean;
 };
 
 function getAvailabilityClass(product: Product) {
@@ -37,7 +38,8 @@ export function ProductsTable({
   emptyMessage = "No products found yet.",
   products,
   onOpenNotes,
-  showFollowUp = true
+  showFollowUp = true,
+  showVendorEmailStatus = false
 }: ProductsTableProps) {
   return (
     <table>
@@ -58,13 +60,27 @@ export function ProductsTable({
           products.map((product) => (
             <tr key={product.id}>
               <td>
-                <button
-                  type="button"
-                  className="sku-link"
-                  onClick={() => onOpenNotes(product.sku)}
-                >
-                  {product.sku}
-                </button>
+                <div className="sku-cell-content">
+                  <button
+                    type="button"
+                    className="sku-link"
+                    onClick={() => onOpenNotes(product.sku)}
+                  >
+                    {product.sku}
+                  </button>
+
+                  {showVendorEmailStatus && product.vendorEmailSent && (
+                    <span
+                      className="sku-email-sent-icon"
+                      aria-label="Vendor emailed"
+                      title="Vendor emailed"
+                    >
+                      <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                        <path d="M4 5h16c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V7c0-1.1.9-2 2-2Zm0 3.2V17h16V8.2l-8 5-8-5Zm1.2-1.2 6.8 4.2L18.8 7H5.2Z" />
+                      </svg>
+                    </span>
+                  )}
+                </div>
               </td>
               <td>{product.name}</td>
               <td>

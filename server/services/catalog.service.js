@@ -1,6 +1,7 @@
 const { getSql } = require("../db/neon");
 const followUpsService = require("./followUps.service");
 const skunexus = require("./skunexus.service");
+const stockCheckEmailsService = require("./stockCheckEmails.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
 const fullSyncPageSize = 1000;
@@ -2176,8 +2177,18 @@ async function listStockCheckProducts(queryParams = {}) {
     sort: queryParams.sort,
     referenceDate: queryParams.referenceDate
   });
+  const pageResult = paginateRows(products, { page, limit });
+  const emailedSkus = await stockCheckEmailsService.getEmailedSkuSetForSkus(
+    pageResult.data.map((product) => product.sku)
+  );
 
-  return paginateRows(products, { page, limit });
+  return {
+    ...pageResult,
+    data: pageResult.data.map((product) => ({
+      ...product,
+      vendorEmailSent: emailedSkus.has(String(product.sku || "").trim().toUpperCase())
+    }))
+  };
 }
 
 function mapVendorSummary(row) {

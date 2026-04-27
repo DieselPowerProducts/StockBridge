@@ -243,24 +243,28 @@ export function saveEmailTemplate({
 }
 
 export function sendVendorStockCheckEmail({
+  sku,
   vendorId,
+  vendorName,
   to,
   subject,
   body
 }: {
+  sku: string;
   vendorId: string;
+  vendorName: string;
   to: string;
   subject: string;
   body: string;
 }) {
-  return request<{ messageId: string; accepted: string[] }>(
+  return request<{ messageId: string; accepted: string[]; sku: string }>(
     "/email/vendor-stock-check",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ vendorId, to, subject, body })
+      body: JSON.stringify({ sku, vendorId, vendorName, to, subject, body })
     }
   );
 }

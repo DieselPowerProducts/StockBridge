@@ -7,7 +7,13 @@ import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
 import { getCurrentUser, signOut } from "./services/api";
-import type { AppRoute, AuthUser, PageName, ProductStockUpdate } from "./types";
+import type {
+  AppRoute,
+  AuthUser,
+  PageName,
+  ProductStockUpdate,
+  VendorEmailSentUpdate
+} from "./types";
 
 function parseRoute(): AppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -52,6 +58,8 @@ export function App() {
   const [productRefreshKey, setProductRefreshKey] = useState(0);
   const [productStockUpdate, setProductStockUpdate] =
     useState<ProductStockUpdate | null>(null);
+  const [vendorEmailSentUpdate, setVendorEmailSentUpdate] =
+    useState<VendorEmailSentUpdate | null>(null);
 
   useEffect(() => {
     const handleHashChange = () => setRoute(parseRoute());
@@ -118,6 +126,13 @@ export function App() {
     }, 0);
   }
 
+  function handleVendorEmailSent(emailedSku: string) {
+    setVendorEmailSentUpdate({
+      sku: emailedSku,
+      token: Date.now()
+    });
+  }
+
   if (authStatus === "checking") {
     return (
       <main className="auth-page" aria-label="Loading StockBridge">
@@ -148,6 +163,7 @@ export function App() {
           onClose={handleCloseNotesRoute}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
           onProductStockChanged={setProductStockUpdate}
+          onVendorEmailSent={handleVendorEmailSent}
         />
       </main>
     );
@@ -186,6 +202,7 @@ export function App() {
           {route.page === "stock-check" && (
             <StockCheckPage
               productStockUpdate={productStockUpdate}
+              vendorEmailSentUpdate={vendorEmailSentUpdate}
               refreshKey={productRefreshKey}
               onOpenNotes={setSelectedSku}
             />
@@ -200,6 +217,7 @@ export function App() {
           onClose={() => setSelectedSku("")}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
           onProductStockChanged={setProductStockUpdate}
+          onVendorEmailSent={handleVendorEmailSent}
         />
       )}
     </div>

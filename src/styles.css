@@ -456,6 +456,32 @@ th {
   text-decoration: underline;
 }
 
+.sku-cell-content {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.sku-email-sent-icon {
+  align-items: center;
+  background: #242f3d;
+  border: 1px solid #5d7188;
+  border-radius: 6px;
+  color: #dcecff;
+  display: inline-flex;
+  flex: 0 0 24px;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.sku-email-sent-icon svg {
+  fill: currentColor;
+  height: 15px;
+  width: 15px;
+}
+
 .availability-badge {
   border-radius: 8px;
   display: inline-block;
