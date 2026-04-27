@@ -911,6 +911,15 @@ body:has(.notes-popup-page),
   flex: 1 1 auto;
 }
 
+.vendor-email-row select option {
+  background: #1d2021;
+  color: #f1f3f4;
+}
+
+.vendor-email-row select option:disabled {
+  color: #8d9398;
+}
+
 .vendor-email-subject-row select {
   flex: 0 1 170px;
 }
