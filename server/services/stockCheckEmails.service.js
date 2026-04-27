@@ -128,7 +128,25 @@ async function getEmailedSkuSetForSkus(skus) {
   return new Set(rows.map((row) => normalizeSku(row?.sku)).filter(Boolean));
 }
 
+async function clearVendorEmailsForSku(sku) {
+  const safeSku = normalizeSku(assertRequiredText(sku, "Product SKU is required."));
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    DELETE FROM stock_check_vendor_emails
+    WHERE upper(sku) = ${safeSku}
+    RETURNING id::text
+  `;
+
+  return {
+    deleted: rows.length
+  };
+}
+
 module.exports = {
+  clearVendorEmailsForSku,
   getEmailedSkuSetForSkus,
   recordVendorEmail
 };

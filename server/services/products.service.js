@@ -1,6 +1,7 @@
 const skunexus = require("./skunexus.service");
 const catalogService = require("./catalog.service");
 const followUpsService = require("./followUps.service");
+const stockCheckEmailsService = require("./stockCheckEmails.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
 const enabledVendorStockQuantity = 999999;
@@ -54,6 +55,7 @@ async function refreshProductDetails(sku) {
 async function setProductFollowUp({ sku, followUpDate }) {
   const result = await followUpsService.setFollowUp({ sku, followUpDate });
 
+  await stockCheckEmailsService.clearVendorEmailsForSku(result.sku || sku);
   clearProductCaches();
 
   return result;
