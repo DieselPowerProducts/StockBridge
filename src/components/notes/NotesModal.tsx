@@ -206,6 +206,16 @@ function getProductStockUpdate(
   };
 }
 
+function getProductDetailsStockUpdate(
+  productDetails: ProductDetails
+): ProductStockUpdate {
+  return {
+    sku: productDetails.sku,
+    qtyAvailable: productDetails.qtyAvailable,
+    availability: productDetails.availability
+  };
+}
+
 function formatKitQuantityLabel(childProduct: ProductKitChild) {
   return childProduct.qtyRequired === 1
     ? "1 required"
@@ -632,24 +642,23 @@ export function NotesModal({
         vendors,
         quantitiesByVendorProductId
       );
-      const nextStockUpdate = productDetails
+      const fallbackDetails = productDetails
+        ? {
+            ...productDetails,
+            ...(!productDetails.isKit
+              ? getVendorDrivenAvailability(updatedVendors)
+              : {}),
+            vendors: applyVendorQuantityUpdates(
+              productDetails.vendors,
+              quantitiesByVendorProductId
+            )
+          }
+        : null;
+      const fallbackStockUpdate = productDetails
         ? getProductStockUpdate(productDetails, updatedVendors)
         : null;
 
-      setProductDetails((current) =>
-        current
-          ? {
-              ...current,
-              ...(!current.isKit
-                ? getVendorDrivenAvailability(updatedVendors)
-                : {}),
-              vendors: applyVendorQuantityUpdates(current.vendors, quantitiesByVendorProductId)
-            }
-          : current
-      );
-      if (nextStockUpdate) {
-        onProductStockChanged?.(nextStockUpdate);
-      }
+      await refreshDetailsAfterStockChange(fallbackDetails, fallbackStockUpdate);
       onFollowUpSaved();
     } catch (err) {
       setDetailsError(
@@ -675,7 +684,7 @@ export function NotesModal({
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
       setFollowUpMessage("");
-      onProductStockChanged?.(getProductStockUpdate(result, result.vendors));
+      onProductStockChanged?.(getProductDetailsStockUpdate(result));
       onFollowUpSaved();
     } catch (err) {
       setDetailsError(
@@ -688,6 +697,33 @@ export function NotesModal({
 
   function updateEmailComposer(patch: Partial<EmailComposerState>) {
     setEmailComposer((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  async function refreshDetailsAfterStockChange(
+    fallbackDetails: ProductDetails | null,
+    fallbackStockUpdate: ProductStockUpdate | null
+  ) {
+    try {
+      const refreshedDetails = await refreshProductDetails(sku);
+
+      setProductDetails(refreshedDetails);
+      setFollowUpDate(refreshedDetails.followUpDate || "");
+      onProductStockChanged?.(getProductDetailsStockUpdate(refreshedDetails));
+    } catch (err) {
+      if (fallbackDetails) {
+        setProductDetails(fallbackDetails);
+      }
+
+      if (fallbackStockUpdate) {
+        onProductStockChanged?.(fallbackStockUpdate);
+      }
+
+      setDetailsError(
+        err instanceof Error
+          ? `Stock saved, but product availability could not be refreshed: ${err.message}`
+          : "Stock saved, but product availability could not be refreshed."
+      );
+    }
   }
 
   async function handleOpenEmailComposer(vendor: ProductVendor) {
@@ -1026,24 +1062,23 @@ export function NotesModal({
           vendors,
           quantitiesByVendorProductId
         );
-        const nextStockUpdate = productDetails
+        const fallbackDetails = productDetails
+          ? {
+              ...productDetails,
+              ...(!productDetails.isKit
+                ? getVendorDrivenAvailability(updatedVendors)
+                : {}),
+              vendors: applyVendorQuantityUpdates(
+                productDetails.vendors,
+                quantitiesByVendorProductId
+              )
+            }
+          : null;
+        const fallbackStockUpdate = productDetails
           ? getProductStockUpdate(productDetails, updatedVendors)
           : null;
 
-        setProductDetails((current) =>
-          current
-            ? {
-                ...current,
-                ...(!current.isKit
-                  ? getVendorDrivenAvailability(updatedVendors)
-                  : {}),
-                vendors: applyVendorQuantityUpdates(current.vendors, quantitiesByVendorProductId)
-              }
-            : current
-        );
-        if (nextStockUpdate) {
-          onProductStockChanged?.(nextStockUpdate);
-        }
+        await refreshDetailsAfterStockChange(fallbackDetails, fallbackStockUpdate);
         onFollowUpSaved();
       }
 
