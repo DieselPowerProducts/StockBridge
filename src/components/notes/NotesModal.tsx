@@ -1550,19 +1550,20 @@ export function NotesModal({
                     ))
                   )}
                 </select>
-                <button
-                  type="button"
-                  className="vendor-email-default-button"
-                  disabled={
-                    isVendorContactsLoading ||
-                    !selectedVendorContact ||
-                    isDefaultContactSaving ||
-                    isSelectedContactDefault
-                  }
-                  onClick={handleSetDefaultContact}
-                >
-                  {isDefaultContactSaving ? "Saving..." : "Set as Default"}
-                </button>
+                {!isSelectedContactDefault && (
+                  <button
+                    type="button"
+                    className="vendor-email-default-button"
+                    disabled={
+                      isVendorContactsLoading ||
+                      !selectedVendorContact ||
+                      isDefaultContactSaving
+                    }
+                    onClick={handleSetDefaultContact}
+                  >
+                    {isDefaultContactSaving ? "Saving..." : "Set as Default"}
+                  </button>
+                )}
                 {isSelectedContactDefault && (
                   <span
                     className="vendor-email-default-badge"
