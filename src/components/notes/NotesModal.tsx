@@ -10,6 +10,7 @@ import {
   refreshProductDetails,
   saveEmailTemplate,
   sendVendorStockCheckEmail,
+  setVendorDefaultContact,
   updateProductFollowUp,
   updateProductVendorStock,
   updateNote
@@ -361,6 +362,7 @@ export function NotesModal({
   const [isEmailTemplatesLoading, setIsEmailTemplatesLoading] = useState(false);
   const [isVendorContactsLoading, setIsVendorContactsLoading] = useState(false);
   const [isEmailSending, setIsEmailSending] = useState(false);
+  const [isDefaultContactSaving, setIsDefaultContactSaving] = useState(false);
   const [emailError, setEmailError] = useState("");
   const [emailStatus, setEmailStatus] = useState("");
   const [isTemplateNameModalOpen, setIsTemplateNameModalOpen] = useState(false);
@@ -456,6 +458,7 @@ export function NotesModal({
     setEmailComposer(null);
     setEmailError("");
     setEmailStatus("");
+    setIsDefaultContactSaving(false);
     setIsTemplateNameModalOpen(false);
     setTemplateNameDraft("");
   }, [sku]);
@@ -694,6 +697,7 @@ export function NotesModal({
 
     setEmailError("");
     setEmailStatus("");
+    setIsDefaultContactSaving(false);
     setIsTemplateNameModalOpen(false);
     setTemplateNameDraft("");
     setEmailComposer({
@@ -710,13 +714,14 @@ export function NotesModal({
 
     try {
       const contacts = await getVendorContacts(vendor.id);
+      const defaultContact = contacts.find((contact) => contact.isDefault);
 
       setEmailComposer((current) =>
         current?.vendor.vendorProductId === vendor.vendorProductId
           ? {
               ...current,
               contacts,
-              selectedContactEmail: contacts[0]?.email || ""
+              selectedContactEmail: defaultContact?.email || contacts[0]?.email || ""
             }
           : current
       );
@@ -737,8 +742,55 @@ export function NotesModal({
     setEmailComposer(null);
     setEmailError("");
     setEmailStatus("");
+    setIsDefaultContactSaving(false);
     setIsTemplateNameModalOpen(false);
     setTemplateNameDraft("");
+  }
+
+  async function handleSetDefaultContact() {
+    if (!emailComposer || isDefaultContactSaving) {
+      return;
+    }
+
+    const selectedContact = emailComposer.contacts.find(
+      (contact) => contact.email === emailComposer.selectedContactEmail
+    );
+
+    if (!selectedContact) {
+      setEmailError("Choose a vendor contact before setting a default.");
+      return;
+    }
+
+    setEmailError("");
+    setEmailStatus("");
+    setIsDefaultContactSaving(true);
+
+    try {
+      const defaultContact = await setVendorDefaultContact({
+        vendorId: emailComposer.vendor.id,
+        contactId: selectedContact.id
+      });
+
+      setEmailComposer((current) =>
+        current?.vendor.vendorProductId === emailComposer.vendor.vendorProductId
+          ? {
+              ...current,
+              contacts: current.contacts.map((contact) => ({
+                ...contact,
+                isDefault: contact.id === defaultContact.id
+              })),
+              selectedContactEmail: defaultContact.email
+            }
+          : current
+      );
+      setEmailStatus("Default contact saved.");
+    } catch (err) {
+      setEmailError(
+        err instanceof Error ? err.message : "Unable to save default contact."
+      );
+    } finally {
+      setIsDefaultContactSaving(false);
+    }
   }
 
   function handleTemplateSelect(value: string) {
@@ -888,6 +940,11 @@ export function NotesModal({
   }
 
   const title = productDetails?.name || "";
+  const selectedVendorContact =
+    emailComposer?.contacts.find(
+      (contact) => contact.email === emailComposer.selectedContactEmail
+    ) || null;
+  const isSelectedContactDefault = Boolean(selectedVendorContact?.isDefault);
   const modalTitle = title && title !== sku ? `${sku} | ${title}` : sku;
   const vendors = productDetails?.vendors || [];
   const childProducts = productDetails?.childProducts || [];
@@ -1468,9 +1525,10 @@ export function NotesModal({
             </header>
 
             <div className="vendor-email-fields">
-              <label className="vendor-email-row">
+              <div className="vendor-email-row vendor-email-contact-row">
                 <span>To</span>
                 <select
+                  aria-label="Vendor contact"
                   value={emailComposer.selectedContactEmail}
                   disabled={isVendorContactsLoading || emailComposer.contacts.length === 0}
                   onChange={(event) =>
@@ -1487,11 +1545,36 @@ export function NotesModal({
                     emailComposer.contacts.map((contact) => (
                       <option key={contact.id} value={contact.email}>
                         {formatContactLabel(contact)}
+                        {contact.isDefault ? " (Default)" : ""}
                       </option>
                     ))
                   )}
                 </select>
-              </label>
+                <button
+                  type="button"
+                  className="vendor-email-default-button"
+                  disabled={
+                    isVendorContactsLoading ||
+                    !selectedVendorContact ||
+                    isDefaultContactSaving ||
+                    isSelectedContactDefault
+                  }
+                  onClick={handleSetDefaultContact}
+                >
+                  {isDefaultContactSaving ? "Saving..." : "Set as Default"}
+                </button>
+                {isSelectedContactDefault && (
+                  <span
+                    className="vendor-email-default-badge"
+                    title="Default contact"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                      <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" />
+                    </svg>
+                    <span>Default contact</span>
+                  </span>
+                )}
+              </div>
 
               <div className="vendor-email-row vendor-email-subject-row">
                 <select

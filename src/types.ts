@@ -118,6 +118,7 @@ export type VendorContact = {
   email: string;
   phone: string;
   label: string;
+  isDefault?: boolean;
 };
 
 export type EmailTemplate = {

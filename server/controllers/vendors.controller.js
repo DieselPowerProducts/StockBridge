@@ -29,6 +29,19 @@ async function listVendorContacts(req, res, next) {
   }
 }
 
+async function setVendorDefaultContact(req, res, next) {
+  try {
+    const contact = await vendorsService.setVendorDefaultContact(
+      req.params.vendorId,
+      req.body?.contactId
+    );
+
+    res.send(contact);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function updateVendorSettings(req, res, next) {
   try {
     const result = await vendorsService.updateVendorSettings(
@@ -47,5 +60,6 @@ module.exports = {
   listVendorContacts,
   listVendors,
   listVendorProducts,
+  setVendorDefaultContact,
   updateVendorSettings
 };

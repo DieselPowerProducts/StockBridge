@@ -946,6 +946,51 @@ body:has(.notes-popup-page),
   color: #8d9398;
 }
 
+.vendor-email-contact-row select {
+  flex: 1 1 190px;
+}
+
+.vendor-email-default-button {
+  background: #263747;
+  border: 1px solid #3f5e7b;
+  border-radius: 6px;
+  color: #e9f2fb;
+  flex: 0 0 auto;
+  font: inherit;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.vendor-email-default-button:hover:not(:disabled) {
+  background: #30465a;
+}
+
+.vendor-email-default-button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.vendor-email-default-badge {
+  align-items: center;
+  color: #b9ead6;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.vendor-email-default-badge svg {
+  fill: currentColor;
+  height: 14px;
+  width: 14px;
+}
+
+.vendor-email-default-badge span {
+  color: inherit;
+  font-size: inherit;
+}
+
 .vendor-email-subject-row select {
   flex: 0 1 170px;
 }
@@ -1649,7 +1694,9 @@ body:has(.notes-popup-page),
   .vendor-email-row select,
   .vendor-email-row input,
   .vendor-email-subject-row select,
-  .vendor-email-save-template {
+  .vendor-email-save-template,
+  .vendor-email-default-button,
+  .vendor-email-default-badge {
     flex-basis: 100%;
   }
 

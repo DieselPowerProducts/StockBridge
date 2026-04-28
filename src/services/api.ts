@@ -220,6 +220,25 @@ export function getVendorContacts(vendorId: string) {
   );
 }
 
+export function setVendorDefaultContact({
+  vendorId,
+  contactId
+}: {
+  vendorId: string;
+  contactId: string;
+}) {
+  return request<VendorContact>(
+    `/vendors/${encodeURIComponent(vendorId)}/default-contact`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ contactId })
+    }
+  );
+}
+
 export function getEmailTemplates() {
   return request<EmailTemplate[]>("/email/templates");
 }

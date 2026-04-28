@@ -1,5 +1,6 @@
 const catalogService = require("./catalog.service");
 const skunexus = require("./skunexus.service");
+const vendorDefaultContactsService = require("./vendorDefaultContacts.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
 const ignoredVendorContactEmails = new Set(["shipping@dieselpowerproducts.com"]);
@@ -46,6 +47,17 @@ function formatVendorContact(contact) {
   };
 }
 
+function isDefaultContact(contact, defaultContact) {
+  if (!contact || !defaultContact) {
+    return false;
+  }
+
+  return (
+    (defaultContact.contactId && contact.id === defaultContact.contactId) ||
+    (defaultContact.contactEmail && contact.email === defaultContact.contactEmail)
+  );
+}
+
 async function listVendors(queryParams = {}) {
   return catalogService.listVendors(queryParams);
 }
@@ -54,7 +66,7 @@ async function listVendorProducts(vendorId, queryParams = {}) {
   return catalogService.listVendorProducts(vendorId, queryParams);
 }
 
-async function listVendorContacts(vendorId) {
+async function fetchVendorContacts(vendorId) {
   const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
   const data = await skunexus.query(`
     query V1Queries {
@@ -86,6 +98,44 @@ async function listVendorContacts(vendorId) {
     .filter((contact) => !ignoredVendorContactEmails.has(contact.email));
 }
 
+async function listVendorContacts(vendorId) {
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const [contacts, defaultContact] = await Promise.all([
+    fetchVendorContacts(safeVendorId),
+    vendorDefaultContactsService.getDefaultContact(safeVendorId)
+  ]);
+
+  return contacts.map((contact) => ({
+    ...contact,
+    isDefault: isDefaultContact(contact, defaultContact)
+  }));
+}
+
+async function setVendorDefaultContact(vendorId, contactId) {
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const safeContactId = normalizeRequiredString(contactId, "Vendor contact is required.");
+  const contacts = await fetchVendorContacts(safeVendorId);
+  const contact = contacts.find((item) => item.id === safeContactId);
+
+  if (!contact) {
+    const error = new Error("Choose a valid vendor contact.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await vendorDefaultContactsService.setDefaultContact({
+    vendorId: safeVendorId,
+    contactId: contact.id,
+    contactEmail: contact.email,
+    contactName: contact.name
+  });
+
+  return {
+    ...contact,
+    isDefault: true
+  };
+}
+
 async function updateVendorSettings(vendorId, settings) {
   const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
 
@@ -102,5 +152,6 @@ module.exports = {
   listVendorContacts,
   listVendors,
   listVendorProducts,
+  setVendorDefaultContact,
   updateVendorSettings
 };
