@@ -72,8 +72,8 @@ Important env vars:
   inventory cron scans.
 - `AUTO_INVENTORY_FAILURE_RECIPIENT`: StockBridge notification recipient for
   auto inventory parser/import failures. Defaults to `cade@dieselpowerproducts.com`.
-- `AUTO_INVENTORY_GMAIL_LABEL`: Gmail label to apply after processing vendor
-  inventory CSV emails. Defaults to `Vendor Inventory`.
+- `AUTO_INVENTORY_GMAIL_LABEL`: Gmail label to apply to vendor inventory CSV
+  emails before archiving them from Inbox. Defaults to `Vendor Inventory`.
 
 On Vercel, set env vars in the Vercel project settings for the correct
 environment. Redeploy after changing env vars.
@@ -214,9 +214,10 @@ alphabetical stock phrases, rows with missing SKUs, and SKU Nexus update errors.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
 The importer adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL` to
-all matching vendor emails with CSV attachments found during the cron run. If
-multiple matching emails from the same configured sender are present during one
-cron run, only the newest email is imported for that vendor.
+all matching vendor emails with CSV attachments found during the cron run, then
+archives them from Inbox so they live under that Gmail label. If multiple
+matching emails from the same configured sender are present during one cron run,
+only the newest email is imported for that vendor.
 
 ## UI Guidance
 

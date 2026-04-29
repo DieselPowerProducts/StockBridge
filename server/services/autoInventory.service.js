@@ -548,6 +548,15 @@ async function applyVendorInventoryLabel(client, uid) {
     }
   );
 
+  await client.messageFlagsRemove(
+    String(uid),
+    ["\\Inbox"],
+    {
+      uid: true,
+      useLabels: true
+    }
+  );
+
   return true;
 }
 
@@ -653,7 +662,7 @@ async function runAutoInventoryImport() {
           }
         } catch (error) {
           totals.errors += 1;
-          console.error("Unable to label vendor inventory email.", {
+          console.error("Unable to label or archive vendor inventory email.", {
             uid: message.uid,
             label: vendorInventoryLabel,
             error: error.message
