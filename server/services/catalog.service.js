@@ -963,6 +963,27 @@ async function queryComponentsByParentIds(productIds) {
   );
 }
 
+async function queryParentKitsByChildSku(childSku) {
+  const sql = getSql();
+  return sql`
+    SELECT
+      p.product_id AS id,
+      p.sku,
+      p.name,
+      p.state,
+      p.qty_available,
+      p.is_kit,
+      c.qty_required
+    FROM catalog_product_components c
+    JOIN catalog_products p
+      ON p.product_id = c.parent_product_id
+    WHERE c.child_sku = ${childSku}
+    AND p.is_kit = TRUE
+    AND lower(COALESCE(p.state, 'Active')) = 'active'
+    ORDER BY p.sku ASC
+  `;
+}
+
 async function queryAllComponents() {
   const sql = getSql();
   return sql`
@@ -1445,6 +1466,40 @@ function buildKitChildProducts(product, productGraph, productVendorAvailability)
         productGraph.availabilityCache
       ),
       isKit: Boolean(childProduct?.is_kit)
+    };
+  });
+}
+
+async function getProductParentKitsForSku(sku) {
+  const parentRows = await queryParentKitsByChildSku(sku);
+
+  if (parentRows.length === 0) {
+    return [];
+  }
+
+  const productGraph = await buildProductGraph(parentRows);
+  const [productVendorAvailability, followUpsBySku] = await Promise.all([
+    getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
+    followUpsService.getFollowUpsForSkus(
+      parentRows.map((product) => product.sku).filter(Boolean)
+    )
+  ]);
+
+  return parentRows.map((row) => {
+    const mappedProduct = mapProduct(
+      row,
+      productVendorAvailability,
+      followUpsBySku,
+      productGraph
+    );
+
+    return {
+      sku: mappedProduct.sku,
+      name: mappedProduct.name,
+      qtyRequired: Math.max(Number(row?.qty_required || 0), 1),
+      qtyAvailable: mappedProduct.qtyAvailable,
+      availability: mappedProduct.availability,
+      followUpDate: mappedProduct.followUpDate
     };
   });
 }
@@ -2355,11 +2410,18 @@ async function getProductDetails(sku) {
     throw error;
   }
 
-  const [productGraph, vendorProducts, warehouseStock, followUpDate] = await Promise.all([
+  const [
+    productGraph,
+    vendorProducts,
+    warehouseStock,
+    followUpDate,
+    parentKits
+  ] = await Promise.all([
     buildProductGraph([product]),
     queryVendorProductsByProductId(product.id),
     queryWarehouseStockByProductId(product.id),
-    followUpsService.getFollowUpForSku(safeSku)
+    followUpsService.getFollowUpForSku(safeSku),
+    getProductParentKitsForSku(safeSku)
   ]);
   const productNode =
     productGraph.productsBySku.get(product.sku || safeSku) || normalizeProductNode(product);
@@ -2444,6 +2506,7 @@ async function getProductDetails(sku) {
     isKit: Boolean(productNode?.is_kit),
     followUpDate,
     childProducts,
+    parentKits,
     vendors: assignedStockSources
   };
 }

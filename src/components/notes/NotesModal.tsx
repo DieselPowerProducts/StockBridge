@@ -22,6 +22,7 @@ import type {
   Note,
   ProductDetails,
   ProductKitChild,
+  ProductParentKit,
   ProductStockUpdate,
   VendorContact,
   ProductVendor
@@ -222,6 +223,12 @@ function formatKitQuantityLabel(childProduct: ProductKitChild) {
     : `${childProduct.qtyRequired} required`;
 }
 
+function formatParentKitQuantityLabel(parentKit: ProductParentKit) {
+  return parentKit.qtyRequired === 1
+    ? "Uses 1"
+    : `Uses ${parentKit.qtyRequired}`;
+}
+
 function getVendorDrivenAvailability(vendors: ProductVendor[]) {
   const qtyAvailable = vendors.reduce(
     (total, vendor) => total + Math.max(Number(vendor.quantity || 0), 0),
@@ -362,6 +369,7 @@ export function NotesModal({
   >({});
   const [isBulkVendorStockSaving, setIsBulkVendorStockSaving] = useState(false);
   const [isKitModalOpen, setIsKitModalOpen] = useState(false);
+  const [isParentKitsModalOpen, setIsParentKitsModalOpen] = useState(false);
   const [selectedChildSku, setSelectedChildSku] = useState("");
   const [activeMention, setActiveMention] = useState<ActiveMention | null>(null);
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
@@ -463,6 +471,7 @@ export function NotesModal({
 
   useEffect(() => {
     setIsKitModalOpen(false);
+    setIsParentKitsModalOpen(false);
     setSelectedChildSku("");
     setActiveMention(null);
     setSelectedMentionIndex(0);
@@ -985,6 +994,7 @@ export function NotesModal({
   const modalTitle = title && title !== sku ? `${sku} | ${title}` : sku;
   const vendors = productDetails?.vendors || [];
   const childProducts = productDetails?.childProducts || [];
+  const parentKits = productDetails?.parentKits || [];
   const editableVendors = vendors.filter((vendor) => vendor.canUpdateStock);
   const hasEditableVendors = editableVendors.length > 0;
   const areAllEditableVendorsOn =
@@ -992,6 +1002,7 @@ export function NotesModal({
   const areAllEditableVendorsOff =
     hasEditableVendors && editableVendors.every((vendor) => vendor.quantity <= 0);
   const canShowKits = Boolean(productDetails?.isKit && childProducts.length > 0);
+  const canShowParentKits = parentKits.length > 0;
   const isRouteMode = mode === "route";
   const mentionSuggestions = activeMention
     ? getMentionSuggestions(
@@ -1017,6 +1028,12 @@ export function NotesModal({
   function handleKitBackdropClick(event: MouseEvent<HTMLDivElement>) {
     if (event.target === event.currentTarget) {
       setIsKitModalOpen(false);
+    }
+  }
+
+  function handleParentKitsBackdropClick(event: MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) {
+      setIsParentKitsModalOpen(false);
     }
   }
 
@@ -1291,6 +1308,15 @@ export function NotesModal({
                     onClick={() => setIsKitModalOpen(true)}
                   >
                     Kits
+                  </button>
+                )}
+                {canShowParentKits && (
+                  <button
+                    type="button"
+                    className="follow-up-button"
+                    onClick={() => setIsParentKitsModalOpen(true)}
+                  >
+                    Kit Component
                   </button>
                 )}
                 <button
@@ -1789,6 +1815,72 @@ export function NotesModal({
                           title={`Quantity available: ${childProduct.qtyAvailable}`}
                         >
                           {childProduct.availability}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
+        {isParentKitsModalOpen && (
+          <div
+            className="notes-submodal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="parentKitsModalTitle"
+            onClick={handleParentKitsBackdropClick}
+          >
+            <div className="kit-products-modal">
+              <div className="kit-products-modal-header">
+                <h3 id="parentKitsModalTitle">Kit Component</h3>
+                <button
+                  type="button"
+                  onClick={() => setIsParentKitsModalOpen(false)}
+                >
+                  Close
+                </button>
+              </div>
+
+              {parentKits.length === 0 ? (
+                <p className="status-message">No parent kits found.</p>
+              ) : (
+                <ul className="kit-products-list">
+                  {parentKits.map((parentKit) => (
+                    <li className="kit-products-list-item" key={parentKit.sku}>
+                      <button
+                        type="button"
+                        className="kit-products-copy kit-products-open"
+                        onClick={() => {
+                          setIsParentKitsModalOpen(false);
+                          setSelectedChildSku(parentKit.sku);
+                        }}
+                        aria-label={`Open notes for kit ${parentKit.sku}`}
+                      >
+                        <strong>{parentKit.sku}</strong>
+                        <span>{parentKit.name}</span>
+                      </button>
+
+                      <div className="kit-products-meta">
+                        <span className="kit-products-qty">
+                          {formatParentKitQuantityLabel(parentKit)}
+                        </span>
+                        {parentKit.followUpDate && (
+                          <span className="kit-products-qty">
+                            Follow up: {formatFollowUpDate(parentKit.followUpDate)}
+                          </span>
+                        )}
+                        <span
+                          className={`availability-badge ${
+                            parentKit.availability === "Available"
+                              ? "availability-available"
+                              : "availability-backorder"
+                          }`}
+                          title={`Quantity available: ${parentKit.qtyAvailable}`}
+                        >
+                          {parentKit.availability}
                         </span>
                       </div>
                     </li>

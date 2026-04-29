@@ -157,7 +157,8 @@ It includes:
 - Notes and mentions.
 - Follow-up date controls.
 - Vendor stock on/off controls.
-- Kit/component modal.
+- Kit/component modal. Kit parent products show child components; child products
+  that belong to kits show a "Kit Component" button with parent kits.
 - Vendor stock-check email composer.
 
 The modal exists both as an in-app modal and as a route/popup view. Make sure

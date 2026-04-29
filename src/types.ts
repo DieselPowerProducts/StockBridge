@@ -142,6 +142,15 @@ export type ProductKitChild = {
   isKit: boolean;
 };
 
+export type ProductParentKit = {
+  sku: string;
+  name: string;
+  qtyRequired: number;
+  qtyAvailable: number;
+  availability: ProductAvailability;
+  followUpDate: string;
+};
+
 export type ProductDetails = {
   id: string;
   sku: string;
@@ -151,6 +160,7 @@ export type ProductDetails = {
   isKit: boolean;
   followUpDate: string;
   childProducts: ProductKitChild[];
+  parentKits: ProductParentKit[];
   vendors: ProductVendor[];
 };
 
