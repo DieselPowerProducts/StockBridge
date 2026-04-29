@@ -21,7 +21,7 @@
     },
     {
       "path": "/api/cron/auto-inventory",
-      "schedule": "15 * * * *"
+      "schedule": "*/15 * * * *"
     }
   ],
   "routes": [
