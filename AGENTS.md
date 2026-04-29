@@ -111,6 +111,8 @@ Key logic lives in `server/services/catalog.service.js`.
   zero. This is intentional for products without vendor assignments.
 - Built-to-order vendors make unavailable products show `Built to Order`.
 - Stock Check excludes `Built to Order` products.
+- Stock Check excludes kit parent products; child/component products can still
+  show when their own availability or follow-up state qualifies.
 - Kits calculate availability from component availability. Components without a
   vendor assignment should not force the kit to backorder.
 - The Notes modal must keep the product table and Stock Check table in sync after
