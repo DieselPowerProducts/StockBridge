@@ -150,6 +150,33 @@ function getSenderEmails(parsedMessage) {
     .filter(Boolean);
 }
 
+function getMessageDateValue(message) {
+  const date = new Date(message?.internalDate || 0);
+
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function getLatestMessage(messages) {
+  return messages.reduce((latest, message) => {
+    if (!latest) {
+      return message;
+    }
+
+    const messageDate = getMessageDateValue(message);
+    const latestDate = getMessageDateValue(latest);
+
+    if (messageDate > latestDate) {
+      return message;
+    }
+
+    if (messageDate === latestDate && Number(message?.uid || 0) > Number(latest?.uid || 0)) {
+      return message;
+    }
+
+    return latest;
+  }, null);
+}
+
 function findHeaderValue(row, headerName) {
   const wantedHeader = normalizeComparable(headerName);
   const key = Object.keys(row || {}).find(
@@ -556,41 +583,58 @@ async function runAutoInventoryImport() {
           },
           { uid: true }
         )) || [];
+      const messages = [];
 
       for (const uid of uids) {
-        const message = await client.fetchOne(String(uid), { source: true }, { uid: true });
+        const message = await client.fetchOne(
+          String(uid),
+          { internalDate: true, source: true },
+          { uid: true }
+        );
 
         if (!message?.source) {
           continue;
         }
 
-        totals.messages += 1;
-        const result = await processMessageForSettings(
-          {
-            uid,
-            source: message.source
-          },
-          settings
-        );
+        messages.push({
+          uid,
+          internalDate: message.internalDate,
+          source: message.source
+        });
+      }
 
-        totals.attachments += result.attachments;
-        totals.imported += result.imported;
-        totals.skipped += result.skipped;
-        totals.errors += result.errors;
+      const latestMessage = getLatestMessage(messages);
 
-        if (result.shouldLabel) {
-          try {
-            if (await applyVendorInventoryLabel(client, uid)) {
-              totals.labeled += 1;
-            }
-          } catch (error) {
-            totals.errors += 1;
-            console.error("Unable to label vendor inventory email.", {
-              uid,
-              label: vendorInventoryLabel,
-              error: error.message
-            });
+      if (!latestMessage) {
+        continue;
+      }
+
+      totals.messages += 1;
+      const result = await processMessageForSettings(
+        {
+          uid: latestMessage.uid,
+          source: latestMessage.source
+        },
+        settings
+      );
+
+      totals.attachments += result.attachments;
+      totals.imported += result.imported;
+      totals.skipped += result.skipped;
+      totals.errors += result.errors;
+
+      if (result.shouldLabel) {
+        try {
+          if (await applyVendorInventoryLabel(client, latestMessage.uid)) {
+            totals.labeled += 1;
           }
+        } catch (error) {
+          totals.errors += 1;
+          console.error("Unable to label vendor inventory email.", {
+            uid: latestMessage.uid,
+            label: vendorInventoryLabel,
+            error: error.message
+          });
         }
       }
     }
