@@ -401,6 +401,7 @@ export function NotesModal({
       const result = await getProductDetails(sku);
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
+      onProductStockChanged?.(getProductDetailsStockUpdate(result));
     } catch (err) {
       setDetailsError(
         err instanceof Error ? err.message : "Unable to load product vendors."
@@ -410,7 +411,7 @@ export function NotesModal({
     } finally {
       setIsProductDetailsLoading(false);
     }
-  }, [sku]);
+  }, [onProductStockChanged, sku]);
 
   const loadMentionUsers = useCallback(async () => {
     setIsMentionUsersLoading(true);

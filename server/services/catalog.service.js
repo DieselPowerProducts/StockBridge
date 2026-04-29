@@ -161,7 +161,10 @@ function normalizeProductNode(row) {
     sku,
     name: row?.name || sku,
     state: normalizeProductState(row?.state),
-    qty_available: Math.max(Number(row?.qty_available || 0), 0),
+    qty_available: Math.max(
+      Number(row?.warehouse_qty_available ?? row?.qty_available ?? 0),
+      0
+    ),
     is_kit: Boolean(row?.is_kit),
     relatedProduct: (row?.relatedProduct || [])
       .map(normalizeKitChild)
@@ -1109,6 +1112,58 @@ async function queryWarehouseStockByProductId(productId) {
   return rows[0] || null;
 }
 
+async function queryWarehouseStockByProductIds(productIds) {
+  const uniqueIds = Array.from(
+    new Set((productIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const sql = getSql();
+  const idJson = JSON.stringify(uniqueIds);
+  const rows = await sql.query(
+    `
+      SELECT
+        product_id,
+        COALESCE(SUM(qty_available), 0) AS qty_available
+      FROM catalog_warehouse_stock
+      WHERE product_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+      GROUP BY product_id
+    `,
+    [idJson]
+  );
+
+  return new Map(
+    rows.map((row) => [
+      String(row?.product_id || "").trim(),
+      Math.max(Number(row?.qty_available || 0), 0)
+    ])
+  );
+}
+
+async function attachWarehouseQtyToProducts(products) {
+  if (products.length === 0) {
+    return [];
+  }
+
+  const warehouseQtyByProductId = await queryWarehouseStockByProductIds(
+    products.map((product) => product.id || product.product_id).filter(Boolean)
+  );
+
+  return products.map((product) => {
+    const productId = String(product?.id || product?.product_id || "").trim();
+
+    return {
+      ...product,
+      warehouse_qty_available: warehouseQtyByProductId.get(productId) || 0
+    };
+  });
+}
+
 async function queryVendorAvailabilityRows(productIds) {
   const sql = getSql();
 
@@ -1200,7 +1255,9 @@ async function enrichProductsWithComponents(products) {
 
 async function buildProductGraph(rows) {
   const productsBySku = new Map();
-  let nextRows = await enrichProductsWithComponents(rows);
+  let nextRows = await attachWarehouseQtyToProducts(
+    await enrichProductsWithComponents(rows)
+  );
 
   while (nextRows.length > 0) {
     for (const row of nextRows) {
@@ -1223,7 +1280,9 @@ async function buildProductGraph(rows) {
       break;
     }
 
-    nextRows = await enrichProductsWithComponents(fetchedRows);
+    nextRows = await attachWarehouseQtyToProducts(
+      await enrichProductsWithComponents(fetchedRows)
+    );
   }
 
   return {
@@ -1235,7 +1294,9 @@ async function buildProductGraph(rows) {
 
 async function buildFullProductGraph() {
   const [products, components] = await Promise.all([queryAllProducts(), queryAllComponents()]);
-  const productsWithComponents = attachComponentsToProducts(products, components);
+  const productsWithComponents = await attachWarehouseQtyToProducts(
+    attachComponentsToProducts(products, components)
+  );
 
   return {
     rows: productsWithComponents,
@@ -1322,7 +1383,7 @@ function mapProduct(
         productVendorAvailability
       )
     : Math.max(
-        Number(row?.qty_available || 0),
+        Number(product?.qty_available || 0),
         getVendorQtyAvailable(product || { id: row.id }, productVendorAvailability)
       );
   const availability = isKit

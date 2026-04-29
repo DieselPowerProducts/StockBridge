@@ -104,8 +104,9 @@ Inactive SKU Nexus products should not show on the site. Product queries filter
 
 Key logic lives in `server/services/catalog.service.js`.
 
-- Product availability combines product warehouse quantity and active vendor
-  product quantity.
+- Product availability combines cached DPP warehouse stock quantity and active
+  vendor product quantity. Do not use SKU Nexus product-level `qty_available` as
+  the availability source when warehouse stock rows are available separately.
 - A product with no active vendor can still map to `Available` when quantity is
   zero. This is intentional for products without vendor assignments.
 - Built-to-order vendors make unavailable products show `Built to Order`.
@@ -113,8 +114,8 @@ Key logic lives in `server/services/catalog.service.js`.
 - Kits calculate availability from component availability. Components without a
   vendor assignment should not force the kit to backorder.
 - The Notes modal must keep the product table and Stock Check table in sync after
-  vendor stock changes. Vendor stock changes call a targeted product refresh
-  before emitting `onProductStockChanged`.
+  vendor stock changes and after loading fresh product details. Vendor stock
+  changes call a targeted product refresh before emitting `onProductStockChanged`.
 
 When changing availability behavior, check:
 
