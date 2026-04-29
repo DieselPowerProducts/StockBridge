@@ -213,10 +213,10 @@ Failures include missing configured headers, empty/unreadable CSVs, unrecognized
 alphabetical stock phrases, rows with missing SKUs, and SKU Nexus update errors.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
-After a matching vendor email with CSV attachments is processed, the importer
-adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL`.
-If multiple matching emails from the same configured sender are present during
-one cron run, only the newest email is imported for that vendor.
+The importer adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL` to
+all matching vendor emails with CSV attachments found during the cron run. If
+multiple matching emails from the same configured sender are present during one
+cron run, only the newest email is imported for that vendor.
 
 ## UI Guidance
 

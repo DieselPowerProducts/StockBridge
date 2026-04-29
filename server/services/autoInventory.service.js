@@ -523,6 +523,17 @@ async function processMessageForSettings({ uid, source }, settings) {
   return totals;
 }
 
+async function shouldLabelMessageForSettings({ source }, settings) {
+  const parsed = await simpleParser(source);
+  const senderEmails = getSenderEmails(parsed);
+
+  if (!senderEmails.includes(settings.senderEmail)) {
+    return false;
+  }
+
+  return (parsed.attachments || []).some(isCsvAttachment);
+}
+
 async function applyVendorInventoryLabel(client, uid) {
   if (!vendorInventoryLabel) {
     return false;
@@ -567,6 +578,7 @@ async function runAutoInventoryImport() {
     skipped: 0,
     errors: 0
   };
+  const labeledUids = new Set();
 
   await client.connect();
   const lock = await client.getMailboxLock("INBOX");
@@ -609,6 +621,46 @@ async function runAutoInventoryImport() {
         continue;
       }
 
+      for (const message of messages) {
+        const labelKey = String(message.uid);
+
+        if (labeledUids.has(labelKey)) {
+          continue;
+        }
+
+        let shouldLabel = false;
+
+        try {
+          shouldLabel = await shouldLabelMessageForSettings(message, settings);
+        } catch (error) {
+          totals.errors += 1;
+          console.error("Unable to inspect vendor inventory email for labeling.", {
+            uid: message.uid,
+            label: vendorInventoryLabel,
+            error: error.message
+          });
+          continue;
+        }
+
+        if (!shouldLabel) {
+          continue;
+        }
+
+        try {
+          if (await applyVendorInventoryLabel(client, message.uid)) {
+            labeledUids.add(labelKey);
+            totals.labeled += 1;
+          }
+        } catch (error) {
+          totals.errors += 1;
+          console.error("Unable to label vendor inventory email.", {
+            uid: message.uid,
+            label: vendorInventoryLabel,
+            error: error.message
+          });
+        }
+      }
+
       totals.messages += 1;
       const result = await processMessageForSettings(
         {
@@ -622,21 +674,6 @@ async function runAutoInventoryImport() {
       totals.imported += result.imported;
       totals.skipped += result.skipped;
       totals.errors += result.errors;
-
-      if (result.shouldLabel) {
-        try {
-          if (await applyVendorInventoryLabel(client, latestMessage.uid)) {
-            totals.labeled += 1;
-          }
-        } catch (error) {
-          totals.errors += 1;
-          console.error("Unable to label vendor inventory email.", {
-            uid: latestMessage.uid,
-            label: vendorInventoryLabel,
-            error: error.message
-          });
-        }
-      }
     }
   } finally {
     lock.release();
