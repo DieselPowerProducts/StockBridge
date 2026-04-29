@@ -1563,8 +1563,19 @@ body:has(.notes-popup-page),
 }
 
 .vendor-auto-inventory-button {
-  justify-self: start;
   margin-bottom: 0;
+}
+
+.vendor-auto-inventory-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.vendor-auto-inventory-note {
+  color: #cccccc;
+  font-size: 13px;
 }
 
 .auto-inventory-modal {

@@ -405,7 +405,7 @@ export function updateVendorAutoInventorySettings({
   settings
 }: {
   vendorId: string;
-  settings: Omit<VendorAutoInventorySettings, "vendorId">;
+  settings: Omit<VendorAutoInventorySettings, "vendorId" | "lastImportedAt">;
 }) {
   return request<VendorAutoInventorySettings>(
     `/vendors/${encodeURIComponent(vendorId)}/auto-inventory`,

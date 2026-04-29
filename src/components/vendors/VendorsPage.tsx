@@ -35,7 +35,8 @@ function getDefaultAutoInventorySettings(
     inventoryHeader: "",
     inventoryMode: "numerical",
     inStockPhrases: [],
-    outOfStockPhrases: []
+    outOfStockPhrases: [],
+    lastImportedAt: ""
   };
 }
 
@@ -389,6 +390,7 @@ export function VendorsPage({
             isSavingSettings={isVendorSettingsSaving}
             settingsStatus={vendorSettingsStatus}
             autoInventoryEnabled={Boolean(autoInventorySettings?.enabled)}
+            autoInventoryLastImportedAt={autoInventorySettings?.lastImportedAt || ""}
             onSearchChange={setProductSearchInput}
             onBuiltToOrderChange={handleBuiltToOrderChange}
             onBuildTimeChange={setBuildTimeDraft}

@@ -116,7 +116,31 @@ async function recordImport({
   };
 }
 
+async function getLastSuccessfulImportForVendor(vendorId) {
+  const safeVendorId = normalizeText(vendorId);
+
+  if (!safeVendorId) {
+    return "";
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT created_at
+    FROM vendor_auto_inventory_imports
+    WHERE vendor_id = ${safeVendorId}
+    AND imported_count > 0
+    AND status IN ('completed', 'completed_with_errors')
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+
+  return rows[0]?.created_at ? new Date(rows[0].created_at).toISOString() : "";
+}
+
 module.exports = {
+  getLastSuccessfulImportForVendor,
   hasProcessedAttachment,
   initializeSchema,
   recordImport

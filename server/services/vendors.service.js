@@ -1,5 +1,6 @@
 const catalogService = require("./catalog.service");
 const skunexus = require("./skunexus.service");
+const vendorAutoInventoryImportsService = require("./vendorAutoInventoryImports.service");
 const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorDefaultContactsService = require("./vendorDefaultContacts.service");
 const vendorSettingsService = require("./vendorSettings.service");
@@ -69,7 +70,15 @@ async function listVendorProducts(vendorId, queryParams = {}) {
 
 async function getVendorAutoInventorySettings(vendorId) {
   const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
-  return vendorAutoInventorySettingsService.getSettings(safeVendorId);
+  const [settings, lastImportedAt] = await Promise.all([
+    vendorAutoInventorySettingsService.getSettings(safeVendorId),
+    vendorAutoInventoryImportsService.getLastSuccessfulImportForVendor(safeVendorId)
+  ]);
+
+  return {
+    ...settings,
+    lastImportedAt
+  };
 }
 
 async function fetchVendorContacts(vendorId) {
@@ -158,7 +167,15 @@ async function updateVendorAutoInventorySettings(vendorId, settings) {
   const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
 
   await catalogService.getVendorDetails(safeVendorId);
-  return vendorAutoInventorySettingsService.saveSettings(safeVendorId, settings);
+  const [savedSettings, lastImportedAt] = await Promise.all([
+    vendorAutoInventorySettingsService.saveSettings(safeVendorId, settings),
+    vendorAutoInventoryImportsService.getLastSuccessfulImportForVendor(safeVendorId)
+  ]);
+
+  return {
+    ...savedSettings,
+    lastImportedAt
+  };
 }
 
 module.exports = {

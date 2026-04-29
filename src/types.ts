@@ -172,6 +172,7 @@ export type VendorAutoInventorySettings = {
   inventoryMode: VendorAutoInventoryMode;
   inStockPhrases: string[];
   outOfStockPhrases: string[];
+  lastImportedAt: string;
 };
 
 export type VendorsResponse = {

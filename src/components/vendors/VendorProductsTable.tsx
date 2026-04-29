@@ -9,6 +9,7 @@ type VendorProductsTableProps = {
   isSavingSettings: boolean;
   settingsStatus: string;
   autoInventoryEnabled: boolean;
+  autoInventoryLastImportedAt: string;
   onSearchChange: (value: string) => void;
   onBuiltToOrderChange: (checked: boolean) => void;
   onBuildTimeChange: (value: string) => void;
@@ -29,6 +30,26 @@ function getAvailabilityClass(product: VendorProduct) {
   return "availability-backorder";
 }
 
+function formatAutoInventoryDate(value: string) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
 export function VendorProductsTable({
   vendor,
   products,
@@ -38,6 +59,7 @@ export function VendorProductsTable({
   isSavingSettings,
   settingsStatus,
   autoInventoryEnabled,
+  autoInventoryLastImportedAt,
   onSearchChange,
   onBuiltToOrderChange,
   onBuildTimeChange,
@@ -93,15 +115,25 @@ export function VendorProductsTable({
           </label>
         )}
 
-        <button
-          type="button"
-          className="secondary-action vendor-auto-inventory-button"
-          onClick={onOpenAutoInventory}
-        >
-          {autoInventoryEnabled
-            ? "Auto inventory settings"
-            : "Add auto inventory"}
-        </button>
+        <div className="vendor-auto-inventory-row">
+          <button
+            type="button"
+            className="secondary-action vendor-auto-inventory-button"
+            onClick={onOpenAutoInventory}
+          >
+            {autoInventoryEnabled
+              ? "Auto inventory settings"
+              : "Add auto inventory"}
+          </button>
+
+          {autoInventoryEnabled && (
+            <span className="vendor-auto-inventory-note">
+              {autoInventoryLastImportedAt
+                ? `Last auto import: ${formatAutoInventoryDate(autoInventoryLastImportedAt)}`
+                : "Last auto import: Not yet imported"}
+            </span>
+          )}
+        </div>
 
         {settingsStatus && <p className="vendor-settings-status">{settingsStatus}</p>}
       </div>

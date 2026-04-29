@@ -368,6 +368,14 @@ async function importCsvAttachment({ settings, attachment, message }) {
         continue;
       }
 
+      const currentIsAvailable = Number(vendorProduct.quantity || 0) > 0;
+      const nextIsAvailable = quantity > 0;
+
+      if (currentIsAvailable === nextIsAvailable) {
+        skipped += 1;
+        continue;
+      }
+
       await productsService.setVendorProductQuantity({
         vendorId: settings.vendorId,
         vendorProductId: vendorProduct.id,
