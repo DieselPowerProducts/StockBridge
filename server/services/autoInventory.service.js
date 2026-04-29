@@ -4,6 +4,7 @@ const csv = require("csv-parser");
 const { ImapFlow } = require("imapflow");
 const { simpleParser } = require("mailparser");
 const catalogService = require("./catalog.service");
+const notificationsService = require("./notifications.service");
 const productsService = require("./products.service");
 const settingsService = require("./vendorAutoInventorySettings.service");
 const importsService = require("./vendorAutoInventoryImports.service");
@@ -14,6 +15,8 @@ loadLocalEnv();
 const enabledVendorStockQuantity = 999999;
 const disabledVendorStockQuantity = 0;
 const defaultLookbackDays = 14;
+const autoInventoryFailureRecipient =
+  process.env.AUTO_INVENTORY_FAILURE_RECIPIENT || "cade@dieselpowerproducts.com";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -83,6 +86,51 @@ function getAttachmentHash(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
+function buildFailureNoteId({ vendorId, attachmentHash, reason }) {
+  const hash = crypto
+    .createHash("sha1")
+    .update(`${vendorId}:${attachmentHash}:${reason}`)
+    .digest("hex");
+
+  return `auto-inventory:${hash}`;
+}
+
+async function notifyAutoInventoryFailure({
+  settings,
+  attachment,
+  attachmentHash,
+  reason,
+  details = ""
+}) {
+  const vendorId = normalizeText(settings?.vendorId);
+  const filename = normalizeText(attachment?.filename) || "CSV attachment";
+  const senderEmail = normalizeEmail(settings?.senderEmail);
+  const safeReason = normalizeText(reason);
+  const safeDetails = normalizeText(details);
+  const notePreview = [
+    `Auto inventory import issue for vendor ${vendorId || "unknown vendor"}.`,
+    `File: ${filename}.`,
+    senderEmail ? `Sender: ${senderEmail}.` : "",
+    safeReason ? `Issue: ${safeReason}.` : "",
+    safeDetails ? `Details: ${safeDetails}` : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  await notificationsService.createSystemNotification({
+    recipientEmail: autoInventoryFailureRecipient,
+    recipientName: "Cade Carlson",
+    sku: "AUTO-INVENTORY",
+    noteId: buildFailureNoteId({
+      vendorId,
+      attachmentHash: attachmentHash || filename,
+      reason: safeReason || "unknown"
+    }),
+    notePreview,
+    senderName: "StockBridge Auto Inventory"
+  });
+}
+
 function isCsvAttachment(attachment) {
   const filename = normalizeText(attachment?.filename).toLowerCase();
   const contentType = normalizeText(attachment?.contentType).toLowerCase();
@@ -107,6 +155,14 @@ function findHeaderValue(row, headerName) {
   );
 
   return key ? normalizeText(row[key]) : "";
+}
+
+function hasHeader(row, headerName) {
+  const wantedHeader = normalizeComparable(headerName);
+
+  return Object.keys(row || {}).some(
+    (item) => normalizeComparable(item.replace(/^\uFEFF/, "")) === wantedHeader
+  );
 }
 
 function parseNumericalQuantity(value) {
@@ -184,6 +240,13 @@ async function importCsvAttachment({ settings, attachment, message }) {
   try {
     rows = await parseCsvRows(content);
   } catch (error) {
+    await notifyAutoInventoryFailure({
+      settings,
+      attachment,
+      attachmentHash,
+      reason: "CSV could not be parsed",
+      details: error.message
+    });
     await importsService.recordImport({
       vendorId: settings.vendorId,
       messageUid: message.uid,
@@ -195,12 +258,87 @@ async function importCsvAttachment({ settings, attachment, message }) {
       status: "failed",
       errorMessage: error.message
     });
-    throw error;
+    return {
+      imported: 0,
+      skipped: 0,
+      errors: 1,
+      duplicate: false
+    };
+  }
+
+  if (rows.length === 0) {
+    await notifyAutoInventoryFailure({
+      settings,
+      attachment,
+      attachmentHash,
+      reason: "CSV did not contain any rows"
+    });
+    await importsService.recordImport({
+      vendorId: settings.vendorId,
+      messageUid: message.uid,
+      messageId: message.messageId,
+      senderEmail: settings.senderEmail,
+      attachmentFilename: attachment.filename,
+      attachmentHash,
+      errorCount: 1,
+      status: "failed",
+      errorMessage: "CSV did not contain any rows."
+    });
+
+    return {
+      imported: 0,
+      skipped: 0,
+      errors: 1,
+      duplicate: false
+    };
+  }
+
+  const firstRow = rows[0] || {};
+  const missingHeaders = [
+    !hasHeader(firstRow, settings.skuHeader) ? settings.skuHeader : "",
+    !hasHeader(firstRow, settings.inventoryHeader) ? settings.inventoryHeader : ""
+  ].filter(Boolean);
+
+  if (missingHeaders.length > 0) {
+    const availableHeaders = Object.keys(firstRow)
+      .map((header) => header.replace(/^\uFEFF/, ""))
+      .filter(Boolean)
+      .join(", ");
+
+    await notifyAutoInventoryFailure({
+      settings,
+      attachment,
+      attachmentHash,
+      reason: "Configured CSV header was not found",
+      details: `Missing: ${missingHeaders.join(", ")}. Available headers: ${availableHeaders || "none"}.`
+    });
+    await importsService.recordImport({
+      vendorId: settings.vendorId,
+      messageUid: message.uid,
+      messageId: message.messageId,
+      senderEmail: settings.senderEmail,
+      attachmentFilename: attachment.filename,
+      attachmentHash,
+      errorCount: 1,
+      status: "failed",
+      errorMessage: `Missing header(s): ${missingHeaders.join(", ")}`
+    });
+
+    return {
+      imported: 0,
+      skipped: rows.length,
+      errors: 1,
+      duplicate: false
+    };
   }
 
   let imported = 0;
   let skipped = 0;
   let errors = 0;
+  const missingSkuSamples = [];
+  const unmatchedInventorySamples = [];
+  const missingVendorProductSamples = [];
+  const updateErrorSamples = [];
 
   for (const row of rows) {
     const sku = findHeaderValue(row, settings.skuHeader);
@@ -209,6 +347,13 @@ async function importCsvAttachment({ settings, attachment, message }) {
 
     if (!sku || quantity === null) {
       skipped += 1;
+
+      if (!sku && missingSkuSamples.length < 5) {
+        missingSkuSamples.push(JSON.stringify(row).slice(0, 180));
+      } else if (quantity === null && unmatchedInventorySamples.length < 5) {
+        unmatchedInventorySamples.push(`${sku || "unknown SKU"} => ${inventoryValue || "blank"}`);
+      }
+
       continue;
     }
 
@@ -221,6 +366,11 @@ async function importCsvAttachment({ settings, attachment, message }) {
 
       if (!vendorProduct) {
         skipped += 1;
+
+        if (missingVendorProductSamples.length < 5) {
+          missingVendorProductSamples.push(sku);
+        }
+
         continue;
       }
 
@@ -233,12 +383,57 @@ async function importCsvAttachment({ settings, attachment, message }) {
       imported += 1;
     } catch (error) {
       errors += 1;
+      if (updateErrorSamples.length < 5) {
+        updateErrorSamples.push(`${sku}: ${error.message}`);
+      }
       console.error("Auto inventory row import failed.", {
         vendorId: settings.vendorId,
         sku,
         error: error.message
       });
     }
+  }
+
+  const failureDetails = [];
+
+  if (missingSkuSamples.length > 0) {
+    failureDetails.push(`Rows missing SKU: ${missingSkuSamples.join(" | ")}`);
+  }
+
+  if (unmatchedInventorySamples.length > 0) {
+    const modeDetails =
+      settings.inventoryMode === "alphabetical"
+        ? `Expected in-stock phrases: ${settings.inStockPhrases.join(" : ") || "none"}; out-of-stock phrases: ${settings.outOfStockPhrases.join(" : ") || "none"}.`
+        : "Expected a numerical inventory value.";
+
+    failureDetails.push(
+      `Unrecognized inventory values: ${unmatchedInventorySamples.join(" | ")}. ${modeDetails}`
+    );
+  }
+
+  if (missingVendorProductSamples.length > 0) {
+    failureDetails.push(
+      `SKUs not found for this vendor: ${missingVendorProductSamples.join(", ")}`
+    );
+  }
+
+  if (updateErrorSamples.length > 0) {
+    failureDetails.push(`SKU Nexus update errors: ${updateErrorSamples.join(" | ")}`);
+  }
+
+  if (failureDetails.length > 0 || (imported === 0 && rows.length > 0)) {
+    await notifyAutoInventoryFailure({
+      settings,
+      attachment,
+      attachmentHash,
+      reason:
+        imported === 0
+          ? "No inventory rows were imported"
+          : "Some inventory rows could not be imported",
+      details:
+        failureDetails.join(" ") ||
+        `${rows.length} row(s) were read, but none matched the configured parser and vendor products.`
+    });
   }
 
   await importsService.recordImport({
@@ -251,7 +446,11 @@ async function importCsvAttachment({ settings, attachment, message }) {
     importedCount: imported,
     skippedCount: skipped,
     errorCount: errors,
-    status: errors > 0 ? "completed_with_errors" : "completed"
+    status:
+      errors > 0 || imported === 0 || failureDetails.length > 0
+        ? "completed_with_errors"
+        : "completed",
+    errorMessage: failureDetails.join(" ").slice(0, 1000)
   });
 
   return {

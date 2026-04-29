@@ -70,6 +70,8 @@ Important env vars:
 - `GMAIL_IMAP_HOST`, `GMAIL_IMAP_PORT`, `GMAIL_IMAP_SECURE`: IMAP settings.
 - `AUTO_INVENTORY_LOOKBACK_DAYS`: how many days of inbox messages the auto
   inventory cron scans.
+- `AUTO_INVENTORY_FAILURE_RECIPIENT`: StockBridge notification recipient for
+  auto inventory parser/import failures. Defaults to `cade@dieselpowerproducts.com`.
 
 On Vercel, set env vars in the Vercel project settings for the correct
 environment. Redeploy after changing env vars.
@@ -203,6 +205,11 @@ appropriate. Alphabetical mode uses colon-separated phrases for in-stock and
 out-of-stock messages; matching in-stock phrases write `999999`, out-of-stock
 phrases write `0`. Commas are tolerated by the parser for convenience, but the UI
 should show colon-separated examples.
+
+Parser/import failures notify the configured failure recipient in StockBridge.
+Failures include missing configured headers, empty/unreadable CSVs, unrecognized
+alphabetical stock phrases, rows with missing SKUs, vendor SKU mismatches, and
+SKU Nexus update errors.
 
 ## UI Guidance
 

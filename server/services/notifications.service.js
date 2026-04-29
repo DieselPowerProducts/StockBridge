@@ -285,6 +285,77 @@ async function syncNoteNotifications({ noteId, sku, note, sender }) {
   return { count: recipients.length };
 }
 
+async function createSystemNotification({
+  recipientEmail,
+  recipientName = "",
+  sku = "AUTO-INVENTORY",
+  noteId,
+  notePreview,
+  senderName = "StockBridge"
+}) {
+  const safeRecipientEmail = normalizeText(recipientEmail).toLowerCase();
+  const safeNoteId = String(noteId || "").trim();
+  const safeNotePreview = buildNotePreview(notePreview);
+
+  if (!safeRecipientEmail || !safeNoteId || !safeNotePreview) {
+    return { count: 0 };
+  }
+
+  await initializeSchema();
+
+  const users = await usersService.listUsers();
+  const recipient =
+    users.find(
+      (user) => normalizeText(user?.email).toLowerCase() === safeRecipientEmail
+    ) || {};
+  const recipientSub =
+    String(recipient?.sub || "").trim() || `system:${safeRecipientEmail}`;
+  const sql = getSql();
+
+  await sql`
+    INSERT INTO product_notifications (
+      recipient_sub,
+      recipient_email,
+      recipient_name,
+      recipient_picture,
+      sender_sub,
+      sender_email,
+      sender_name,
+      sender_picture,
+      sku,
+      note_id,
+      note_preview
+    )
+    VALUES (
+      ${recipientSub},
+      ${safeRecipientEmail},
+      ${normalizeText(recipient?.name || recipientName || safeRecipientEmail)},
+      ${recipient?.picture || null},
+      ${"system:auto-inventory"},
+      ${null},
+      ${normalizeText(senderName) || "StockBridge"},
+      ${null},
+      ${normalizeText(sku) || "AUTO-INVENTORY"},
+      ${safeNoteId},
+      ${safeNotePreview}
+    )
+    ON CONFLICT (recipient_sub, note_id) DO UPDATE
+    SET recipient_email = EXCLUDED.recipient_email,
+        recipient_name = EXCLUDED.recipient_name,
+        recipient_picture = EXCLUDED.recipient_picture,
+        sender_sub = EXCLUDED.sender_sub,
+        sender_email = EXCLUDED.sender_email,
+        sender_name = EXCLUDED.sender_name,
+        sender_picture = EXCLUDED.sender_picture,
+        sku = EXCLUDED.sku,
+        note_preview = EXCLUDED.note_preview,
+        created_at = now(),
+        read_at = NULL
+  `;
+
+  return { count: 1 };
+}
+
 function buildRecipientConditions(user) {
   const safeUserSub = String(user?.sub || user || "").trim();
   const safeUserEmail = normalizeText(user?.email || "").toLowerCase();
@@ -378,6 +449,7 @@ async function markNotificationRead(id, user) {
 }
 
 module.exports = {
+  createSystemNotification,
   deleteNotificationsForNoteId,
   getNotificationsForUser,
   markNotificationRead,
