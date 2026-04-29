@@ -208,8 +208,9 @@ should show colon-separated examples.
 
 Parser/import failures notify the configured failure recipient in StockBridge.
 Failures include missing configured headers, empty/unreadable CSVs, unrecognized
-alphabetical stock phrases, rows with missing SKUs, vendor SKU mismatches, and
-SKU Nexus update errors.
+alphabetical stock phrases, rows with missing SKUs, and SKU Nexus update errors.
+Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
+be skipped quietly and should not notify as failures.
 
 ## UI Guidance
 

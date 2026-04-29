@@ -337,7 +337,6 @@ async function importCsvAttachment({ settings, attachment, message }) {
   let errors = 0;
   const missingSkuSamples = [];
   const unmatchedInventorySamples = [];
-  const missingVendorProductSamples = [];
   const updateErrorSamples = [];
 
   for (const row of rows) {
@@ -366,11 +365,6 @@ async function importCsvAttachment({ settings, attachment, message }) {
 
       if (!vendorProduct) {
         skipped += 1;
-
-        if (missingVendorProductSamples.length < 5) {
-          missingVendorProductSamples.push(sku);
-        }
-
         continue;
       }
 
@@ -411,28 +405,17 @@ async function importCsvAttachment({ settings, attachment, message }) {
     );
   }
 
-  if (missingVendorProductSamples.length > 0) {
-    failureDetails.push(
-      `SKUs not found for this vendor: ${missingVendorProductSamples.join(", ")}`
-    );
-  }
-
   if (updateErrorSamples.length > 0) {
     failureDetails.push(`SKU Nexus update errors: ${updateErrorSamples.join(" | ")}`);
   }
 
-  if (failureDetails.length > 0 || (imported === 0 && rows.length > 0)) {
+  if (failureDetails.length > 0) {
     await notifyAutoInventoryFailure({
       settings,
       attachment,
       attachmentHash,
-      reason:
-        imported === 0
-          ? "No inventory rows were imported"
-          : "Some inventory rows could not be imported",
-      details:
-        failureDetails.join(" ") ||
-        `${rows.length} row(s) were read, but none matched the configured parser and vendor products.`
+      reason: "Some inventory rows could not be imported",
+      details: failureDetails.join(" ")
     });
   }
 
@@ -447,7 +430,7 @@ async function importCsvAttachment({ settings, attachment, message }) {
     skippedCount: skipped,
     errorCount: errors,
     status:
-      errors > 0 || imported === 0 || failureDetails.length > 0
+      errors > 0 || failureDetails.length > 0
         ? "completed_with_errors"
         : "completed",
     errorMessage: failureDetails.join(" ").slice(0, 1000)
