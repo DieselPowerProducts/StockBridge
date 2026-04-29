@@ -216,9 +216,10 @@ Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
 The importer adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL` to
 all matching vendor emails with CSV attachments found during the cron run, then
-archives them from Inbox so they live under that Gmail label. If multiple
-matching emails from the same configured sender are present during one cron run,
-only the newest email is imported for that vendor.
+archives them from Inbox by moving them to Gmail's All Mail mailbox so they live
+under that Gmail label. If multiple matching emails from the same configured
+sender are present during one cron run, only the newest email is imported for
+that vendor.
 
 ## UI Guidance
 

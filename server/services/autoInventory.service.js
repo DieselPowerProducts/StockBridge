@@ -19,6 +19,7 @@ const autoInventoryFailureRecipient =
   process.env.AUTO_INVENTORY_FAILURE_RECIPIENT || "cade@dieselpowerproducts.com";
 const vendorInventoryLabel =
   process.env.AUTO_INVENTORY_GMAIL_LABEL || "Vendor Inventory";
+const gmailInboxLabels = ["\\Inbox", "INBOX"];
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -548,14 +549,45 @@ async function applyVendorInventoryLabel(client, uid) {
     }
   );
 
-  await client.messageFlagsRemove(
-    String(uid),
-    ["\\Inbox"],
-    {
-      uid: true,
-      useLabels: true
-    }
+  await archiveVendorInventoryEmail(client, uid);
+
+  return true;
+}
+
+async function getArchiveMailboxPath(client) {
+  const mailboxes = await client.list();
+  const archiveMailbox = mailboxes.find(
+    (mailbox) =>
+      mailbox?.specialUse === "\\All" ||
+      mailbox?.specialUse === "\\Archive"
   );
+
+  return archiveMailbox?.path || "[Gmail]/All Mail";
+}
+
+async function archiveVendorInventoryEmail(client, uid) {
+  const archiveMailboxPath = await getArchiveMailboxPath(client);
+
+  try {
+    const moved = await client.messageMove(String(uid), archiveMailboxPath, {
+      uid: true
+    });
+
+    if (moved) {
+      return true;
+    }
+  } catch (error) {
+    console.warn("Unable to move vendor inventory email to archive mailbox.", {
+      uid,
+      archiveMailboxPath,
+      error: error.message
+    });
+  }
+
+  await client.messageFlagsRemove(String(uid), gmailInboxLabels, {
+    uid: true,
+    useLabels: true
+  });
 
   return true;
 }
