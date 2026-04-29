@@ -72,6 +72,8 @@ Important env vars:
   inventory cron scans.
 - `AUTO_INVENTORY_FAILURE_RECIPIENT`: StockBridge notification recipient for
   auto inventory parser/import failures. Defaults to `cade@dieselpowerproducts.com`.
+- `AUTO_INVENTORY_GMAIL_LABEL`: Gmail label to apply after processing vendor
+  inventory CSV emails. Defaults to `Vendor Inventory`.
 
 On Vercel, set env vars in the Vercel project settings for the correct
 environment. Redeploy after changing env vars.
@@ -211,6 +213,8 @@ Failures include missing configured headers, empty/unreadable CSVs, unrecognized
 alphabetical stock phrases, rows with missing SKUs, and SKU Nexus update errors.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
+After a matching vendor email with CSV attachments is processed, the importer
+adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL`.
 
 ## UI Guidance
 

@@ -17,6 +17,8 @@ const disabledVendorStockQuantity = 0;
 const defaultLookbackDays = 14;
 const autoInventoryFailureRecipient =
   process.env.AUTO_INVENTORY_FAILURE_RECIPIENT || "cade@dieselpowerproducts.com";
+const vendorInventoryLabel =
+  process.env.AUTO_INVENTORY_GMAIL_LABEL || "Vendor Inventory";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -461,7 +463,8 @@ async function processMessageForSettings({ uid, source }, settings) {
       imported: 0,
       skipped: 0,
       errors: 0,
-      attachments: 0
+      attachments: 0,
+      shouldLabel: false
     };
   }
 
@@ -470,7 +473,8 @@ async function processMessageForSettings({ uid, source }, settings) {
     imported: 0,
     skipped: 0,
     errors: 0,
-    attachments: 0
+    attachments: 0,
+    shouldLabel: csvAttachments.length > 0
   };
 
   for (const attachment of csvAttachments) {
@@ -492,6 +496,23 @@ async function processMessageForSettings({ uid, source }, settings) {
   return totals;
 }
 
+async function applyVendorInventoryLabel(client, uid) {
+  if (!vendorInventoryLabel) {
+    return false;
+  }
+
+  await client.messageFlagsAdd(
+    String(uid),
+    [vendorInventoryLabel],
+    {
+      uid: true,
+      useLabels: true
+    }
+  );
+
+  return true;
+}
+
 async function runAutoInventoryImport() {
   const settingsList = await settingsService.getEnabledSettings();
 
@@ -501,6 +522,7 @@ async function runAutoInventoryImport() {
       vendors: 0,
       messages: 0,
       attachments: 0,
+      labeled: 0,
       imported: 0,
       skipped: 0,
       errors: 0
@@ -513,13 +535,14 @@ async function runAutoInventoryImport() {
     vendors: settingsList.length,
     messages: 0,
     attachments: 0,
+    labeled: 0,
     imported: 0,
     skipped: 0,
     errors: 0
   };
 
   await client.connect();
-  const lock = await client.getMailboxLock("INBOX", { readOnly: true });
+  const lock = await client.getMailboxLock("INBOX");
 
   try {
     const since = getLookbackDate();
@@ -554,6 +577,21 @@ async function runAutoInventoryImport() {
         totals.imported += result.imported;
         totals.skipped += result.skipped;
         totals.errors += result.errors;
+
+        if (result.shouldLabel) {
+          try {
+            if (await applyVendorInventoryLabel(client, uid)) {
+              totals.labeled += 1;
+            }
+          } catch (error) {
+            totals.errors += 1;
+            console.error("Unable to label vendor inventory email.", {
+              uid,
+              label: vendorInventoryLabel,
+              error: error.message
+            });
+          }
+        }
       }
     }
   } finally {
