@@ -54,7 +54,12 @@ export type BackordersResponse = {
 };
 
 export type ProductAvailability = "Available" | "Backorder" | "Built to Order";
-export type StockCheckSort = "yesterday" | "today" | "tomorrow" | "all";
+export type StockCheckSort =
+  | "yesterday"
+  | "today"
+  | "tomorrow"
+  | "no-follow-up"
+  | "all";
 
 export type Product = {
   id: string;

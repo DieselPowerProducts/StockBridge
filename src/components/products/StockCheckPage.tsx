@@ -22,6 +22,7 @@ const stockCheckSortOptions: Array<{ value: StockCheckSort; label: string }> = [
   { value: "yesterday", label: "Yesterday" },
   { value: "today", label: "Today" },
   { value: "tomorrow", label: "Tomorrow" },
+  { value: "no-follow-up", label: "No follow up" },
   { value: "all", label: "All" }
 ];
 
@@ -128,6 +129,7 @@ export function StockCheckPage({
     yesterday: "No stock check products with follow-up dates from yesterday.",
     today: "No stock check products with follow-up dates from today.",
     tomorrow: "No stock check products with follow-up dates from tomorrow.",
+    "no-follow-up": "No stock check products without follow-up dates.",
     all: "No backordered or follow-up products found."
   };
 

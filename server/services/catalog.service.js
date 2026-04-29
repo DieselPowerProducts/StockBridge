@@ -10,7 +10,13 @@ const stockCheckCacheTtlMs = 5 * 60 * 1000;
 const dppWarehouseLabel = "DPP Warehouse";
 const dppWarehouseStockType = "WAREHOUSE";
 const syncTimezone = process.env.CATALOG_SYNC_TIMEZONE || "America/Los_Angeles";
-const stockCheckSortValues = new Set(["all", "yesterday", "today", "tomorrow"]);
+const stockCheckSortValues = new Set([
+  "all",
+  "yesterday",
+  "today",
+  "tomorrow",
+  "no-follow-up"
+]);
 const productSelectionFields = `
   id
   sku
@@ -403,6 +409,12 @@ function compareStockCheckProducts(left, right) {
 function filterStockCheckProducts(products, sort, referenceDate) {
   if (sort === "all") {
     return [...products].sort(compareStockCheckProducts);
+  }
+
+  if (sort === "no-follow-up") {
+    return products
+      .filter((product) => !product.followUpDate)
+      .sort(compareStockCheckProducts);
   }
 
   const offsetBySort = {
