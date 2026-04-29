@@ -1,5 +1,6 @@
 const catalogService = require("./catalog.service");
 const skunexus = require("./skunexus.service");
+const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorDefaultContactsService = require("./vendorDefaultContacts.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
@@ -64,6 +65,11 @@ async function listVendors(queryParams = {}) {
 
 async function listVendorProducts(vendorId, queryParams = {}) {
   return catalogService.listVendorProducts(vendorId, queryParams);
+}
+
+async function getVendorAutoInventorySettings(vendorId) {
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  return vendorAutoInventorySettingsService.getSettings(safeVendorId);
 }
 
 async function fetchVendorContacts(vendorId) {
@@ -148,10 +154,19 @@ async function updateVendorSettings(vendorId, settings) {
   return catalogService.getVendorDetails(safeVendorId);
 }
 
+async function updateVendorAutoInventorySettings(vendorId, settings) {
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+
+  await catalogService.getVendorDetails(safeVendorId);
+  return vendorAutoInventorySettingsService.saveSettings(safeVendorId, settings);
+}
+
 module.exports = {
+  getVendorAutoInventorySettings,
   listVendorContacts,
   listVendors,
   listVendorProducts,
   setVendorDefaultContact,
+  updateVendorAutoInventorySettings,
   updateVendorSettings
 };

@@ -10,7 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check": "tsc --noEmit",
-    "test": "npm run check && node --check api/index.js && node --check api/cron/catalog-full-sync.js && node --check scripts/api-dev-server.js && node --check server/services/auth.service.js && node --check server/services/catalog.service.js && node --check server/services/email.service.js && node --check server/services/emailTemplates.service.js && node --check server/services/stockCheckEmails.service.js && node --check server/services/vendorDefaultContacts.service.js && node --check server/middleware/auth.js && node --check server/controllers/auth.controller.js && node --check server/controllers/email.controller.js && node --check server/routes/auth.routes.js && node --check server/routes/email.routes.js && node -e \"require('./server/app'); require('./server/db/schema'); require('./server/services/products.service'); require('./server/services/vendors.service'); require('./server/services/notes.service'); require('./server/services/followUps.service'); require('./server/services/auth.service'); require('./server/services/catalog.service'); require('./server/services/email.service'); require('./server/services/emailTemplates.service'); require('./server/services/stockCheckEmails.service'); require('./server/services/vendorDefaultContacts.service')\""
+    "test": "npm run check && node --check api/index.js && node --check api/cron/catalog-full-sync.js && node --check api/cron/auto-inventory.js && node --check scripts/api-dev-server.js && node --check server/services/auth.service.js && node --check server/services/catalog.service.js && node --check server/services/email.service.js && node --check server/services/emailTemplates.service.js && node --check server/services/stockCheckEmails.service.js && node --check server/services/vendorAutoInventoryImports.service.js && node --check server/services/vendorAutoInventorySettings.service.js && node --check server/services/vendorDefaultContacts.service.js && node --check server/services/autoInventory.service.js && node --check server/middleware/auth.js && node --check server/controllers/auth.controller.js && node --check server/controllers/email.controller.js && node --check server/routes/auth.routes.js && node --check server/routes/email.routes.js && node -e \"require('./server/app'); require('./server/db/schema'); require('./server/services/products.service'); require('./server/services/vendors.service'); require('./server/services/notes.service'); require('./server/services/followUps.service'); require('./server/services/auth.service'); require('./server/services/catalog.service'); require('./server/services/email.service'); require('./server/services/emailTemplates.service'); require('./server/services/stockCheckEmails.service'); require('./server/services/vendorAutoInventoryImports.service'); require('./server/services/vendorAutoInventorySettings.service'); require('./server/services/vendorDefaultContacts.service'); require('./server/services/autoInventory.service')\""
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
@@ -18,6 +18,8 @@
     "csv-parser": "^3.2.0",
     "express": "^5.2.1",
     "google-auth-library": "^10.6.2",
+    "imapflow": "^1.3.3",
+    "mailparser": "^3.9.8",
     "multer": "^2.1.1",
     "nodemailer": "^8.0.7",
     "react": "^19.2.3",

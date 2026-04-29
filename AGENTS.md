@@ -64,6 +64,12 @@ Important env vars:
   `stockcheck@dieselpowerproducts.com`.
 - `GMAIL_FROM_NAME`: defaults to `StockBridge`.
 - `GMAIL_SMTP_HOST`, `GMAIL_SMTP_PORT`, `GMAIL_SMTP_SECURE`: SMTP settings.
+- `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`: optional mailbox credentials for
+  reading vendor inventory CSV emails. If unset, the importer falls back to
+  `GMAIL_USER` and `GMAIL_APP_PASSWORD`.
+- `GMAIL_IMAP_HOST`, `GMAIL_IMAP_PORT`, `GMAIL_IMAP_SECURE`: IMAP settings.
+- `AUTO_INVENTORY_LOOKBACK_DAYS`: how many days of inbox messages the auto
+  inventory cron scans.
 
 On Vercel, set env vars in the Vercel project settings for the correct
 environment. Redeploy after changing env vars.
@@ -172,6 +178,31 @@ Email templates support `{SKU}` replacement in subject and body.
 Default vendor contacts are stored in `vendor_default_contacts`. The contacts
 endpoint annotates contacts with `isDefault`; the email composer auto-selects
 the default contact and shows a "Default contact" badge.
+
+## Vendor Auto Inventory Feature
+
+Vendor auto inventory settings are configured on each vendor page. The button
+under the built-to-order controls reads "Add auto inventory" until enabled, then
+"Auto inventory settings".
+
+Related code:
+
+- UI: `src/components/vendors/VendorsPage.tsx`,
+  `src/components/vendors/VendorProductsTable.tsx`
+- Settings table/service: `vendor_auto_inventory_settings`,
+  `server/services/vendorAutoInventorySettings.service.js`
+- Import history/dedupe: `vendor_auto_inventory_imports`,
+  `server/services/vendorAutoInventoryImports.service.js`
+- Mailbox/CSV importer: `server/services/autoInventory.service.js`
+- Cron: `/api/cron/auto-inventory`
+
+The importer reads CSV attachments from the configured sender email. It maps the
+configured SKU header and inventory header. Numerical mode treats any value above
+zero as `999999` and zero/blank/unparseable rows are skipped or set to zero as
+appropriate. Alphabetical mode uses colon-separated phrases for in-stock and
+out-of-stock messages; matching in-stock phrases write `999999`, out-of-stock
+phrases write `0`. Commas are tolerated by the parser for convenience, but the UI
+should show colon-separated examples.
 
 ## UI Guidance
 

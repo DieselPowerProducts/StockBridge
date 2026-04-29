@@ -35,6 +35,14 @@ function optionalNumber(value) {
   return Number.isFinite(numberValue) ? numberValue : undefined;
 }
 
+function normalizeStockQuantity(value) {
+  const quantity = Number(value);
+
+  return Number.isFinite(quantity) && quantity > 0
+    ? enabledVendorStockQuantity
+    : disabledVendorStockQuantity;
+}
+
 async function listProducts(queryParams) {
   return catalogService.listProducts(queryParams);
 }
@@ -118,14 +126,70 @@ async function setProductVendorStock({
   const quantity = enabled
     ? enabledVendorStockQuantity
     : disabledVendorStockQuantity;
-  const productSku = vendorProduct.sku || product.sku || safeSku;
-  const payload = cleanPayload({
-    product_id: vendorProduct.product_id,
-    sku: productSku,
-    label: vendorProduct.label || productSku,
+  const result = await setVendorProductQuantity({
+    vendorId: safeVendorId,
+    vendorProductId: safeVendorProductId,
     quantity,
-    price: optionalNumber(vendorProduct.price),
-    status: optionalNumber(vendorProduct.status)
+    vendorProduct
+  });
+
+  return {
+    ...result,
+    sku: product.sku || safeSku,
+    enabled
+  };
+}
+
+async function setVendorProductQuantity({
+  vendorId,
+  vendorProductId,
+  quantity,
+  vendorProduct = null
+}) {
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const safeVendorProductId = normalizeRequiredString(
+    vendorProductId,
+    "Vendor product ID is required."
+  );
+  const safeQuantity = normalizeStockQuantity(quantity);
+
+  const [resolvedVendorProduct, vendorSettings] = await Promise.all([
+    vendorProduct || catalogService.getCatalogVendorProductById(safeVendorProductId),
+    vendorSettingsService.getVendorSettings(safeVendorId)
+  ]);
+
+  if (!resolvedVendorProduct) {
+    const error = new Error("Vendor product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (resolvedVendorProduct.vendor_id !== safeVendorId) {
+    const error = new Error("Vendor product does not match this vendor.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  if (vendorSettings.builtToOrder) {
+    const error = new Error(
+      "Built-to-order vendors cannot have manual stock overrides."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const productSku =
+    resolvedVendorProduct.sku ||
+    resolvedVendorProduct.product_sku ||
+    resolvedVendorProduct.label ||
+    "";
+  const payload = cleanPayload({
+    product_id: resolvedVendorProduct.product_id,
+    sku: productSku,
+    label: resolvedVendorProduct.label || productSku,
+    quantity: safeQuantity,
+    price: optionalNumber(resolvedVendorProduct.price),
+    status: optionalNumber(resolvedVendorProduct.status)
   });
 
   await skunexus.rest(
@@ -142,14 +206,14 @@ async function setProductVendorStock({
     const updatedVendorProduct =
       await catalogService.updateCatalogVendorProductQuantity(
         safeVendorProductId,
-        quantity
+        safeQuantity
       );
 
     if (!updatedVendorProduct) {
       console.warn(
         "Catalog vendor product was not found after a successful SKU Nexus stock update.",
         {
-          sku: safeSku,
+          sku: productSku,
           vendorId: safeVendorId,
           vendorProductId: safeVendorProductId
         }
@@ -165,11 +229,11 @@ async function setProductVendorStock({
   clearProductCaches();
 
   return {
-    sku: product.sku || safeSku,
+    sku: resolvedVendorProduct.product_sku || productSku,
     vendorId: safeVendorId,
     vendorProductId: safeVendorProductId,
-    quantity,
-    enabled
+    quantity: safeQuantity,
+    enabled: safeQuantity > 0
   };
 }
 
@@ -184,5 +248,6 @@ module.exports = {
   listStockCheckProducts,
   refreshProductDetails,
   setProductFollowUp,
-  setProductVendorStock
+  setProductVendorStock,
+  setVendorProductQuantity
 };

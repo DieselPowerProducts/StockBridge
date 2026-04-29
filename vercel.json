@@ -9,12 +9,19 @@
     },
     "api/cron/catalog-full-sync.js": {
       "includeFiles": "server/**"
+    },
+    "api/cron/auto-inventory.js": {
+      "includeFiles": "server/**"
     }
   },
   "crons": [
     {
       "path": "/api/cron/catalog-full-sync",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/auto-inventory",
+      "schedule": "15 * * * *"
     }
   ],
   "routes": [

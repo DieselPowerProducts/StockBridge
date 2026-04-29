@@ -8,10 +8,12 @@ type VendorProductsTableProps = {
   buildTimeValue: string;
   isSavingSettings: boolean;
   settingsStatus: string;
+  autoInventoryEnabled: boolean;
   onSearchChange: (value: string) => void;
   onBuiltToOrderChange: (checked: boolean) => void;
   onBuildTimeChange: (value: string) => void;
   onBuildTimeBlur: () => void;
+  onOpenAutoInventory: () => void;
   onBackToVendors: () => void;
 };
 
@@ -35,10 +37,12 @@ export function VendorProductsTable({
   buildTimeValue,
   isSavingSettings,
   settingsStatus,
+  autoInventoryEnabled,
   onSearchChange,
   onBuiltToOrderChange,
   onBuildTimeChange,
   onBuildTimeBlur,
+  onOpenAutoInventory,
   onBackToVendors
 }: VendorProductsTableProps) {
   return (
@@ -88,6 +92,16 @@ export function VendorProductsTable({
             />
           </label>
         )}
+
+        <button
+          type="button"
+          className="secondary-action vendor-auto-inventory-button"
+          onClick={onOpenAutoInventory}
+        >
+          {autoInventoryEnabled
+            ? "Auto inventory settings"
+            : "Add auto inventory"}
+        </button>
 
         {settingsStatus && <p className="vendor-settings-status">{settingsStatus}</p>}
       </div>

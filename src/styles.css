@@ -1562,6 +1562,105 @@ body:has(.notes-popup-page),
   width: 100%;
 }
 
+.vendor-auto-inventory-button {
+  justify-self: start;
+  margin-bottom: 0;
+}
+
+.auto-inventory-modal {
+  gap: 16px;
+  max-width: 560px;
+  width: min(560px, calc(100vw - 32px));
+}
+
+.auto-inventory-modal-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.auto-inventory-modal-header h2 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.auto-inventory-modal-header button {
+  background: transparent;
+  border: 0;
+  color: #cccccc;
+  font-size: 24px;
+  line-height: 1;
+  padding: 0;
+}
+
+.auto-inventory-modal-header button:hover {
+  color: white;
+}
+
+.auto-inventory-enable,
+.auto-inventory-mode label {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.auto-inventory-enable input,
+.auto-inventory-mode input {
+  accent-color: #3f8c5b;
+  margin: 0;
+}
+
+.auto-inventory-form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.auto-inventory-form-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.auto-inventory-form-grid span,
+.auto-inventory-mode legend {
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.auto-inventory-form-grid input {
+  background: #222222;
+  border: 1px solid #555555;
+  border-radius: 6px;
+  color: white;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.auto-inventory-mode {
+  border: 1px solid #555555;
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  margin: 0;
+  padding: 12px;
+}
+
+.auto-inventory-mode legend {
+  padding: 0 4px;
+}
+
+.auto-inventory-modal-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.auto-inventory-modal-actions .secondary-action {
+  margin-bottom: 0;
+}
+
 .vendor-settings-status {
   color: #cccccc;
   margin: 0;

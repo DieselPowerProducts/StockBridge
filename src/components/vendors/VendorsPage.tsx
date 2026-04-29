@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 import {
+  getVendorAutoInventorySettings,
   getVendorProducts,
   getVendors,
+  updateVendorAutoInventorySettings,
   updateVendorSettings
 } from "../../services/api";
-import type { VendorDetails, VendorProduct, VendorSummary } from "../../types";
+import type {
+  VendorAutoInventorySettings,
+  VendorDetails,
+  VendorProduct,
+  VendorSummary
+} from "../../types";
 import { Pagination } from "../products/Pagination";
 import { VendorProductsTable } from "./VendorProductsTable";
 import { VendorsTable } from "./VendorsTable";
@@ -17,6 +24,32 @@ type VendorsPageProps = {
 
 const pageSize = 30;
 
+function getDefaultAutoInventorySettings(
+  vendorId: string
+): VendorAutoInventorySettings {
+  return {
+    vendorId,
+    enabled: false,
+    senderEmail: "",
+    skuHeader: "",
+    inventoryHeader: "",
+    inventoryMode: "numerical",
+    inStockPhrases: [],
+    outOfStockPhrases: []
+  };
+}
+
+function formatPhraseText(phrases: string[]) {
+  return phrases.join(" : ");
+}
+
+function parsePhraseText(value: string) {
+  return value
+    .split(/[,:]/)
+    .map((phrase) => phrase.trim())
+    .filter(Boolean);
+}
+
 export function VendorsPage({
   selectedVendor,
   onBackToVendors,
@@ -26,7 +59,13 @@ export function VendorsPage({
   const [products, setProducts] = useState<VendorProduct[]>([]);
   const [selectedVendorDetails, setSelectedVendorDetails] =
     useState<VendorDetails | null>(null);
+  const [autoInventorySettings, setAutoInventorySettings] =
+    useState<VendorAutoInventorySettings | null>(null);
+  const [autoInventoryDraft, setAutoInventoryDraft] =
+    useState<VendorAutoInventorySettings | null>(null);
   const [buildTimeDraft, setBuildTimeDraft] = useState("");
+  const [inStockPhraseDraft, setInStockPhraseDraft] = useState("");
+  const [outOfStockPhraseDraft, setOutOfStockPhraseDraft] = useState("");
   const [vendorCurrentPage, setVendorCurrentPage] = useState(1);
   const [vendorSearchInput, setVendorSearchInput] = useState("");
   const [vendorSearchQuery, setVendorSearchQuery] = useState("");
@@ -38,7 +77,10 @@ export function VendorsPage({
   const [isVendorsLoading, setIsVendorsLoading] = useState(false);
   const [isProductsLoading, setIsProductsLoading] = useState(false);
   const [isVendorSettingsSaving, setIsVendorSettingsSaving] = useState(false);
+  const [isAutoInventorySaving, setIsAutoInventorySaving] = useState(false);
   const [vendorSettingsStatus, setVendorSettingsStatus] = useState("");
+  const [autoInventoryStatus, setAutoInventoryStatus] = useState("");
+  const [isAutoInventoryModalOpen, setIsAutoInventoryModalOpen] = useState(false);
   const [productRefreshNonce, setProductRefreshNonce] = useState(0);
   const [error, setError] = useState("");
 
@@ -103,8 +145,14 @@ export function VendorsPage({
 
   useEffect(() => {
     setSelectedVendorDetails(null);
+    setAutoInventorySettings(null);
+    setAutoInventoryDraft(null);
     setBuildTimeDraft("");
+    setInStockPhraseDraft("");
+    setOutOfStockPhraseDraft("");
     setVendorSettingsStatus("");
+    setAutoInventoryStatus("");
+    setIsAutoInventoryModalOpen(false);
     setProductCurrentPage(1);
     setProductSearchInput("");
     setProductSearchQuery("");
@@ -159,6 +207,39 @@ export function VendorsPage({
     };
   }, [selectedVendor, productCurrentPage, productRefreshNonce, productSearchQuery]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadAutoInventorySettings() {
+      if (!selectedVendor) {
+        setAutoInventorySettings(null);
+        return;
+      }
+
+      try {
+        const settings = await getVendorAutoInventorySettings(selectedVendor);
+
+        if (!ignore) {
+          setAutoInventorySettings(settings);
+        }
+      } catch (err) {
+        if (!ignore) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load auto inventory settings."
+          );
+        }
+      }
+    }
+
+    loadAutoInventorySettings();
+
+    return () => {
+      ignore = true;
+    };
+  }, [selectedVendor]);
+
   async function saveVendorDetails(nextBuiltToOrder: boolean, nextBuildTime: string) {
     if (!selectedVendor) {
       return;
@@ -205,6 +286,83 @@ export function VendorsPage({
     void saveVendorDetails(true, buildTimeDraft);
   }
 
+  function handleOpenAutoInventoryModal() {
+    const draft =
+      autoInventorySettings || getDefaultAutoInventorySettings(selectedVendor);
+    const nextDraft = {
+      ...draft,
+      enabled: draft.enabled || !autoInventorySettings?.enabled
+    };
+
+    setAutoInventoryDraft(nextDraft);
+    setInStockPhraseDraft(formatPhraseText(nextDraft.inStockPhrases));
+    setOutOfStockPhraseDraft(formatPhraseText(nextDraft.outOfStockPhrases));
+    setAutoInventoryStatus("");
+    setError("");
+    setIsAutoInventoryModalOpen(true);
+  }
+
+  function handleCloseAutoInventoryModal() {
+    if (isAutoInventorySaving) {
+      return;
+    }
+
+    setIsAutoInventoryModalOpen(false);
+    setAutoInventoryDraft(null);
+    setInStockPhraseDraft("");
+    setOutOfStockPhraseDraft("");
+    setAutoInventoryStatus("");
+  }
+
+  function updateAutoInventoryDraft(
+    patch: Partial<VendorAutoInventorySettings>
+  ) {
+    setAutoInventoryDraft((current) =>
+      current ? { ...current, ...patch } : current
+    );
+  }
+
+  async function handleSaveAutoInventorySettings() {
+    if (!selectedVendor || !autoInventoryDraft || isAutoInventorySaving) {
+      return;
+    }
+
+    setIsAutoInventorySaving(true);
+    setAutoInventoryStatus("Saving auto inventory settings...");
+    setError("");
+
+    try {
+      const result = await updateVendorAutoInventorySettings({
+        vendorId: selectedVendor,
+        settings: {
+          enabled: autoInventoryDraft.enabled,
+          senderEmail: autoInventoryDraft.senderEmail,
+          skuHeader: autoInventoryDraft.skuHeader,
+          inventoryHeader: autoInventoryDraft.inventoryHeader,
+          inventoryMode: autoInventoryDraft.inventoryMode,
+          inStockPhrases: parsePhraseText(inStockPhraseDraft),
+          outOfStockPhrases: parsePhraseText(outOfStockPhraseDraft)
+        }
+      });
+
+      setAutoInventorySettings(result);
+      setAutoInventoryDraft(result);
+      setInStockPhraseDraft(formatPhraseText(result.inStockPhrases));
+      setOutOfStockPhraseDraft(formatPhraseText(result.outOfStockPhrases));
+      setAutoInventoryStatus("Auto inventory settings saved.");
+      setIsAutoInventoryModalOpen(false);
+    } catch (err) {
+      setAutoInventoryStatus("");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to save auto inventory settings."
+      );
+    } finally {
+      setIsAutoInventorySaving(false);
+    }
+  }
+
   const activeVendor: VendorDetails = selectedVendorDetails || {
     id: selectedVendor,
     vendor: selectedVendor,
@@ -230,10 +388,12 @@ export function VendorsPage({
             buildTimeValue={buildTimeDraft}
             isSavingSettings={isVendorSettingsSaving}
             settingsStatus={vendorSettingsStatus}
+            autoInventoryEnabled={Boolean(autoInventorySettings?.enabled)}
             onSearchChange={setProductSearchInput}
             onBuiltToOrderChange={handleBuiltToOrderChange}
             onBuildTimeChange={setBuildTimeDraft}
             onBuildTimeBlur={handleBuildTimeBlur}
+            onOpenAutoInventory={handleOpenAutoInventoryModal}
             onBackToVendors={onBackToVendors}
           />
 
@@ -266,6 +426,165 @@ export function VendorsPage({
             onPageChange={setVendorCurrentPage}
           />
         </>
+      )}
+
+      {isAutoInventoryModalOpen && autoInventoryDraft && (
+        <div
+          className="modal auto-inventory-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="autoInventoryTitle"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              handleCloseAutoInventoryModal();
+            }
+          }}
+        >
+          <section className="modal-content auto-inventory-modal">
+            <header className="auto-inventory-modal-header">
+              <h2 id="autoInventoryTitle">Auto Inventory Settings</h2>
+              <button
+                type="button"
+                aria-label="Close auto inventory settings"
+                onClick={handleCloseAutoInventoryModal}
+              >
+                x
+              </button>
+            </header>
+
+            <label className="auto-inventory-enable">
+              <input
+                type="checkbox"
+                checked={autoInventoryDraft.enabled}
+                disabled={isAutoInventorySaving}
+                onChange={(event) =>
+                  updateAutoInventoryDraft({ enabled: event.target.checked })
+                }
+              />
+              <span>Enable auto inventory for this vendor</span>
+            </label>
+
+            <div className="auto-inventory-form-grid">
+              <label>
+                <span>Sender Email</span>
+                <input
+                  type="email"
+                  value={autoInventoryDraft.senderEmail}
+                  placeholder="inventory@vendor.com"
+                  disabled={isAutoInventorySaving}
+                  onChange={(event) =>
+                    updateAutoInventoryDraft({ senderEmail: event.target.value })
+                  }
+                />
+              </label>
+
+              <label>
+                <span>SKU Header</span>
+                <input
+                  type="text"
+                  value={autoInventoryDraft.skuHeader}
+                  placeholder="SKU"
+                  disabled={isAutoInventorySaving}
+                  onChange={(event) =>
+                    updateAutoInventoryDraft({ skuHeader: event.target.value })
+                  }
+                />
+              </label>
+
+              <label>
+                <span>Inventory Header</span>
+                <input
+                  type="text"
+                  value={autoInventoryDraft.inventoryHeader}
+                  placeholder="Inventory"
+                  disabled={isAutoInventorySaving}
+                  onChange={(event) =>
+                    updateAutoInventoryDraft({
+                      inventoryHeader: event.target.value
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <fieldset className="auto-inventory-mode">
+              <legend>Inventory Value</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={autoInventoryDraft.inventoryMode === "numerical"}
+                  disabled={isAutoInventorySaving}
+                  onChange={() =>
+                    updateAutoInventoryDraft({ inventoryMode: "numerical" })
+                  }
+                />
+                <span>Numerical</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={autoInventoryDraft.inventoryMode === "alphabetical"}
+                  disabled={isAutoInventorySaving}
+                  onChange={() =>
+                    updateAutoInventoryDraft({ inventoryMode: "alphabetical" })
+                  }
+                />
+                <span>Alphabetical</span>
+              </label>
+            </fieldset>
+
+            {autoInventoryDraft.inventoryMode === "alphabetical" && (
+              <div className="auto-inventory-form-grid">
+                <label>
+                  <span>In Stock Message</span>
+                  <input
+                    type="text"
+                    value={inStockPhraseDraft}
+                    placeholder="In Stock : Low Stock"
+                    disabled={isAutoInventorySaving}
+                    onChange={(event) => setInStockPhraseDraft(event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  <span>Out of Stock Message</span>
+                  <input
+                    type="text"
+                    value={outOfStockPhraseDraft}
+                    placeholder="Out of Stock : Discontinued"
+                    disabled={isAutoInventorySaving}
+                    onChange={(event) =>
+                      setOutOfStockPhraseDraft(event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            )}
+
+            {autoInventoryStatus && (
+              <p className="vendor-settings-status">{autoInventoryStatus}</p>
+            )}
+
+            <footer className="auto-inventory-modal-actions">
+              <button
+                type="button"
+                className="secondary-action"
+                disabled={isAutoInventorySaving}
+                onClick={handleCloseAutoInventoryModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="send-btn"
+                disabled={isAutoInventorySaving}
+                onClick={handleSaveAutoInventorySettings}
+              >
+                {isAutoInventorySaving ? "Saving..." : "Save"}
+              </button>
+            </footer>
+          </section>
+        </div>
       )}
     </section>
   );

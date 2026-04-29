@@ -29,6 +29,18 @@ async function listVendorContacts(req, res, next) {
   }
 }
 
+async function getVendorAutoInventorySettings(req, res, next) {
+  try {
+    const settings = await vendorsService.getVendorAutoInventorySettings(
+      req.params.vendorId
+    );
+
+    res.send(settings);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function setVendorDefaultContact(req, res, next) {
   try {
     const contact = await vendorsService.setVendorDefaultContact(
@@ -37,6 +49,19 @@ async function setVendorDefaultContact(req, res, next) {
     );
 
     res.send(contact);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function updateVendorAutoInventorySettings(req, res, next) {
+  try {
+    const settings = await vendorsService.updateVendorAutoInventorySettings(
+      req.params.vendorId,
+      req.body
+    );
+
+    res.send(settings);
   } catch (err) {
     next(err);
   }
@@ -57,9 +82,11 @@ async function updateVendorSettings(req, res, next) {
 }
 
 module.exports = {
+  getVendorAutoInventorySettings,
   listVendorContacts,
   listVendors,
   listVendorProducts,
   setVendorDefaultContact,
+  updateVendorAutoInventorySettings,
   updateVendorSettings
 };

@@ -982,16 +982,65 @@ async function queryVendorProductById(vendorProductId) {
   const sql = getSql();
   const rows = await sql`
     SELECT
-      vendor_product_id AS id,
-      vendor_id,
-      product_id,
-      sku,
-      label,
-      quantity,
-      status,
-      price
-    FROM catalog_vendor_products
-    WHERE vendor_product_id = ${vendorProductId}
+      vp.vendor_product_id AS id,
+      vp.vendor_id,
+      vp.product_id,
+      vp.sku,
+      vp.label,
+      vp.quantity,
+      vp.status,
+      vp.price,
+      p.sku AS product_sku,
+      p.name AS product_name
+    FROM catalog_vendor_products vp
+    JOIN catalog_products p
+      ON p.product_id = vp.product_id
+    WHERE vp.vendor_product_id = ${vendorProductId}
+    AND lower(COALESCE(p.state, 'Active')) = 'active'
+    LIMIT 1
+  `;
+
+  return rows[0] || null;
+}
+
+async function queryVendorProductByVendorAndSku(vendorId, sku) {
+  const sql = getSql();
+  const safeSku = String(sku || "").trim();
+
+  if (!safeSku) {
+    return null;
+  }
+
+  const rows = await sql`
+    SELECT
+      vp.vendor_product_id AS id,
+      vp.vendor_id,
+      vp.product_id,
+      vp.sku,
+      vp.label,
+      vp.quantity,
+      vp.status,
+      vp.price,
+      p.sku AS product_sku,
+      p.name AS product_name
+    FROM catalog_vendor_products vp
+    JOIN catalog_products p
+      ON p.product_id = vp.product_id
+    WHERE vp.vendor_id = ${vendorId}
+    AND lower(COALESCE(p.state, 'Active')) = 'active'
+    AND (
+      lower(vp.sku) = lower(${safeSku})
+      OR lower(vp.label) = lower(${safeSku})
+      OR lower(p.sku) = lower(${safeSku})
+    )
+    ORDER BY
+      CASE
+        WHEN lower(p.sku) = lower(${safeSku}) THEN 0
+        WHEN lower(vp.sku) = lower(${safeSku}) THEN 1
+        WHEN lower(vp.label) = lower(${safeSku}) THEN 2
+        ELSE 3
+      END ASC,
+      vp.vendor_product_id ASC
     LIMIT 1
   `;
 
@@ -2533,6 +2582,7 @@ function clearCaches() {
 module.exports = {
   clearCaches,
   getCatalogProductBySku: queryProductBySku,
+  getCatalogVendorProductByVendorAndSku: queryVendorProductByVendorAndSku,
   getCatalogVendorProductById: queryVendorProductById,
   getProductDetails,
   getVendorDetails,

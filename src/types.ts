@@ -161,6 +161,19 @@ export type VendorDetails = {
   buildTime: string;
 };
 
+export type VendorAutoInventoryMode = "numerical" | "alphabetical";
+
+export type VendorAutoInventorySettings = {
+  vendorId: string;
+  enabled: boolean;
+  senderEmail: string;
+  skuHeader: string;
+  inventoryHeader: string;
+  inventoryMode: VendorAutoInventoryMode;
+  inStockPhrases: string[];
+  outOfStockPhrases: string[];
+};
+
 export type VendorsResponse = {
   data: VendorSummary[];
   total: number;

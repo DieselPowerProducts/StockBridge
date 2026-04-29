@@ -8,6 +8,7 @@ import type {
   ProductDetails,
   ProductsResponse,
   StockCheckSort,
+  VendorAutoInventorySettings,
   VendorContact,
   VendorDetails,
   VendorProductsResponse,
@@ -391,4 +392,29 @@ export function updateVendorSettings({
     },
     body: JSON.stringify({ builtToOrder, buildTime })
   });
+}
+
+export function getVendorAutoInventorySettings(vendorId: string) {
+  return request<VendorAutoInventorySettings>(
+    `/vendors/${encodeURIComponent(vendorId)}/auto-inventory`
+  );
+}
+
+export function updateVendorAutoInventorySettings({
+  vendorId,
+  settings
+}: {
+  vendorId: string;
+  settings: Omit<VendorAutoInventorySettings, "vendorId">;
+}) {
+  return request<VendorAutoInventorySettings>(
+    `/vendors/${encodeURIComponent(vendorId)}/auto-inventory`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(settings)
+    }
+  );
 }
