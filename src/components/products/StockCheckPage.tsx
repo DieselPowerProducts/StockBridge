@@ -71,6 +71,16 @@ function matchesStockCheckFilter(product: Product, sort: StockCheckSort) {
   return followUpDate === addDaysToDateText(getLocalDateText(), offsetBySort[sort]);
 }
 
+function applyAndFilterStockCheckProducts(
+  products: Product[],
+  productStockUpdate: ProductStockUpdate | null,
+  sort: StockCheckSort
+) {
+  return applyProductStockUpdate(products, productStockUpdate).filter((product) =>
+    matchesStockCheckFilter(product, sort)
+  );
+}
+
 export function StockCheckPage({
   productStockUpdate,
   vendorEmailSentUpdate,
@@ -108,7 +118,11 @@ export function StockCheckPage({
 
         if (!ignore) {
           setProducts(
-            applyProductStockUpdate(result.data, latestProductStockUpdate.current)
+            applyAndFilterStockCheckProducts(
+              result.data,
+              latestProductStockUpdate.current,
+              sort
+            )
           );
           setTotalItems(result.total);
         }
@@ -140,9 +154,7 @@ export function StockCheckPage({
     }
 
     setProducts((current) =>
-      applyProductStockUpdate(current, productStockUpdate).filter((product) =>
-        matchesStockCheckFilter(product, sort)
-      )
+      applyAndFilterStockCheckProducts(current, productStockUpdate, sort)
     );
     setRefreshNonce((current) => current + 1);
   }, [productStockUpdate, sort]);

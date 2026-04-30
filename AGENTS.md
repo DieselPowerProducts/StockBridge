@@ -125,6 +125,9 @@ Key logic lives in `server/services/catalog.service.js`.
 - Follow-up date saves also emit `onProductStockChanged` with the new
   `followUpDate`; Stock Check applies that immediately and removes rows that no
   longer match the active filter while the server refresh is loading.
+- Stock Check must re-apply its active filter after overlaying local
+  `productStockUpdate` data on freshly loaded server results; otherwise a row can
+  remain in Yesterday/Today/Tomorrow after its follow-up date changed.
 
 When changing availability behavior, check:
 
