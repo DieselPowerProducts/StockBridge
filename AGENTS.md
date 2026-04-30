@@ -65,14 +65,14 @@ Important env vars:
 - `GMAIL_FROM_NAME`: defaults to `StockBridge`.
 - `GMAIL_SMTP_HOST`, `GMAIL_SMTP_PORT`, `GMAIL_SMTP_SECURE`: SMTP settings.
 - `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`: optional mailbox credentials for
-  reading vendor inventory CSV emails. If unset, the importer falls back to
+  reading vendor inventory sheet emails. If unset, the importer falls back to
   `GMAIL_USER` and `GMAIL_APP_PASSWORD`.
 - `GMAIL_IMAP_HOST`, `GMAIL_IMAP_PORT`, `GMAIL_IMAP_SECURE`: IMAP settings.
 - `AUTO_INVENTORY_LOOKBACK_DAYS`: how many days of inbox messages the auto
   inventory cron scans.
 - `AUTO_INVENTORY_FAILURE_RECIPIENT`: StockBridge notification recipient for
   auto inventory parser/import failures. Defaults to `cade@dieselpowerproducts.com`.
-- `AUTO_INVENTORY_GMAIL_LABEL`: Gmail label to apply to vendor inventory CSV
+- `AUTO_INVENTORY_GMAIL_LABEL`: Gmail label to apply to vendor inventory sheet
   emails before archiving them from Inbox. Defaults to `Vendor Inventory`.
 
 On Vercel, set env vars in the Vercel project settings for the correct
@@ -203,28 +203,30 @@ Related code:
   `server/services/vendorAutoInventorySettings.service.js`
 - Import history/dedupe: `vendor_auto_inventory_imports`,
   `server/services/vendorAutoInventoryImports.service.js`
-- Mailbox/CSV importer: `server/services/autoInventory.service.js`
+- Mailbox/sheet importer: `server/services/autoInventory.service.js`
 - Cron: `/api/cron/auto-inventory`
 
-The importer reads CSV attachments from the configured sender email. It maps the
-configured SKU header and inventory header. Numerical mode treats any value above
-zero as `999999` and zero/blank/unparseable rows are skipped or set to zero as
-appropriate. Alphabetical mode uses colon-separated phrases for in-stock and
-out-of-stock messages; matching in-stock phrases write `999999`, out-of-stock
-phrases write `0`. Commas are tolerated by the parser for convenience, but the UI
-should show colon-separated examples.
+The importer reads inventory sheet attachments from the configured sender email.
+It supports CSV and modern Excel workbook formats such as `.xlsx` and `.xlsm`.
+It maps the configured SKU header and inventory header. Numerical mode treats
+any value above zero as `999999` and zero/blank/unparseable rows are skipped or
+set to zero as appropriate. Alphabetical mode uses colon-separated phrases for
+in-stock and out-of-stock messages; matching in-stock phrases write `999999`,
+out-of-stock phrases write `0`. Commas are tolerated by the parser for
+convenience, but the UI should show colon-separated examples.
 
 Parser/import failures notify the configured failure recipient in StockBridge.
-Failures include missing configured headers, empty/unreadable CSVs, unrecognized
-alphabetical stock phrases, rows with missing SKUs, and SKU Nexus update errors.
+Failures include missing configured headers, empty/unreadable inventory sheets,
+unrecognized alphabetical stock phrases, rows with missing SKUs, and SKU Nexus
+update errors.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
 The importer adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL` to
-all matching vendor emails with CSV attachments found during the cron run, then
-archives them from Inbox by moving them to Gmail's All Mail mailbox so they live
-under that Gmail label. If multiple matching emails from the same configured
-sender are present during one cron run, only the newest email is imported for
-that vendor.
+all matching vendor emails with inventory sheet attachments found during the
+cron run, then archives them from Inbox by moving them to Gmail's All Mail
+mailbox so they live under that Gmail label. If multiple matching emails from
+the same configured sender are present during one cron run, only the newest
+email is imported for that vendor.
 
 ## UI Guidance
 

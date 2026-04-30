@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
+const ExcelJS = require("exceljs");
 const { ImapFlow } = require("imapflow");
 const { simpleParser } = require("mailparser");
 const catalogService = require("./catalog.service");
@@ -106,7 +107,7 @@ async function notifyAutoInventoryFailure({
   details = ""
 }) {
   const vendorId = normalizeText(settings?.vendorId);
-  const filename = normalizeText(attachment?.filename) || "CSV attachment";
+  const filename = normalizeText(attachment?.filename) || "sheet attachment";
   const senderEmail = normalizeEmail(settings?.senderEmail);
   const safeReason = normalizeText(reason);
   const safeDetails = normalizeText(details);
@@ -134,13 +135,41 @@ async function notifyAutoInventoryFailure({
   });
 }
 
-function isCsvAttachment(attachment) {
+function getAttachmentExtension(attachment) {
   const filename = normalizeText(attachment?.filename).toLowerCase();
+
+  return filename.includes(".") ? filename.split(".").pop() : "";
+}
+
+function isCsvAttachment(attachment) {
+  const extension = getAttachmentExtension(attachment);
   const contentType = normalizeText(attachment?.contentType).toLowerCase();
 
   return (
-    filename.endsWith(".csv") ||
-    contentType.includes("csv") ||
+    extension === "csv" ||
+    contentType.includes("csv")
+  );
+}
+
+function isExcelAttachment(attachment) {
+  const extension = getAttachmentExtension(attachment);
+  const contentType = normalizeText(attachment?.contentType).toLowerCase();
+
+  return (
+    ["xlsx", "xlsm", "xltx", "xltm"].includes(extension) ||
+    contentType.includes("spreadsheetml") ||
+    contentType.includes("officedocument.spreadsheetml")
+  );
+}
+
+function isInventorySheetAttachment(attachment) {
+  const extension = getAttachmentExtension(attachment);
+  const contentType = normalizeText(attachment?.contentType).toLowerCase();
+
+  return (
+    isCsvAttachment(attachment) ||
+    isExcelAttachment(attachment) ||
+    ["xls", "ods"].includes(extension) ||
     contentType.includes("excel")
   );
 }
@@ -252,7 +281,115 @@ function parseCsvRows(content) {
   });
 }
 
-async function importCsvAttachment({ settings, attachment, message }) {
+function getExcelCellText(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === "object") {
+    if (Array.isArray(value.richText)) {
+      return value.richText
+        .map((item) => item?.text || "")
+        .join("")
+        .trim();
+    }
+
+    if (value.result !== undefined) {
+      return getExcelCellText(value.result);
+    }
+
+    if (value.text !== undefined) {
+      return getExcelCellText(value.text);
+    }
+
+    if (value.hyperlink && value.text) {
+      return getExcelCellText(value.text);
+    }
+  }
+
+  return normalizeText(value);
+}
+
+function getExcelRowValues(row) {
+  const values = [];
+
+  row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+    values[columnNumber - 1] = getExcelCellText(cell.value);
+  });
+
+  return values.map((value) => normalizeText(value));
+}
+
+async function parseExcelRows(content) {
+  const workbook = new ExcelJS.Workbook();
+
+  await workbook.xlsx.load(content);
+
+  const worksheet =
+    workbook.worksheets.find((sheet) => Number(sheet.actualRowCount || 0) > 0) ||
+    workbook.worksheets[0];
+
+  if (!worksheet) {
+    return [];
+  }
+
+  let headers = null;
+  const rows = [];
+
+  worksheet.eachRow({ includeEmpty: false }, (row) => {
+    const values = getExcelRowValues(row);
+    const hasValues = values.some(Boolean);
+
+    if (!hasValues) {
+      return;
+    }
+
+    if (!headers) {
+      headers = values;
+      return;
+    }
+
+    const item = {};
+
+    headers.forEach((header, index) => {
+      if (header) {
+        item[header] = values[index] || "";
+      }
+    });
+
+    if (Object.keys(item).length > 0) {
+      rows.push(item);
+    }
+  });
+
+  return rows;
+}
+
+async function parseSheetRows(content, attachment) {
+  if (isCsvAttachment(attachment)) {
+    return parseCsvRows(content);
+  }
+
+  if (isExcelAttachment(attachment)) {
+    return parseExcelRows(content);
+  }
+
+  const extension = getAttachmentExtension(attachment);
+  const error = new Error(
+    extension
+      ? `Unsupported inventory sheet file type: .${extension}`
+      : "Unsupported inventory sheet file type."
+  );
+
+  error.statusCode = 415;
+  throw error;
+}
+
+async function importSheetAttachment({ settings, attachment, message }) {
   const content = attachment.content || Buffer.alloc(0);
   const attachmentHash = getAttachmentHash(content);
 
@@ -268,13 +405,13 @@ async function importCsvAttachment({ settings, attachment, message }) {
   let rows;
 
   try {
-    rows = await parseCsvRows(content);
+    rows = await parseSheetRows(content, attachment);
   } catch (error) {
     await notifyAutoInventoryFailure({
       settings,
       attachment,
       attachmentHash,
-      reason: "CSV could not be parsed",
+      reason: "Inventory sheet could not be parsed",
       details: error.message
     });
     await importsService.recordImport({
@@ -301,7 +438,7 @@ async function importCsvAttachment({ settings, attachment, message }) {
       settings,
       attachment,
       attachmentHash,
-      reason: "CSV did not contain any rows"
+      reason: "Inventory sheet did not contain any rows"
     });
     await importsService.recordImport({
       vendorId: settings.vendorId,
@@ -312,7 +449,7 @@ async function importCsvAttachment({ settings, attachment, message }) {
       attachmentHash,
       errorCount: 1,
       status: "failed",
-      errorMessage: "CSV did not contain any rows."
+      errorMessage: "Inventory sheet did not contain any rows."
     });
 
     return {
@@ -339,7 +476,7 @@ async function importCsvAttachment({ settings, attachment, message }) {
       settings,
       attachment,
       attachmentHash,
-      reason: "Configured CSV header was not found",
+      reason: "Configured inventory sheet header was not found",
       details: `Missing: ${missingHeaders.join(", ")}. Available headers: ${availableHeaders || "none"}.`
     });
     await importsService.recordImport({
@@ -496,17 +633,19 @@ async function processMessageForSettings({ uid, source }, settings) {
     };
   }
 
-  const csvAttachments = (parsed.attachments || []).filter(isCsvAttachment);
+  const sheetAttachments = (parsed.attachments || []).filter(
+    isInventorySheetAttachment
+  );
   const totals = {
     imported: 0,
     skipped: 0,
     errors: 0,
     attachments: 0,
-    shouldLabel: csvAttachments.length > 0
+    shouldLabel: sheetAttachments.length > 0
   };
 
-  for (const attachment of csvAttachments) {
-    const result = await importCsvAttachment({
+  for (const attachment of sheetAttachments) {
+    const result = await importSheetAttachment({
       settings,
       attachment,
       message: {
@@ -532,7 +671,7 @@ async function shouldLabelMessageForSettings({ source }, settings) {
     return false;
   }
 
-  return (parsed.attachments || []).some(isCsvAttachment);
+  return (parsed.attachments || []).some(isInventorySheetAttachment);
 }
 
 async function applyVendorInventoryLabel(client, uid) {
