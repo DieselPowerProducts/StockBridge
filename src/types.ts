@@ -19,6 +19,10 @@ export type AuthSession = {
   user: AuthUser | null;
 };
 
+export type AppVersionStatus = {
+  version: string;
+};
+
 export type AppNotification = {
   id: string;
   sku: string;

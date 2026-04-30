@@ -19,6 +19,8 @@ usually `main`.
 - Scheduled sync entrypoint: `api/cron/catalog-full-sync.js`.
 - Database: Neon Postgres via `@neondatabase/serverless`.
 - External systems: SKU Nexus, Shopify, Gmail SMTP.
+- Active browsers poll `/status/version` once per minute and force a page reload
+  when Vercel's deployed build version changes.
 - Main frontend code:
   - `src/App.tsx`
   - `src/components/notes/NotesModal.tsx`

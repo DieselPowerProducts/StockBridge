@@ -6,7 +6,7 @@ import { NotesModal } from "./components/notes/NotesModal";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
-import { getCurrentUser, signOut } from "./services/api";
+import { getAppVersion, getCurrentUser, signOut } from "./services/api";
 import type {
   AppRoute,
   AuthUser,
@@ -14,6 +14,8 @@ import type {
   ProductStockUpdate,
   VendorEmailSentUpdate
 } from "./types";
+
+const appVersionCheckIntervalMs = 60 * 1000;
 
 function parseRoute(): AppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -101,6 +103,48 @@ export function App() {
       ignore = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (authStatus !== "ready" || !authUser) {
+      return;
+    }
+
+    let ignore = false;
+    let currentVersion = "";
+
+    async function checkVersion() {
+      try {
+        const result = await getAppVersion();
+        const nextVersion = String(result.version || "").trim();
+
+        if (!nextVersion || ignore) {
+          return;
+        }
+
+        if (!currentVersion) {
+          currentVersion = nextVersion;
+          return;
+        }
+
+        if (nextVersion !== currentVersion) {
+          window.location.reload();
+        }
+      } catch (err) {
+        console.warn("Unable to check StockBridge version.", err);
+      }
+    }
+
+    void checkVersion();
+    const intervalId = window.setInterval(
+      checkVersion,
+      appVersionCheckIntervalMs
+    );
+
+    return () => {
+      ignore = true;
+      window.clearInterval(intervalId);
+    };
+  }, [authStatus, authUser]);
 
   async function handleLogout() {
     try {

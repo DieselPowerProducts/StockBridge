@@ -1,5 +1,6 @@
 import type {
   NotificationsResponse,
+  AppVersionStatus,
   AuthSession,
   AuthUser,
   BackordersResponse,
@@ -76,6 +77,10 @@ export function signOut() {
   return request<{ ok: boolean }>("/auth/logout", {
     method: "POST"
   });
+}
+
+export function getAppVersion() {
+  return request<AppVersionStatus>("/status/version");
 }
 
 export function getUsers() {
