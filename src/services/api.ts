@@ -141,13 +141,15 @@ export function getStockCheckProducts({
   limit,
   search,
   sort,
-  referenceDate
+  referenceDate,
+  bypassCache = false
 }: {
   page: number;
   limit: number;
   search: string;
   sort: StockCheckSort;
   referenceDate: string;
+  bypassCache?: boolean;
 }) {
   const params = new URLSearchParams({
     page: String(page),
@@ -156,6 +158,10 @@ export function getStockCheckProducts({
     sort,
     referenceDate
   });
+
+  if (bypassCache) {
+    params.set("bypassCache", "1");
+  }
 
   return request<ProductsResponse>(`/products/stock-check?${params.toString()}`);
 }

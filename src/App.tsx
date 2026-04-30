@@ -10,6 +10,7 @@ import { getAppVersion, getCurrentUser, signOut } from "./services/api";
 import type {
   AppRoute,
   AuthUser,
+  FollowUpOverrides,
   PageName,
   ProductStockUpdate,
   VendorEmailSentUpdate
@@ -60,6 +61,9 @@ export function App() {
   const [productRefreshKey, setProductRefreshKey] = useState(0);
   const [productStockUpdate, setProductStockUpdate] =
     useState<ProductStockUpdate | null>(null);
+  const [followUpOverrides, setFollowUpOverrides] = useState<FollowUpOverrides>(
+    {}
+  );
   const [vendorEmailSentUpdate, setVendorEmailSentUpdate] =
     useState<VendorEmailSentUpdate | null>(null);
 
@@ -177,6 +181,19 @@ export function App() {
     });
   }
 
+  function handleProductStockChanged(update: ProductStockUpdate) {
+    setProductStockUpdate(update);
+
+    if (update.followUpDate === undefined) {
+      return;
+    }
+
+    setFollowUpOverrides((current) => ({
+      ...current,
+      [update.sku.trim().toUpperCase()]: update.followUpDate || ""
+    }));
+  }
+
   if (authStatus === "checking") {
     return (
       <main className="auth-page" aria-label="Loading StockBridge">
@@ -206,7 +223,7 @@ export function App() {
           sku={route.sku}
           onClose={handleCloseNotesRoute}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
-          onProductStockChanged={setProductStockUpdate}
+          onProductStockChanged={handleProductStockChanged}
           onVendorEmailSent={handleVendorEmailSent}
         />
       </main>
@@ -246,6 +263,7 @@ export function App() {
           {route.page === "stock-check" && (
             <StockCheckPage
               productStockUpdate={productStockUpdate}
+              followUpOverrides={followUpOverrides}
               vendorEmailSentUpdate={vendorEmailSentUpdate}
               refreshKey={productRefreshKey}
               onOpenNotes={setSelectedSku}
@@ -260,7 +278,7 @@ export function App() {
           sku={selectedSku}
           onClose={() => setSelectedSku("")}
           onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
-          onProductStockChanged={setProductStockUpdate}
+          onProductStockChanged={handleProductStockChanged}
           onVendorEmailSent={handleVendorEmailSent}
         />
       )}

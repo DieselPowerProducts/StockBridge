@@ -73,6 +73,12 @@ function normalizeDateText(value) {
   return normalized;
 }
 
+function normalizeBoolean(value) {
+  return ["1", "true", "yes", "on"].includes(
+    String(value || "").trim().toLowerCase()
+  );
+}
+
 function normalizeRequiredString(value, message) {
   const normalized = String(value || "").trim();
 
@@ -2511,15 +2517,21 @@ async function getProductDetails(sku) {
   };
 }
 
-async function getStockCheckProducts({ search, sort = "all", referenceDate = "" } = {}) {
+async function getStockCheckProducts({
+  search,
+  sort = "all",
+  referenceDate = "",
+  bypassCache = false
+} = {}) {
   await ensureCatalogReady();
   const cleanSearch = normalizeSearch(search);
   const cleanSort = normalizeStockCheckSort(sort);
   const cleanReferenceDate = normalizeDateText(referenceDate);
   const cacheKey = `${cleanSearch.toLowerCase()}:${cleanSort}:${cleanReferenceDate}`;
   const cached = stockCheckCache.get(cacheKey);
+  const shouldBypassCache = normalizeBoolean(bypassCache);
 
-  if (cached && Date.now() - cached.createdAt < stockCheckCacheTtlMs) {
+  if (!shouldBypassCache && cached && Date.now() - cached.createdAt < stockCheckCacheTtlMs) {
     return cached.data;
   }
 
@@ -2559,7 +2571,8 @@ async function listStockCheckProducts(queryParams = {}) {
   const products = await getStockCheckProducts({
     search: queryParams.search,
     sort: queryParams.sort,
-    referenceDate: queryParams.referenceDate
+    referenceDate: queryParams.referenceDate,
+    bypassCache: queryParams.bypassCache
   });
   const pageResult = paginateRows(products, { page, limit });
   const emailedSkus = await stockCheckEmailsService.getEmailedSkuSetForSkus(

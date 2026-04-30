@@ -128,6 +128,11 @@ Key logic lives in `server/services/catalog.service.js`.
 - Stock Check must re-apply its active filter after overlaying local
   `productStockUpdate` data on freshly loaded server results; otherwise a row can
   remain in Yesterday/Today/Tomorrow after its follow-up date changed.
+- `App` keeps a per-SKU follow-up override map for the current browser session so
+  stale stock-check cache responses cannot reintroduce older follow-up dates for
+  recently edited rows.
+- Stock Check sends `bypassCache=1` after local refreshes/follow-up edits so the
+  API skips `stockCheckCache` and reads current follow-up data from Neon.
 
 When changing availability behavior, check:
 

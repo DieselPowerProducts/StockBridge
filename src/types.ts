@@ -88,6 +88,8 @@ export type ProductStockUpdate = {
   followUpDate?: string;
 };
 
+export type FollowUpOverrides = Record<string, string>;
+
 export type ProductsResponse = {
   data: Product[];
   total: number;

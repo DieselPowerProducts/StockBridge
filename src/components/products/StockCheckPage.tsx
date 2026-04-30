@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getStockCheckProducts } from "../../services/api";
 import type {
   Product,
+  FollowUpOverrides,
   ProductStockUpdate,
   StockCheckSort,
   VendorEmailSentUpdate
@@ -12,6 +13,7 @@ import { applyProductStockUpdate } from "./productStockUpdates";
 
 type StockCheckPageProps = {
   productStockUpdate: ProductStockUpdate | null;
+  followUpOverrides: FollowUpOverrides;
   vendorEmailSentUpdate: VendorEmailSentUpdate | null;
   onOpenNotes: (sku: string) => void;
   refreshKey: number;
@@ -74,15 +76,28 @@ function matchesStockCheckFilter(product: Product, sort: StockCheckSort) {
 function applyAndFilterStockCheckProducts(
   products: Product[],
   productStockUpdate: ProductStockUpdate | null,
+  followUpOverrides: FollowUpOverrides,
   sort: StockCheckSort
 ) {
-  return applyProductStockUpdate(products, productStockUpdate).filter((product) =>
-    matchesStockCheckFilter(product, sort)
-  );
+  return applyProductStockUpdate(products, productStockUpdate)
+    .map((product) => {
+      const overrideKey = product.sku.trim().toUpperCase();
+
+      if (!Object.prototype.hasOwnProperty.call(followUpOverrides, overrideKey)) {
+        return product;
+      }
+
+      return {
+        ...product,
+        followUpDate: followUpOverrides[overrideKey] || ""
+      };
+    })
+    .filter((product) => matchesStockCheckFilter(product, sort));
 }
 
 export function StockCheckPage({
   productStockUpdate,
+  followUpOverrides,
   vendorEmailSentUpdate,
   onOpenNotes,
   refreshKey
@@ -113,7 +128,8 @@ export function StockCheckPage({
           limit: pageSize,
           search: "",
           sort,
-          referenceDate: getLocalDateText()
+          referenceDate: getLocalDateText(),
+          bypassCache: refreshKey > 0 || refreshNonce > 0
         });
 
         if (!ignore) {
@@ -121,6 +137,7 @@ export function StockCheckPage({
             applyAndFilterStockCheckProducts(
               result.data,
               latestProductStockUpdate.current,
+              followUpOverrides,
               sort
             )
           );
@@ -146,7 +163,7 @@ export function StockCheckPage({
     return () => {
       ignore = true;
     };
-  }, [currentPage, refreshKey, refreshNonce, sort]);
+  }, [currentPage, followUpOverrides, refreshKey, refreshNonce, sort]);
 
   useEffect(() => {
     if (!productStockUpdate) {
@@ -154,10 +171,15 @@ export function StockCheckPage({
     }
 
     setProducts((current) =>
-      applyAndFilterStockCheckProducts(current, productStockUpdate, sort)
+      applyAndFilterStockCheckProducts(
+        current,
+        productStockUpdate,
+        followUpOverrides,
+        sort
+      )
     );
     setRefreshNonce((current) => current + 1);
-  }, [productStockUpdate, sort]);
+  }, [followUpOverrides, productStockUpdate, sort]);
 
   useEffect(() => {
     if (!vendorEmailSentUpdate?.sku) {
