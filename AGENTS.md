@@ -133,6 +133,9 @@ Key logic lives in `server/services/catalog.service.js`.
   recently edited rows.
 - Stock Check sends `bypassCache=1` after local refreshes/follow-up edits so the
   API skips `stockCheckCache` and reads current follow-up data from Neon.
+- Keep `App`'s `onProductStockChanged` handler stable with `useCallback`; the
+  Notes modal's details loader depends on it, so changing the callback identity
+  can cause repeated vendor reloads/flicker.
 
 When changing availability behavior, check:
 

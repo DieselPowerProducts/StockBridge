@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { LoginPage } from "./components/auth/LoginPage";
 import { NotificationsMenu } from "./components/layout/NotificationsMenu";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -181,7 +181,7 @@ export function App() {
     });
   }
 
-  function handleProductStockChanged(update: ProductStockUpdate) {
+  const handleProductStockChanged = useCallback((update: ProductStockUpdate) => {
     setProductStockUpdate(update);
 
     if (update.followUpDate === undefined) {
@@ -192,7 +192,7 @@ export function App() {
       ...current,
       [update.sku.trim().toUpperCase()]: update.followUpDate || ""
     }));
-  }
+  }, []);
 
   if (authStatus === "checking") {
     return (
