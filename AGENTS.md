@@ -122,6 +122,9 @@ Key logic lives in `server/services/catalog.service.js`.
 - The Notes modal must keep the product table and Stock Check table in sync after
   vendor stock changes and after loading fresh product details. Vendor stock
   changes call a targeted product refresh before emitting `onProductStockChanged`.
+- Follow-up date saves also emit `onProductStockChanged` with the new
+  `followUpDate`; Stock Check applies that immediately and removes rows that no
+  longer match the active filter while the server refresh is loading.
 
 When changing availability behavior, check:
 

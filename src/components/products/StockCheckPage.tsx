@@ -34,6 +34,43 @@ function getLocalDateText() {
     .slice(0, 10);
 }
 
+function addDaysToDateText(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  date.setDate(date.getDate() + days);
+
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+function matchesStockCheckFilter(product: Product, sort: StockCheckSort) {
+  const followUpDate = product.followUpDate || "";
+  const isStockCheckProduct =
+    product.availability !== "Available" || Boolean(followUpDate);
+
+  if (!isStockCheckProduct) {
+    return false;
+  }
+
+  if (sort === "all") {
+    return true;
+  }
+
+  if (sort === "no-follow-up") {
+    return !followUpDate;
+  }
+
+  const offsetBySort: Record<"yesterday" | "today" | "tomorrow", number> = {
+    yesterday: -1,
+    today: 0,
+    tomorrow: 1
+  };
+
+  return followUpDate === addDaysToDateText(getLocalDateText(), offsetBySort[sort]);
+}
+
 export function StockCheckPage({
   productStockUpdate,
   vendorEmailSentUpdate,
@@ -103,10 +140,12 @@ export function StockCheckPage({
     }
 
     setProducts((current) =>
-      applyProductStockUpdate(current, productStockUpdate)
+      applyProductStockUpdate(current, productStockUpdate).filter((product) =>
+        matchesStockCheckFilter(product, sort)
+      )
     );
     setRefreshNonce((current) => current + 1);
-  }, [productStockUpdate]);
+  }, [productStockUpdate, sort]);
 
   useEffect(() => {
     if (!vendorEmailSentUpdate?.sku) {

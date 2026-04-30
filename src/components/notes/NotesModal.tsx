@@ -190,7 +190,8 @@ function getProductStockUpdate(
     return {
       sku: productDetails.sku,
       qtyAvailable: productDetails.qtyAvailable,
-      availability: productDetails.availability
+      availability: productDetails.availability,
+      followUpDate: productDetails.followUpDate
     };
   }
 
@@ -203,7 +204,8 @@ function getProductStockUpdate(
     sku: productDetails.sku,
     qtyAvailable,
     availability:
-      qtyAvailable > 0 ? "Available" : getUnavailableAvailability(vendors)
+      qtyAvailable > 0 ? "Available" : getUnavailableAvailability(vendors),
+    followUpDate: productDetails.followUpDate
   };
 }
 
@@ -213,7 +215,8 @@ function getProductDetailsStockUpdate(
   return {
     sku: productDetails.sku,
     qtyAvailable: productDetails.qtyAvailable,
-    availability: productDetails.availability
+    availability: productDetails.availability,
+    followUpDate: productDetails.followUpDate
   };
 }
 
@@ -608,6 +611,12 @@ export function NotesModal({
             }
           : current
       );
+      if (productDetails) {
+        onProductStockChanged?.({
+          ...getProductDetailsStockUpdate(productDetails),
+          followUpDate: result.followUpDate || ""
+        });
+      }
       onFollowUpSaved();
     } catch (err) {
       setDetailsError(
