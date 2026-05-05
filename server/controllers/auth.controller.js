@@ -1,10 +1,21 @@
 const authService = require("../services/auth.service");
 const usersService = require("../services/users.service");
 
+async function syncAuthenticatedUser(user, context) {
+  try {
+    await usersService.upsertUser(user);
+  } catch (error) {
+    console.warn(`Unable to sync authenticated user during ${context}.`, {
+      email: user?.email || "",
+      error
+    });
+  }
+}
+
 async function signInWithGoogle(req, res, next) {
   try {
     const user = await authService.verifyGoogleCredential(req.body.credential);
-    await usersService.upsertUser(user);
+    await syncAuthenticatedUser(user, "sign-in");
     authService.setSessionCookie(req, res, user);
     res.send({ user });
   } catch (err) {
@@ -21,7 +32,7 @@ async function getSession(req, res, next) {
       return;
     }
 
-    await usersService.upsertUser(user);
+    await syncAuthenticatedUser(user, "session check");
     res.send({ user });
   } catch (err) {
     next(err);

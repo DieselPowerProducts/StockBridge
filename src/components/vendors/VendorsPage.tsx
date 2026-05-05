@@ -211,12 +211,14 @@ export function VendorsPage({
   useEffect(() => {
     let ignore = false;
 
-    async function loadAutoInventorySettings() {
-      if (!selectedVendor) {
-        setAutoInventorySettings(null);
-        return;
-      }
+    if (!selectedVendor) {
+      setAutoInventorySettings(null);
+      return () => {
+        ignore = true;
+      };
+    }
 
+    async function loadAutoInventorySettings() {
       try {
         const settings = await getVendorAutoInventorySettings(selectedVendor);
 
@@ -234,10 +236,20 @@ export function VendorsPage({
       }
     }
 
-    loadAutoInventorySettings();
+    void loadAutoInventorySettings();
+    const intervalId = window.setInterval(() => {
+      void loadAutoInventorySettings();
+    }, 60000);
+    const handleFocus = () => {
+      void loadAutoInventorySettings();
+    };
+
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       ignore = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
     };
   }, [selectedVendor]);
 

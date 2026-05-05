@@ -92,6 +92,26 @@ async function initializeSchema() {
         )
       `;
       await sql`
+        ALTER TABLE app_users
+        ADD COLUMN IF NOT EXISTS picture TEXT
+      `;
+      await sql`
+        ALTER TABLE app_users
+        ADD COLUMN IF NOT EXISTS hd TEXT
+      `;
+      await sql`
+        ALTER TABLE app_users
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      `;
+      await sql`
+        ALTER TABLE app_users
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      `;
+      await sql`
+        ALTER TABLE app_users
+        ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      `;
+      await sql`
         CREATE INDEX IF NOT EXISTS app_users_name_idx
         ON app_users (name)
       `;
@@ -148,6 +168,16 @@ async function backfillUsersFromNotes() {
 
 async function updateNotificationRecipients(sql, oldSub, safeUser) {
   try {
+    await sql`
+      DELETE FROM product_notifications old_notifications
+      WHERE old_notifications.recipient_sub = ${oldSub}
+        AND EXISTS (
+          SELECT 1
+          FROM product_notifications existing_notifications
+          WHERE existing_notifications.recipient_sub = ${safeUser.sub}
+            AND existing_notifications.note_id = old_notifications.note_id
+        )
+    `;
     await sql`
       UPDATE product_notifications
       SET

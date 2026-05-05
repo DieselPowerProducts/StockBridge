@@ -394,6 +394,15 @@ async function importSheetAttachment({ settings, attachment, message }) {
   const attachmentHash = getAttachmentHash(content);
 
   if (await importsService.hasProcessedAttachment(settings.vendorId, attachmentHash)) {
+    await importsService.touchProcessedAttachment({
+      vendorId: settings.vendorId,
+      messageUid: message.uid,
+      messageId: message.messageId,
+      senderEmail: settings.senderEmail,
+      attachmentFilename: attachment.filename,
+      attachmentHash
+    });
+
     return {
       imported: 0,
       skipped: 0,
