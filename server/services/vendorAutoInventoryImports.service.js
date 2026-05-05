@@ -1,6 +1,7 @@
 const { getSql } = require("../db/neon");
 
 let schemaReady;
+const currentImportVersion = 2;
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -25,6 +26,7 @@ async function initializeSchema() {
           error_count INTEGER NOT NULL DEFAULT 0,
           status TEXT NOT NULL DEFAULT 'completed',
           error_message TEXT NOT NULL DEFAULT '',
+          import_version INTEGER NOT NULL DEFAULT 2,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
@@ -32,6 +34,10 @@ async function initializeSchema() {
       await sql`
         ALTER TABLE vendor_auto_inventory_imports
         ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_imports
+        ADD COLUMN IF NOT EXISTS import_version INTEGER NOT NULL DEFAULT 1
       `;
       await sql`
         CREATE UNIQUE INDEX IF NOT EXISTS vendor_auto_inventory_imports_hash_idx
@@ -69,6 +75,7 @@ async function hasProcessedAttachment(vendorId, attachmentHash) {
     AND attachment_hash = ${safeHash}
     AND status = 'completed'
     AND error_count = 0
+    AND import_version = ${currentImportVersion}
     LIMIT 1
   `;
 
@@ -102,6 +109,7 @@ async function touchProcessedAttachment({
       message_id = ${normalizeText(messageId)},
       sender_email = ${normalizeText(senderEmail).toLowerCase()},
       attachment_filename = ${normalizeText(attachmentFilename)},
+      import_version = ${currentImportVersion},
       last_seen_at = now()
     WHERE vendor_id = ${safeVendorId}
     AND attachment_hash = ${safeHash}
@@ -141,7 +149,8 @@ async function recordImport({
       skipped_count,
       error_count,
       status,
-      error_message
+      error_message,
+      import_version
     )
     VALUES (
       ${normalizeText(vendorId)},
@@ -154,7 +163,8 @@ async function recordImport({
       ${Math.max(Number(skippedCount || 0), 0)},
       ${Math.max(Number(errorCount || 0), 0)},
       ${normalizeText(status) || "completed"},
-      ${normalizeText(errorMessage)}
+      ${normalizeText(errorMessage)},
+      ${currentImportVersion}
     )
     ON CONFLICT (vendor_id, attachment_hash) DO UPDATE
     SET
@@ -167,6 +177,7 @@ async function recordImport({
       error_count = EXCLUDED.error_count,
       status = EXCLUDED.status,
       error_message = EXCLUDED.error_message,
+      import_version = EXCLUDED.import_version,
       last_seen_at = now()
     RETURNING id::text
   `;

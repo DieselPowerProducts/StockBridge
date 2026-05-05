@@ -30,6 +30,124 @@ function normalizeComparable(value) {
   return normalizeText(value).toLowerCase().replace(/\s+/g, " ");
 }
 
+function normalizeSkuKey(value) {
+  return normalizeText(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getSkuMatchKeys(value) {
+  const safeValue = normalizeText(value).toLowerCase();
+  const keys = new Set();
+  const addKey = (keyValue) => {
+    const key = normalizeSkuKey(keyValue);
+
+    if (key) {
+      keys.add(key);
+    }
+  };
+
+  addKey(safeValue);
+
+  const parts = safeValue.split(/[-_\s]+/).filter(Boolean);
+
+  if (parts.length > 1) {
+    addKey(parts.slice(1).join("-"));
+  }
+
+  return Array.from(keys);
+}
+
+function addSkuMatchKeys(keySet, value) {
+  for (const key of getSkuMatchKeys(value)) {
+    keySet.add(key);
+  }
+}
+
+function getVendorProductSkuValues(vendorProduct) {
+  return [
+    vendorProduct?.product_sku,
+    vendorProduct?.sku,
+    vendorProduct?.label
+  ].filter(Boolean);
+}
+
+function getVendorProductDisplaySku(vendorProduct) {
+  return (
+    normalizeText(vendorProduct?.product_sku) ||
+    normalizeText(vendorProduct?.sku) ||
+    normalizeText(vendorProduct?.label) ||
+    normalizeText(vendorProduct?.id)
+  );
+}
+
+function buildVendorProductSkuLookup(vendorProducts) {
+  const lookup = new Map();
+
+  for (const vendorProduct of vendorProducts) {
+    for (const value of getVendorProductSkuValues(vendorProduct)) {
+      for (const key of getSkuMatchKeys(value)) {
+        const current = lookup.get(key) || [];
+
+        if (!current.some((item) => item.id === vendorProduct.id)) {
+          current.push(vendorProduct);
+        }
+
+        lookup.set(key, current);
+      }
+    }
+  }
+
+  return lookup;
+}
+
+function findVendorProductForSheetSku(lookup, sku) {
+  const keys = getSkuMatchKeys(sku);
+  const exactKey = normalizeSkuKey(sku);
+
+  for (const key of keys) {
+    const candidates = lookup.get(key) || [];
+
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+
+    if (candidates.length > 1) {
+      const exactCandidates = candidates.filter((candidate) =>
+        getVendorProductSkuValues(candidate).some(
+          (value) => normalizeSkuKey(value) === exactKey
+        )
+      );
+
+      if (exactCandidates.length === 1) {
+        return exactCandidates[0];
+      }
+    }
+  }
+
+  return null;
+}
+
+function isVendorProductRepresentedInSheet(vendorProduct, sheetSkuKeys) {
+  return getVendorProductSkuValues(vendorProduct).some((value) =>
+    getSkuMatchKeys(value).some((key) => sheetSkuKeys.has(key))
+  );
+}
+
+function formatMissingVendorProducts(vendorProducts) {
+  const sample = vendorProducts
+    .slice(0, 25)
+    .map(getVendorProductDisplaySku)
+    .filter(Boolean);
+  const remainder = vendorProducts.length - sample.length;
+
+  return [
+    `StockBridge vendor products missing from inventory sheet (${vendorProducts.length}):`,
+    sample.join(", "),
+    remainder > 0 ? `and ${remainder} more.` : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function normalizeEmail(value) {
   return normalizeText(value).toLowerCase();
 }
@@ -514,36 +632,51 @@ async function importSheetAttachment({ settings, attachment, message }) {
   const missingSkuSamples = [];
   const unmatchedInventorySamples = [];
   const updateErrorSamples = [];
+  const sheetSkuKeys = new Set();
+  const vendorProducts =
+    await catalogService.getActiveCatalogVendorProductsByVendorId(
+      settings.vendorId
+    );
+  const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
 
   for (const row of rows) {
     const sku = findHeaderValue(row, settings.skuHeader);
     const inventoryValue = findHeaderValue(row, settings.inventoryHeader);
-    const quantity = parseInventoryQuantity(inventoryValue, settings);
 
-    if (!sku || quantity === null) {
+    if (sku) {
+      addSkuMatchKeys(sheetSkuKeys, sku);
+    }
+
+    if (!sku) {
       skipped += 1;
 
-      if (!sku && missingSkuSamples.length < 5) {
+      if (missingSkuSamples.length < 5) {
         missingSkuSamples.push(JSON.stringify(row).slice(0, 180));
-      } else if (quantity === null && unmatchedInventorySamples.length < 5) {
-        unmatchedInventorySamples.push(`${sku || "unknown SKU"} => ${inventoryValue || "blank"}`);
+      }
+
+      continue;
+    }
+
+    const vendorProduct = findVendorProductForSheetSku(vendorProductLookup, sku);
+
+    if (!vendorProduct) {
+      skipped += 1;
+      continue;
+    }
+
+    const quantity = parseInventoryQuantity(inventoryValue, settings);
+
+    if (quantity === null) {
+      skipped += 1;
+
+      if (unmatchedInventorySamples.length < 5) {
+        unmatchedInventorySamples.push(`${sku} => ${inventoryValue || "blank"}`);
       }
 
       continue;
     }
 
     try {
-      const vendorProduct =
-        await catalogService.getCatalogVendorProductByVendorAndSku(
-          settings.vendorId,
-          sku
-        );
-
-      if (!vendorProduct) {
-        skipped += 1;
-        continue;
-      }
-
       const currentIsAvailable = Number(vendorProduct.quantity || 0) > 0;
       const nextIsAvailable = quantity > 0;
 
@@ -591,6 +724,15 @@ async function importSheetAttachment({ settings, attachment, message }) {
 
   if (updateErrorSamples.length > 0) {
     failureDetails.push(`SKU Nexus update errors: ${updateErrorSamples.join(" | ")}`);
+  }
+
+  const missingVendorProducts = vendorProducts.filter(
+    (vendorProduct) =>
+      !isVendorProductRepresentedInSheet(vendorProduct, sheetSkuKeys)
+  );
+
+  if (missingVendorProducts.length > 0) {
+    failureDetails.push(formatMissingVendorProducts(missingVendorProducts));
   }
 
   if (failureDetails.length > 0) {

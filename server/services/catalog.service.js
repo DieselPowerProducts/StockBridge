@@ -1020,6 +1020,29 @@ async function queryVendorProductsByProductId(productId) {
   `;
 }
 
+async function queryActiveVendorProductsByVendorId(vendorId) {
+  const sql = getSql();
+  return sql`
+    SELECT
+      vp.vendor_product_id AS id,
+      vp.vendor_id,
+      vp.product_id,
+      vp.sku,
+      vp.label,
+      vp.quantity,
+      vp.status,
+      vp.price,
+      p.sku AS product_sku,
+      p.name AS product_name
+    FROM catalog_vendor_products vp
+    JOIN catalog_products p
+      ON p.product_id = vp.product_id
+    WHERE vp.vendor_id = ${vendorId}
+    AND lower(COALESCE(p.state, 'Active')) = 'active'
+    ORDER BY COALESCE(NULLIF(p.sku, ''), vp.sku, vp.label, vp.vendor_product_id) ASC
+  `;
+}
+
 async function queryVendorProductById(vendorProductId) {
   const sql = getSql();
   const rows = await sql`
@@ -2732,6 +2755,7 @@ function clearCaches() {
 module.exports = {
   clearCaches,
   getCatalogProductBySku: queryProductBySku,
+  getActiveCatalogVendorProductsByVendorId: queryActiveVendorProductsByVendorId,
   getCatalogVendorProductByVendorAndSku: queryVendorProductByVendorAndSku,
   getCatalogVendorProductById: queryVendorProductById,
   getProductDetails,
