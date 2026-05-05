@@ -7,6 +7,9 @@ type NotificationsMenuProps = {
   onOpenSku: (sku: string) => void;
 };
 
+const autoInventorySku = "AUTO-INVENTORY";
+const dropdownPreviewLength = 180;
+
 function formatNotificationTimestamp(value: string) {
   const date = new Date(value);
 
@@ -35,12 +38,50 @@ function formatNotificationTimestamp(value: string) {
   }).format(date);
 }
 
+function isSystemNotification(notification: AppNotification) {
+  return (
+    notification.sku.toUpperCase() === autoInventorySku ||
+    notification.noteId.startsWith("auto-inventory:") ||
+    notification.sender.sub.startsWith("system:")
+  );
+}
+
+function getNotificationLine(notification: AppNotification) {
+  if (isSystemNotification(notification)) {
+    return notification.sku.toUpperCase() === autoInventorySku
+      ? "Auto inventory failsafe"
+      : "System notification";
+  }
+
+  return "mentioned you on";
+}
+
+function getNotificationTarget(notification: AppNotification) {
+  return isSystemNotification(notification) ? "Details" : notification.sku;
+}
+
+function getSystemNotificationTitle(notification: AppNotification) {
+  return notification.sku.toUpperCase() === autoInventorySku
+    ? "Auto Inventory Failsafe"
+    : "System Notification";
+}
+
+function getDropdownPreview(value: string) {
+  if (value.length <= dropdownPreviewLength) {
+    return value;
+  }
+
+  return `${value.slice(0, dropdownPreviewLength - 3).trimEnd()}...`;
+}
+
 export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [selectedSystemNotification, setSelectedSystemNotification] =
+    useState<AppNotification | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const loadNotifications = useCallback(
@@ -122,9 +163,7 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
     });
   }, [unreadCount]);
 
-  async function handleNotificationClick(notification: AppNotification) {
-    setIsOpen(false);
-
+  async function markNotificationAsRead(notification: AppNotification) {
     if (!notification.read_at) {
       const readAt = new Date().toISOString();
 
@@ -146,11 +185,22 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
         void loadNotifications();
       }
     }
+  }
+
+  async function handleNotificationClick(notification: AppNotification) {
+    setIsOpen(false);
+    await markNotificationAsRead(notification);
+
+    if (isSystemNotification(notification)) {
+      setSelectedSystemNotification(notification);
+      return;
+    }
 
     onOpenSku(notification.sku);
   }
 
   return (
+    <>
     <div className="notification-shell" ref={containerRef}>
       <button
         type="button"
@@ -190,7 +240,7 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
                   type="button"
                   className={`notification-item${
                     notification.read_at ? "" : " unread"
-                  }`}
+                  }${isSystemNotification(notification) ? " system" : ""}`}
                   onClick={() => handleNotificationClick(notification)}
                 >
                   <div className="notification-item-header">
@@ -200,11 +250,12 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
                     </time>
                   </div>
                   <div className="notification-item-line">
-                    mentioned you on <span>{notification.sku}</span>
+                    {getNotificationLine(notification)}{" "}
+                    <span>{getNotificationTarget(notification)}</span>
                   </div>
                   {notification.notePreview && (
                     <p className="notification-item-preview">
-                      {notification.notePreview}
+                      {getDropdownPreview(notification.notePreview)}
                     </p>
                   )}
                 </button>
@@ -214,5 +265,57 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
         </div>
       )}
     </div>
+    {selectedSystemNotification && (
+      <div
+        className="modal system-notification-modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="systemNotificationTitle"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) {
+            setSelectedSystemNotification(null);
+          }
+        }}
+      >
+        <section className="modal-content system-notification-modal">
+          <header className="system-notification-modal-header">
+            <div>
+              <p className="eyebrow">StockBridge</p>
+              <h2 id="systemNotificationTitle">
+                {getSystemNotificationTitle(selectedSystemNotification)}
+              </h2>
+            </div>
+            <button
+              type="button"
+              aria-label="Close notification details"
+              onClick={() => setSelectedSystemNotification(null)}
+            >
+              Close
+            </button>
+          </header>
+
+          <dl className="system-notification-meta">
+            <div>
+              <dt>Sent</dt>
+              <dd>
+                {formatNotificationTimestamp(
+                  selectedSystemNotification.created_at
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>{selectedSystemNotification.sender.name}</dd>
+            </div>
+          </dl>
+
+          <div className="system-notification-detail">
+            {selectedSystemNotification.notePreview ||
+              "No details were included with this notification."}
+          </div>
+        </section>
+      </div>
+    )}
+    </>
   );
 }

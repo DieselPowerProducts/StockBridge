@@ -295,7 +295,7 @@ async function createSystemNotification({
 }) {
   const safeRecipientEmail = normalizeText(recipientEmail).toLowerCase();
   const safeNoteId = String(noteId || "").trim();
-  const safeNotePreview = buildNotePreview(notePreview);
+  const safeNotePreview = normalizeText(notePreview);
 
   if (!safeRecipientEmail || !safeNoteId || !safeNotePreview) {
     return { count: 0 };
