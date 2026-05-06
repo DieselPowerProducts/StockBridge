@@ -1607,6 +1607,34 @@ async function fetchProductsPageFromSkuNexus(page) {
   };
 }
 
+async function fetchActiveProductIdsPageFromSkuNexus(page) {
+  const data = await skunexus.query(`
+    query V1Queries {
+      product {
+        grid(
+          sort: { sku: ASC }
+          filter: { state: { operator: eq, value: [${graphqlString("Active")}] } }
+          limit: { size: ${fullSyncPageSize}, page: ${page} }
+        ) {
+          totalSize
+          totalPages
+          isLastPage
+          rows {
+            id
+          }
+        }
+      }
+    }
+  `);
+
+  return data?.product?.grid || {
+    rows: [],
+    totalSize: 0,
+    totalPages: 0,
+    isLastPage: true
+  };
+}
+
 async function fetchVendorsPageFromSkuNexus(page) {
   const data = await skunexus.query(`
     query V1Queries {
@@ -2203,6 +2231,113 @@ async function deleteStaleWarehouseRows(syncStamp) {
   );
 }
 
+async function markProductsInactiveByIds(productIds, syncStamp) {
+  const uniqueIds = Array.from(
+    new Set((productIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return 0;
+  }
+
+  const sql = getSql();
+  const rows = await sql.query(
+    `
+      UPDATE catalog_products
+      SET state = 'Inactive',
+          qty_available = 0,
+          last_synced_at = $2::timestamptz
+      WHERE product_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+      AND lower(COALESCE(state, 'Active')) = 'active'
+      RETURNING product_id
+    `,
+    [JSON.stringify(uniqueIds), syncStamp]
+  );
+
+  if (rows.length > 0) {
+    await sql.query(
+      `
+        DELETE FROM catalog_warehouse_stock
+        WHERE product_id IN (
+          SELECT jsonb_array_elements_text($1::jsonb)
+        )
+      `,
+      [JSON.stringify(rows.map((row) => row.product_id).filter(Boolean))]
+    );
+  }
+
+  return rows.length;
+}
+
+async function markProductInactiveBySku(sku, syncStamp) {
+  const safeSku = String(sku || "").trim();
+
+  if (!safeSku) {
+    return 0;
+  }
+
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE catalog_products
+    SET state = 'Inactive',
+        qty_available = 0,
+        last_synced_at = ${syncStamp}
+    WHERE sku = ${safeSku}
+    AND lower(COALESCE(state, 'Active')) = 'active'
+    RETURNING product_id
+  `;
+
+  if (rows.length > 0) {
+    await sql.query(
+      `
+        DELETE FROM catalog_warehouse_stock
+        WHERE product_id IN (
+          SELECT jsonb_array_elements_text($1::jsonb)
+        )
+      `,
+      [JSON.stringify(rows.map((row) => row.product_id).filter(Boolean))]
+    );
+  }
+
+  return rows.length;
+}
+
+async function syncInactiveProductStates(syncStamp) {
+  const rows = await fetchAllPages(fetchActiveProductIdsPageFromSkuNexus);
+  const activeProductIds = new Set(
+    rows.map((row) => String(row?.id || "").trim()).filter(Boolean)
+  );
+
+  if (activeProductIds.size === 0) {
+    throw new Error("SKU Nexus active product state sync returned no products.");
+  }
+
+  const sql = getSql();
+  const cachedRows = await sql`
+    SELECT product_id
+    FROM catalog_products
+    WHERE lower(COALESCE(state, 'Active')) = 'active'
+  `;
+  const inactiveProductIds = cachedRows
+    .map((row) => String(row?.product_id || "").trim())
+    .filter((productId) => productId && !activeProductIds.has(productId));
+  const markedInactive = await markProductsInactiveByIds(
+    inactiveProductIds,
+    syncStamp
+  );
+
+  if (markedInactive > 0) {
+    clearCaches();
+  }
+
+  return {
+    activeProducts: activeProductIds.size,
+    deactivatedProducts: markedInactive
+  };
+}
+
 async function runFullSync({ reason = "manual" } = {}) {
   await initializeSchema();
 
@@ -2274,16 +2409,29 @@ async function runWarehouseSync({ reason = "manual" } = {}) {
     const syncStamp = new Date().toISOString();
     const rawWarehouseRows = await fetchAllPages(fetchWarehouseStockPageFromSkuNexus);
     const warehouseStockRows = aggregateWarehouseStockRows(rawWarehouseRows);
+    let productStateResult = {
+      activeProducts: 0,
+      deactivatedProducts: 0
+    };
 
     await upsertWarehouseStock(warehouseStockRows, syncStamp);
     await deleteStaleWarehouseRows(syncStamp);
+    try {
+      productStateResult = await syncInactiveProductStates(syncStamp);
+      await setSyncState("catalog_last_product_state_sync_at", syncStamp);
+      await setSyncState("catalog_last_product_state_sync_reason", reason);
+    } catch (error) {
+      console.error("Product active-state sync failed; continuing warehouse sync.", error);
+    }
     await setSyncState("catalog_last_warehouse_sync_at", syncStamp);
     await setSyncState("catalog_last_warehouse_sync_reason", reason);
     clearCaches();
 
     return {
       syncedAt: syncStamp,
-      warehouseProducts: warehouseStockRows.length
+      warehouseProducts: warehouseStockRows.length,
+      activeProducts: productStateResult.activeProducts,
+      deactivatedProducts: productStateResult.deactivatedProducts
     };
   })();
 
@@ -2311,6 +2459,8 @@ async function refreshProductBySku(sku) {
     const rootProduct = await fetchProductBySkuFromSkuNexus(safeSku);
 
     if (!rootProduct) {
+      await markProductInactiveBySku(safeSku, syncStamp);
+      clearCaches();
       const error = new Error("Product not found.");
       error.statusCode = 404;
       throw error;
