@@ -174,13 +174,22 @@ export function getProductDetails(sku: string) {
   return request<ProductDetails>(`/products/details?${params.toString()}`);
 }
 
-export function refreshProductDetails(sku: string) {
+export function refreshProductDetails(
+  sku: string,
+  options: { includeWarehouse?: boolean } = {}
+) {
+  const body: { sku: string; includeWarehouse?: boolean } = { sku };
+
+  if (typeof options.includeWarehouse === "boolean") {
+    body.includeWarehouse = options.includeWarehouse;
+  }
+
   return request<ProductDetails>("/products/details/refresh", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ sku })
+    body: JSON.stringify(body)
   });
 }
 

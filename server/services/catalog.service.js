@@ -2442,15 +2442,18 @@ async function runWarehouseSync({ reason = "manual" } = {}) {
   }
 }
 
-async function refreshProductBySku(sku) {
+async function refreshProductBySku(sku, options = {}) {
   const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const includeWarehouse = options.includeWarehouse !== false;
 
   if (fullSyncPromise) {
     await fullSyncPromise;
   }
 
-  if (productRefreshPromises.has(safeSku)) {
-    return productRefreshPromises.get(safeSku);
+  const refreshKey = `${safeSku}:${includeWarehouse ? "warehouse" : "product"}`;
+
+  if (productRefreshPromises.has(refreshKey)) {
+    return productRefreshPromises.get(refreshKey);
   }
 
   const refreshPromise = (async () => {
@@ -2479,13 +2482,15 @@ async function refreshProductBySku(sku) {
     let warehouseStockRows = [];
     let didRefreshWarehouse = false;
 
-    try {
-      warehouseStockRows = aggregateWarehouseStockRows(
-        await fetchWarehouseStockForSkuFromSkuNexus(safeSku)
-      );
-      didRefreshWarehouse = true;
-    } catch (error) {
-      console.error("Product warehouse refresh failed.", error);
+    if (includeWarehouse) {
+      try {
+        warehouseStockRows = aggregateWarehouseStockRows(
+          await fetchWarehouseStockForSkuFromSkuNexus(safeSku)
+        );
+        didRefreshWarehouse = true;
+      } catch (error) {
+        console.error("Product warehouse refresh failed.", error);
+      }
     }
 
     await upsertProducts(normalizedProducts, syncStamp);
@@ -2542,12 +2547,12 @@ async function refreshProductBySku(sku) {
     };
   })();
 
-  productRefreshPromises.set(safeSku, refreshPromise);
+  productRefreshPromises.set(refreshKey, refreshPromise);
 
   try {
     return await refreshPromise;
   } finally {
-    productRefreshPromises.delete(safeSku);
+    productRefreshPromises.delete(refreshKey);
   }
 }
 

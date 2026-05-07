@@ -47,7 +47,9 @@ async function updateProductVendorStock(req, res, next) {
 
 async function refreshProductDetails(req, res, next) {
   try {
-    const result = await productsService.refreshProductDetails(req.body?.sku);
+    const result = await productsService.refreshProductDetails(req.body?.sku, {
+      includeWarehouse: req.body?.includeWarehouse
+    });
     res.send(result);
   } catch (err) {
     next(err);

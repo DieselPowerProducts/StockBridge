@@ -167,6 +167,7 @@ function applyVendorQuantityUpdates(
   quantitiesByVendorProductId: Map<string, number>
 ) {
   return vendors.map((vendor) =>
+    vendor.stockSource === "vendor" &&
     quantitiesByVendorProductId.has(vendor.vendorProductId)
       ? {
           ...vendor,
@@ -174,6 +175,18 @@ function applyVendorQuantityUpdates(
         }
       : vendor
   );
+}
+
+function canUpdateVendorStock(vendor: ProductVendor) {
+  return vendor.stockSource === "vendor" && vendor.canUpdateStock;
+}
+
+function formatStockQuantity(value: number) {
+  const quantity = Number(value || 0);
+
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2
+  }).format(Number.isFinite(quantity) ? Math.max(quantity, 0) : 0);
 }
 
 function getUnavailableAvailability(vendors: ProductVendor[]) {
@@ -631,7 +644,7 @@ export function NotesModal({
     vendor: ProductVendor,
     enabled: boolean
   ) {
-    if (!vendor.canUpdateStock) {
+    if (!canUpdateVendorStock(vendor)) {
       return;
     }
 
@@ -723,7 +736,9 @@ export function NotesModal({
     fallbackStockUpdate: ProductStockUpdate | null
   ) {
     try {
-      const refreshedDetails = await refreshProductDetails(sku);
+      const refreshedDetails = await refreshProductDetails(sku, {
+        includeWarehouse: false
+      });
 
       setProductDetails(refreshedDetails);
       setFollowUpDate(refreshedDetails.followUpDate || "");
@@ -1004,7 +1019,7 @@ export function NotesModal({
   const vendors = productDetails?.vendors || [];
   const childProducts = productDetails?.childProducts || [];
   const parentKits = productDetails?.parentKits || [];
-  const editableVendors = vendors.filter((vendor) => vendor.canUpdateStock);
+  const editableVendors = vendors.filter(canUpdateVendorStock);
   const hasEditableVendors = editableVendors.length > 0;
   const areAllEditableVendorsOn =
     hasEditableVendors && editableVendors.every((vendor) => vendor.quantity > 0);
@@ -1201,6 +1216,8 @@ export function NotesModal({
               <ul className="assigned-vendors-list">
                 {vendors.map((vendor) => {
                   const stockEnabled = vendor.quantity > 0;
+                  const canEditStock = canUpdateVendorStock(vendor);
+                  const formattedQuantity = formatStockQuantity(vendor.quantity);
                   const isPending = Boolean(
                     pendingVendorStock[vendor.vendorProductId]
                   );
@@ -1240,18 +1257,12 @@ export function NotesModal({
                             {vendor.buildTime || "Not set"}
                           </span>
                         </div>
-                      ) : (
+                      ) : canEditStock ? (
                         <div
-                          className={
-                            vendor.canUpdateStock
-                              ? "vendor-stock-switch"
-                              : "vendor-stock-switch readonly"
-                          }
+                          className="vendor-stock-switch"
                           role="group"
-                          aria-label={`${vendor.name} stock ${
-                            vendor.canUpdateStock ? "override" : "status"
-                          }`}
-                          title={`Current quantity: ${vendor.quantity}`}
+                          aria-label={`${vendor.name} stock override`}
+                          title={`Current quantity: ${formattedQuantity}`}
                         >
                           <button
                             type="button"
@@ -1260,13 +1271,9 @@ export function NotesModal({
                                 ? "vendor-stock-switch-option active"
                                 : "vendor-stock-switch-option"
                             }
-                            aria-label={
-                              vendor.canUpdateStock
-                                ? `Turn on stock for ${vendor.name}`
-                                : `${vendor.name} has warehouse stock`
-                            }
+                            aria-label={`Turn on stock for ${vendor.name}`}
                             aria-pressed={stockEnabled}
-                            disabled={isPending || !vendor.canUpdateStock}
+                            disabled={isPending}
                             onClick={() => handleVendorStockChange(vendor, true)}
                           >
                             I
@@ -1278,18 +1285,21 @@ export function NotesModal({
                                 ? "vendor-stock-switch-option"
                                 : "vendor-stock-switch-option active off"
                             }
-                            aria-label={
-                              vendor.canUpdateStock
-                                ? `Turn off stock for ${vendor.name}`
-                                : `${vendor.name} has no warehouse stock`
-                            }
+                            aria-label={`Turn off stock for ${vendor.name}`}
                             aria-pressed={!stockEnabled}
-                            disabled={isPending || !vendor.canUpdateStock}
+                            disabled={isPending}
                             onClick={() => handleVendorStockChange(vendor, false)}
                           >
                             O
                           </button>
                         </div>
+                      ) : (
+                        <span
+                          className="vendor-stock-readonly"
+                          title={`Current quantity: ${formattedQuantity}`}
+                        >
+                          Qty {formattedQuantity}
+                        </span>
                       )}
                     </li>
                   );

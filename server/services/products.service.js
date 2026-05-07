@@ -55,8 +55,10 @@ async function getProductDetails(sku) {
   return catalogService.getProductDetails(sku);
 }
 
-async function refreshProductDetails(sku) {
-  await catalogService.refreshProductBySku(sku);
+async function refreshProductDetails(sku, options = {}) {
+  await catalogService.refreshProductBySku(sku, {
+    includeWarehouse: options.includeWarehouse !== false
+  });
   return catalogService.getProductDetails(sku);
 }
 

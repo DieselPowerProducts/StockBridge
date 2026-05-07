@@ -869,13 +869,20 @@ body:has(.notes-popup-page),
   opacity: 0.75;
 }
 
-.vendor-stock-switch.readonly {
-  border-color: #5b7891;
-}
-
-.vendor-stock-switch.readonly .vendor-stock-switch-option:disabled {
-  cursor: default;
-  opacity: 1;
+.vendor-stock-readonly {
+  align-items: center;
+  background: #242f3d;
+  border: 1px solid #5d7188;
+  border-radius: 8px;
+  color: #dcecff;
+  display: inline-flex;
+  flex: 0 0 78px;
+  font-size: 12px;
+  font-weight: 700;
+  height: 32px;
+  justify-content: center;
+  padding: 0 8px;
+  white-space: nowrap;
 }
 
 .notes-panel {
