@@ -191,6 +191,7 @@ export type VendorAutoInventorySettings = {
   senderEmail: string;
   skuHeader: string;
   inventoryHeader: string;
+  subtractiveColumn: string;
   inventoryMode: VendorAutoInventoryMode;
   inStockPhrases: string[];
   outOfStockPhrases: string[];

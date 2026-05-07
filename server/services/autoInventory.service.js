@@ -342,15 +342,38 @@ function hasHeader(row, headerName) {
   );
 }
 
-function parseNumericalQuantity(value) {
+function parseNumericalCount(value, { blankAsZero = false } = {}) {
   const normalized = normalizeText(value).replace(/,/g, "");
+
+  if (!normalized && blankAsZero) {
+    return 0;
+  }
+
   const match = normalized.match(/-?\d+(\.\d+)?/);
 
   if (!match) {
     return null;
   }
 
-  return Number(match[0]) > 0
+  return Number(match[0]);
+}
+
+function parseNumericalQuantity(value, subtractiveValue = "", hasSubtractiveColumn = false) {
+  const inventoryCount = parseNumericalCount(value);
+
+  if (inventoryCount === null) {
+    return null;
+  }
+
+  const subtractiveCount = hasSubtractiveColumn
+    ? parseNumericalCount(subtractiveValue, { blankAsZero: true })
+    : 0;
+
+  if (subtractiveCount === null) {
+    return null;
+  }
+
+  return inventoryCount - subtractiveCount > 0
     ? enabledVendorStockQuantity
     : disabledVendorStockQuantity;
 }
@@ -381,10 +404,14 @@ function parseAlphabeticalQuantity(value, settings) {
   return null;
 }
 
-function parseInventoryQuantity(value, settings) {
+function parseInventoryQuantity(value, settings, subtractiveValue = "") {
+  const hasSubtractiveColumn = Boolean(
+    settings.inventoryMode !== "alphabetical" && settings.subtractiveColumn
+  );
+
   return settings.inventoryMode === "alphabetical"
     ? parseAlphabeticalQuantity(value, settings)
-    : parseNumericalQuantity(value);
+    : parseNumericalQuantity(value, subtractiveValue, hasSubtractiveColumn);
 }
 
 function parseCsvRows(content) {
@@ -590,7 +617,12 @@ async function importSheetAttachment({ settings, attachment, message }) {
   const firstRow = rows[0] || {};
   const missingHeaders = [
     !hasHeader(firstRow, settings.skuHeader) ? settings.skuHeader : "",
-    !hasHeader(firstRow, settings.inventoryHeader) ? settings.inventoryHeader : ""
+    !hasHeader(firstRow, settings.inventoryHeader) ? settings.inventoryHeader : "",
+    settings.inventoryMode !== "alphabetical" &&
+    settings.subtractiveColumn &&
+    !hasHeader(firstRow, settings.subtractiveColumn)
+      ? settings.subtractiveColumn
+      : ""
   ].filter(Boolean);
 
   if (missingHeaders.length > 0) {
@@ -642,6 +674,10 @@ async function importSheetAttachment({ settings, attachment, message }) {
   for (const row of rows) {
     const sku = findHeaderValue(row, settings.skuHeader);
     const inventoryValue = findHeaderValue(row, settings.inventoryHeader);
+    const subtractiveValue =
+      settings.inventoryMode !== "alphabetical" && settings.subtractiveColumn
+        ? findHeaderValue(row, settings.subtractiveColumn)
+        : "";
 
     if (sku) {
       addSkuMatchKeys(sheetSkuKeys, sku);
@@ -664,13 +700,21 @@ async function importSheetAttachment({ settings, attachment, message }) {
       continue;
     }
 
-    const quantity = parseInventoryQuantity(inventoryValue, settings);
+    const quantity = parseInventoryQuantity(
+      inventoryValue,
+      settings,
+      subtractiveValue
+    );
 
     if (quantity === null) {
       skipped += 1;
 
       if (unmatchedInventorySamples.length < 5) {
-        unmatchedInventorySamples.push(`${sku} => ${inventoryValue || "blank"}`);
+        unmatchedInventorySamples.push(
+          settings.inventoryMode !== "alphabetical" && settings.subtractiveColumn
+            ? `${sku} => ${settings.inventoryHeader}: ${inventoryValue || "blank"}, ${settings.subtractiveColumn}: ${subtractiveValue || "blank"}`
+            : `${sku} => ${inventoryValue || "blank"}`
+        );
       }
 
       continue;
@@ -715,7 +759,9 @@ async function importSheetAttachment({ settings, attachment, message }) {
     const modeDetails =
       settings.inventoryMode === "alphabetical"
         ? `Expected in-stock phrases: ${settings.inStockPhrases.join(" : ") || "none"}; out-of-stock phrases: ${settings.outOfStockPhrases.join(" : ") || "none"}.`
-        : "Expected a numerical inventory value.";
+        : settings.subtractiveColumn
+          ? `Expected numerical values for ${settings.inventoryHeader} and ${settings.subtractiveColumn}.`
+          : "Expected a numerical inventory value.";
 
     failureDetails.push(
       `Unrecognized inventory values: ${unmatchedInventorySamples.join(" | ")}. ${modeDetails}`

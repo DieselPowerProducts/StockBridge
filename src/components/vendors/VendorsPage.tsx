@@ -33,6 +33,7 @@ function getDefaultAutoInventorySettings(
     senderEmail: "",
     skuHeader: "",
     inventoryHeader: "",
+    subtractiveColumn: "",
     inventoryMode: "numerical",
     inStockPhrases: [],
     outOfStockPhrases: [],
@@ -352,6 +353,7 @@ export function VendorsPage({
           senderEmail: autoInventoryDraft.senderEmail,
           skuHeader: autoInventoryDraft.skuHeader,
           inventoryHeader: autoInventoryDraft.inventoryHeader,
+          subtractiveColumn: autoInventoryDraft.subtractiveColumn,
           inventoryMode: autoInventoryDraft.inventoryMode,
           inStockPhrases: parsePhraseText(inStockPhraseDraft),
           outOfStockPhrases: parsePhraseText(outOfStockPhraseDraft)
@@ -515,6 +517,21 @@ export function VendorsPage({
                   onChange={(event) =>
                     updateAutoInventoryDraft({
                       inventoryHeader: event.target.value
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                <span>Subtractive Column</span>
+                <input
+                  type="text"
+                  value={autoInventoryDraft.subtractiveColumn || ""}
+                  placeholder="Allocated"
+                  disabled={isAutoInventorySaving}
+                  onChange={(event) =>
+                    updateAutoInventoryDraft({
+                      subtractiveColumn: event.target.value
                     })
                   }
                 />

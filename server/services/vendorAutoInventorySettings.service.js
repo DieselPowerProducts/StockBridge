@@ -46,6 +46,7 @@ function assertSettingsInput(input = {}) {
   const senderEmail = normalizeEmail(input.senderEmail);
   const skuHeader = normalizeText(input.skuHeader);
   const inventoryHeader = normalizeText(input.inventoryHeader);
+  const subtractiveColumn = normalizeText(input.subtractiveColumn);
   const inventoryMode = normalizeMode(input.inventoryMode);
   const inStockPhrases = parsePhraseList(input.inStockPhrases);
   const outOfStockPhrases = parsePhraseList(input.outOfStockPhrases);
@@ -89,6 +90,7 @@ function assertSettingsInput(input = {}) {
     senderEmail,
     skuHeader,
     inventoryHeader,
+    subtractiveColumn,
     inventoryMode,
     inStockPhrases,
     outOfStockPhrases
@@ -102,6 +104,7 @@ function formatSettings(row) {
     senderEmail: normalizeEmail(row?.sender_email),
     skuHeader: normalizeText(row?.sku_header),
     inventoryHeader: normalizeText(row?.inventory_header),
+    subtractiveColumn: normalizeText(row?.subtractive_column),
     inventoryMode: normalizeMode(row?.inventory_mode),
     inStockPhrases: formatPhraseList(row?.in_stock_phrases),
     outOfStockPhrases: formatPhraseList(row?.out_of_stock_phrases)
@@ -120,12 +123,17 @@ async function initializeSchema() {
           sender_email TEXT NOT NULL DEFAULT '',
           sku_header TEXT NOT NULL DEFAULT '',
           inventory_header TEXT NOT NULL DEFAULT '',
+          subtractive_column TEXT NOT NULL DEFAULT '',
           inventory_mode TEXT NOT NULL DEFAULT 'numerical',
           in_stock_phrases JSONB NOT NULL DEFAULT '[]'::jsonb,
           out_of_stock_phrases JSONB NOT NULL DEFAULT '[]'::jsonb,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_settings
+        ADD COLUMN IF NOT EXISTS subtractive_column TEXT NOT NULL DEFAULT ''
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS vendor_auto_inventory_settings_enabled_idx
@@ -158,6 +166,7 @@ async function getSettings(vendorId) {
       sender_email,
       sku_header,
       inventory_header,
+      subtractive_column,
       inventory_mode,
       in_stock_phrases::text AS in_stock_phrases,
       out_of_stock_phrases::text AS out_of_stock_phrases
@@ -180,6 +189,7 @@ async function getEnabledSettings() {
       sender_email,
       sku_header,
       inventory_header,
+      subtractive_column,
       inventory_mode,
       in_stock_phrases::text AS in_stock_phrases,
       out_of_stock_phrases::text AS out_of_stock_phrases
@@ -215,6 +225,7 @@ async function saveSettings(vendorId, input = {}) {
       sender_email,
       sku_header,
       inventory_header,
+      subtractive_column,
       inventory_mode,
       in_stock_phrases,
       out_of_stock_phrases
@@ -225,6 +236,7 @@ async function saveSettings(vendorId, input = {}) {
       ${settings.senderEmail},
       ${settings.skuHeader},
       ${settings.inventoryHeader},
+      ${settings.subtractiveColumn},
       ${settings.inventoryMode},
       ${JSON.stringify(settings.inStockPhrases)}::jsonb,
       ${JSON.stringify(settings.outOfStockPhrases)}::jsonb
@@ -234,6 +246,7 @@ async function saveSettings(vendorId, input = {}) {
         sender_email = EXCLUDED.sender_email,
         sku_header = EXCLUDED.sku_header,
         inventory_header = EXCLUDED.inventory_header,
+        subtractive_column = EXCLUDED.subtractive_column,
         inventory_mode = EXCLUDED.inventory_mode,
         in_stock_phrases = EXCLUDED.in_stock_phrases,
         out_of_stock_phrases = EXCLUDED.out_of_stock_phrases,
@@ -244,6 +257,7 @@ async function saveSettings(vendorId, input = {}) {
       sender_email,
       sku_header,
       inventory_header,
+      subtractive_column,
       inventory_mode,
       in_stock_phrases::text AS in_stock_phrases,
       out_of_stock_phrases::text AS out_of_stock_phrases

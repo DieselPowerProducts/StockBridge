@@ -1,7 +1,7 @@
 const { getSql } = require("../db/neon");
 
 let schemaReady;
-const currentImportVersion = 2;
+const currentImportVersion = 3;
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -26,7 +26,7 @@ async function initializeSchema() {
           error_count INTEGER NOT NULL DEFAULT 0,
           status TEXT NOT NULL DEFAULT 'completed',
           error_message TEXT NOT NULL DEFAULT '',
-          import_version INTEGER NOT NULL DEFAULT 2,
+          import_version INTEGER NOT NULL DEFAULT 3,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
