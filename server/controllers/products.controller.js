@@ -45,6 +45,15 @@ async function updateProductVendorStock(req, res, next) {
   }
 }
 
+async function assignProductVendor(req, res, next) {
+  try {
+    const result = await productsService.assignProductVendor(req.body);
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function refreshProductDetails(req, res, next) {
   try {
     const result = await productsService.refreshProductDetails(req.body?.sku, {
@@ -57,6 +66,7 @@ async function refreshProductDetails(req, res, next) {
 }
 
 module.exports = {
+  assignProductVendor,
   getProductDetails,
   listProducts,
   listStockCheckProducts,

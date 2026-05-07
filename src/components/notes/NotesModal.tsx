@@ -1,5 +1,13 @@
-import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState
+} from "react";
+import {
+  assignProductVendor,
   createNote,
   deleteNote,
   getEmailTemplates,
@@ -7,6 +15,7 @@ import {
   getUsers,
   getNotes,
   getVendorContacts,
+  getVendors,
   refreshProductDetails,
   saveEmailTemplate,
   sendVendorStockCheckEmail,
@@ -25,6 +34,7 @@ import type {
   ProductParentKit,
   ProductStockUpdate,
   VendorContact,
+  VendorSummary,
   ProductVendor
 } from "../../types";
 
@@ -397,6 +407,14 @@ export function NotesModal({
   const [isVendorContactsLoading, setIsVendorContactsLoading] = useState(false);
   const [isEmailSending, setIsEmailSending] = useState(false);
   const [isDefaultContactSaving, setIsDefaultContactSaving] = useState(false);
+  const [isVendorSearchOpen, setIsVendorSearchOpen] = useState(false);
+  const [vendorSearchInput, setVendorSearchInput] = useState("");
+  const [vendorSearchResults, setVendorSearchResults] = useState<VendorSummary[]>(
+    []
+  );
+  const [isVendorSearchLoading, setIsVendorSearchLoading] = useState(false);
+  const [isVendorAssigning, setIsVendorAssigning] = useState(false);
+  const [vendorAssignStatus, setVendorAssignStatus] = useState("");
   const [emailError, setEmailError] = useState("");
   const [emailStatus, setEmailStatus] = useState("");
   const [isTemplateNameModalOpen, setIsTemplateNameModalOpen] = useState(false);
@@ -405,6 +423,7 @@ export function NotesModal({
   const followUpInputRef = useRef<HTMLInputElement | null>(null);
   const notesListRef = useRef<HTMLDivElement | null>(null);
   const noteInputRef = useRef<HTMLInputElement | null>(null);
+  const vendorAddResultsId = useId();
 
   const loadNotes = useCallback(async () => {
     setNotesError("");
@@ -497,7 +516,66 @@ export function NotesModal({
     setIsDefaultContactSaving(false);
     setIsTemplateNameModalOpen(false);
     setTemplateNameDraft("");
+    setIsVendorSearchOpen(false);
+    setVendorSearchInput("");
+    setVendorSearchResults([]);
+    setIsVendorSearchLoading(false);
+    setIsVendorAssigning(false);
+    setVendorAssignStatus("");
   }, [sku]);
+
+  useEffect(() => {
+    if (!isVendorSearchOpen || !productDetails) {
+      setVendorSearchResults([]);
+      setIsVendorSearchLoading(false);
+      return;
+    }
+
+    let ignore = false;
+    const search = vendorSearchInput.trim();
+    const timeout = window.setTimeout(
+      async () => {
+        setIsVendorSearchLoading(true);
+
+        try {
+          const result = await getVendors({
+            page: 1,
+            limit: 8,
+            search
+          });
+          const assignedVendorIds = new Set(
+            (productDetails.vendors || [])
+              .filter((vendor) => vendor.stockSource === "vendor")
+              .map((vendor) => vendor.id)
+          );
+
+          if (!ignore) {
+            setVendorSearchResults(
+              result.data.filter((vendor) => !assignedVendorIds.has(vendor.id))
+            );
+          }
+        } catch (err) {
+          if (!ignore) {
+            setDetailsError(
+              err instanceof Error
+                ? err.message
+                : "Unable to load vendors for assignment."
+            );
+          }
+        } finally {
+          if (!ignore) {
+            setIsVendorSearchLoading(false);
+          }
+        }
+      },
+      search ? 250 : 0
+    );
+
+    return () => {
+      ignore = true;
+      window.clearTimeout(timeout);
+    };
+  }, [isVendorSearchOpen, productDetails, vendorSearchInput]);
 
   useEffect(() => {
     if (!isFollowUpPickerOpen) {
@@ -724,6 +802,38 @@ export function NotesModal({
       );
     } finally {
       setIsProductRefreshing(false);
+    }
+  }
+
+  async function handleAssignVendor(vendor: VendorSummary) {
+    if (isVendorAssigning) {
+      return;
+    }
+
+    setDetailsError("");
+    setVendorAssignStatus("");
+    setIsVendorAssigning(true);
+
+    try {
+      const result = await assignProductVendor({
+        sku,
+        vendorId: vendor.id
+      });
+
+      setProductDetails(result);
+      setFollowUpDate(result.followUpDate || "");
+      setVendorSearchInput("");
+      setVendorSearchResults([]);
+      setIsVendorSearchOpen(false);
+      setVendorAssignStatus(`${vendor.vendor} assigned.`);
+      onProductStockChanged?.(getProductDetailsStockUpdate(result));
+      onFollowUpSaved();
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error ? err.message : "Unable to assign this vendor."
+      );
+    } finally {
+      setIsVendorAssigning(false);
     }
   }
 
@@ -1017,6 +1127,7 @@ export function NotesModal({
   const isSelectedContactDefault = Boolean(selectedVendorContact?.isDefault);
   const modalTitle = title && title !== sku ? `${sku} | ${title}` : sku;
   const vendors = productDetails?.vendors || [];
+  const vendorSearchText = vendorSearchInput.trim();
   const childProducts = productDetails?.childProducts || [];
   const parentKits = productDetails?.parentKits || [];
   const editableVendors = vendors.filter(canUpdateVendorStock);
@@ -1207,6 +1318,59 @@ export function NotesModal({
                 </button>
               </div>
             </div>
+
+            <div className="vendor-add-control">
+              <input
+                type="search"
+                className="vendor-add-input"
+                value={vendorSearchInput}
+                placeholder="Add Vendor"
+                aria-label="Add Vendor"
+                aria-controls={vendorAddResultsId}
+                aria-expanded={isVendorSearchOpen}
+                disabled={!productDetails || isProductDetailsLoading || isVendorAssigning}
+                onChange={(event) => {
+                  setVendorSearchInput(event.target.value);
+                  setVendorAssignStatus("");
+                  setIsVendorSearchOpen(true);
+                }}
+                onFocus={() => setIsVendorSearchOpen(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setIsVendorSearchOpen(false);
+                  }
+                }}
+              />
+
+              {isVendorSearchOpen && (
+                <div id={vendorAddResultsId} className="vendor-add-results">
+                  {isVendorSearchLoading ? (
+                    <p className="vendor-add-empty">Loading vendors...</p>
+                  ) : vendorSearchResults.length > 0 ? (
+                    <ul>
+                      {vendorSearchResults.map((vendor) => (
+                        <li key={vendor.id}>
+                          <button
+                            type="button"
+                            disabled={isVendorAssigning}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => handleAssignVendor(vendor)}
+                          >
+                            {vendor.vendor}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : vendorSearchText ? (
+                    <p className="vendor-add-empty">No matching vendors.</p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            {vendorAssignStatus && (
+              <p className="vendor-add-status">{vendorAssignStatus}</p>
+            )}
 
             {isProductDetailsLoading ? (
               <p className="status-message">Loading vendors...</p>

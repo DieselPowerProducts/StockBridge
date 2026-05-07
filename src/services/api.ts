@@ -235,6 +235,22 @@ export function updateProductVendorStock({
   });
 }
 
+export function assignProductVendor({
+  sku,
+  vendorId
+}: {
+  sku: string;
+  vendorId: string;
+}) {
+  return request<ProductDetails>("/products/vendors", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sku, vendorId })
+  });
+}
+
 export function getVendorContacts(vendorId: string) {
   return request<VendorContact[]>(
     `/vendors/${encodeURIComponent(vendorId)}/contacts`

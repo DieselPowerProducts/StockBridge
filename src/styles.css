@@ -779,6 +779,75 @@ body:has(.notes-popup-page),
   min-width: 0;
 }
 
+.vendor-add-control {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.vendor-add-input {
+  background: #2b2b2b;
+  border: 1px solid #444444;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  outline: none;
+  padding: 9px 11px;
+  width: 100%;
+}
+
+.vendor-add-input:focus {
+  border-color: #5d7188;
+}
+
+.vendor-add-input::placeholder {
+  color: #aaaaaa;
+}
+
+.vendor-add-results {
+  max-height: 176px;
+  overflow-y: auto;
+}
+
+.vendor-add-results ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vendor-add-results li {
+  margin: 0;
+}
+
+.vendor-add-results button {
+  background: #242f3d;
+  border: 1px solid #5d7188;
+  color: #dcecff;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.vendor-add-results button:not(:disabled):hover {
+  background: #2e4259;
+  color: white;
+}
+
+.vendor-add-empty,
+.vendor-add-status {
+  color: #cccccc;
+  font-size: 13px;
+  margin: 0;
+}
+
+.vendor-add-status {
+  color: #9fdbb9;
+  margin-bottom: 10px;
+}
+
 .vendor-email-button {
   align-items: center;
   background: #242f3d;
