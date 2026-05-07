@@ -6,8 +6,7 @@ const vendorSettingsService = require("./vendorSettings.service");
 
 const enabledVendorStockQuantity = 999999;
 const disabledVendorStockQuantity = 0;
-const defaultAssignedVendorProductStatus = 2;
-const duplicateVendorProductPattern = /\b(already|duplicate|exists)\b/i;
+const activeAssignedVendorProductStatus = 1;
 
 function normalizeRequiredString(value, message) {
   const normalized = String(value || "").trim();
@@ -45,12 +44,14 @@ function normalizeStockQuantity(value) {
     : disabledVendorStockQuantity;
 }
 
-function shouldRetryVendorProductCreate(error) {
-  if (error?.statusCode !== 400) {
-    return false;
+function formatCsvValue(value) {
+  const normalized = String(value ?? "");
+
+  if (/[",\r\n]/.test(normalized)) {
+    return `"${normalized.replace(/"/g, '""')}"`;
   }
 
-  return !duplicateVendorProductPattern.test(String(error.message || ""));
+  return normalized;
 }
 
 async function createSkuNexusVendorProduct({
@@ -58,43 +59,33 @@ async function createSkuNexusVendorProduct({
   productId,
   productSku
 }) {
-  const basePayload = cleanPayload({
-    product_id: productId,
-    sku: productSku,
-    label: productSku,
-    quantity: disabledVendorStockQuantity,
-    price: 0
-  });
-  const payloads = [
-    basePayload,
-    {
-      ...basePayload,
-      vendor_id: vendorId
-    },
-    {
-      ...basePayload,
-      vendor_id: vendorId,
-      status: defaultAssignedVendorProductStatus
-    }
+  const csvRows = [
+    ["product_id", "sku", "quantity", "price", "status"],
+    [
+      productId,
+      productSku,
+      disabledVendorStockQuantity,
+      0,
+      activeAssignedVendorProductStatus
+    ]
   ];
-  let lastError = null;
+  const csv = `${csvRows
+    .map((row) => row.map(formatCsvValue).join(","))
+    .join("\n")}\n`;
 
-  for (const body of payloads) {
-    try {
-      return await skunexus.rest(`/vendors/${encodeURIComponent(vendorId)}/products`, {
-        method: "POST",
-        body
-      });
-    } catch (error) {
-      lastError = error;
-
-      if (!shouldRetryVendorProductCreate(error)) {
-        throw error;
-      }
+  return skunexus.multipart(
+    `/vendors/${encodeURIComponent(vendorId)}/products-import`,
+    {
+      files: [
+        {
+          fieldName: "csv",
+          filename: "stockbridge-vendor-product.csv",
+          contentType: "text/csv",
+          content: csv
+        }
+      ]
     }
-  }
-
-  throw lastError;
+  );
 }
 
 async function listProducts(queryParams) {

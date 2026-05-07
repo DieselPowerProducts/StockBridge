@@ -57,6 +57,59 @@ function getSessionCookie(response) {
   return setCookie.split(";")[0];
 }
 
+function normalizeMultipartPartValue(value) {
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value);
+  }
+
+  return Buffer.from(String(value ?? ""), "utf8");
+}
+
+function escapeMultipartHeaderValue(value) {
+  return String(value || "")
+    .replace(/[\r\n"]/g, "_")
+    .trim();
+}
+
+function buildMultipartBody({ fields = {}, files = [] } = {}) {
+  const boundary = `stockbridge-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  const chunks = [];
+  const pushText = (value) => chunks.push(Buffer.from(value, "utf8"));
+
+  for (const [name, value] of Object.entries(fields)) {
+    pushText(`--${boundary}\r\n`);
+    pushText(
+      `Content-Disposition: form-data; name="${escapeMultipartHeaderValue(name)}"\r\n\r\n`
+    );
+    pushText(`${String(value ?? "")}\r\n`);
+  }
+
+  for (const file of files) {
+    pushText(`--${boundary}\r\n`);
+    pushText(
+      `Content-Disposition: form-data; name="${escapeMultipartHeaderValue(
+        file.fieldName
+      )}"; filename="${escapeMultipartHeaderValue(file.filename)}"\r\n`
+    );
+    pushText(`Content-Type: ${file.contentType || "application/octet-stream"}\r\n\r\n`);
+    chunks.push(normalizeMultipartPartValue(file.content));
+    pushText("\r\n");
+  }
+
+  pushText(`--${boundary}--\r\n`);
+
+  return {
+    body: Buffer.concat(chunks),
+    contentType: `multipart/form-data; boundary=${boundary}`
+  };
+}
+
 async function readJson(response) {
   const text = await response.text();
 
@@ -223,7 +276,49 @@ async function rest(path, { method = "GET", body, retry = true } = {}) {
   return payload;
 }
 
+async function multipart(path, { method = "POST", fields, files, retry = true } = {}) {
+  const { baseUrl } = getConfig();
+  const cookie = await login();
+  const cleanPath = path.startsWith("/api/")
+    ? path
+    : `/api${path.startsWith("/") ? "" : "/"}${path}`;
+  const { body, contentType } = buildMultipartBody({ fields, files });
+  const response = await fetch(`${baseUrl}${cleanPath}`, {
+    method,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": contentType,
+      "X-Requested-With": "XMLHttpRequest",
+      Cookie: cookie
+    },
+    body
+  });
+
+  if (response.status === 401 && retry) {
+    sessionCookie = "";
+    await login(true);
+    return multipart(path, { method, fields, files, retry: false });
+  }
+
+  const payload = await readJson(response);
+
+  if (!response.ok) {
+    const message =
+      payload.message ||
+      payload.error ||
+      formatErrorDetails(payload.errors) ||
+      `SKU Nexus request failed with status ${response.status}.`;
+    const error = new Error(message);
+    error.statusCode =
+      response.status >= 400 && response.status < 500 ? response.status : 502;
+    throw error;
+  }
+
+  return payload;
+}
+
 module.exports = {
+  multipart,
   query,
   rest
 };
