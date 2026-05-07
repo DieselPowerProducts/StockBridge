@@ -64,7 +64,7 @@ async function createSkuNexusVendorProduct({
     [
       productId,
       productSku,
-      disabledVendorStockQuantity,
+      enabledVendorStockQuantity,
       0,
       activeAssignedVendorProductStatus
     ]
