@@ -7,6 +7,7 @@ const vendorSettingsService = require("./vendorSettings.service");
 const enabledVendorStockQuantity = 999999;
 const disabledVendorStockQuantity = 0;
 const defaultAssignedVendorProductStatus = 2;
+const duplicateVendorProductPattern = /\b(already|duplicate|exists)\b/i;
 
 function normalizeRequiredString(value, message) {
   const normalized = String(value || "").trim();
@@ -44,6 +45,58 @@ function normalizeStockQuantity(value) {
     : disabledVendorStockQuantity;
 }
 
+function shouldRetryVendorProductCreate(error) {
+  if (error?.statusCode !== 400) {
+    return false;
+  }
+
+  return !duplicateVendorProductPattern.test(String(error.message || ""));
+}
+
+async function createSkuNexusVendorProduct({
+  vendorId,
+  productId,
+  productSku
+}) {
+  const basePayload = cleanPayload({
+    product_id: productId,
+    sku: productSku,
+    label: productSku,
+    quantity: disabledVendorStockQuantity,
+    price: 0
+  });
+  const payloads = [
+    basePayload,
+    {
+      ...basePayload,
+      vendor_id: vendorId
+    },
+    {
+      ...basePayload,
+      vendor_id: vendorId,
+      status: defaultAssignedVendorProductStatus
+    }
+  ];
+  let lastError = null;
+
+  for (const body of payloads) {
+    try {
+      return await skunexus.rest(`/vendors/${encodeURIComponent(vendorId)}/products`, {
+        method: "POST",
+        body
+      });
+    } catch (error) {
+      lastError = error;
+
+      if (!shouldRetryVendorProductCreate(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 async function listProducts(queryParams) {
   return catalogService.listProducts(queryParams);
 }
@@ -66,10 +119,7 @@ async function refreshProductDetails(sku, options = {}) {
 async function assignProductVendor({ sku, vendorId }) {
   const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
   const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
-  const [product, existingVendorProduct] = await Promise.all([
-    catalogService.getCatalogProductBySku(safeSku),
-    catalogService.getCatalogVendorProductByVendorAndSku(safeVendorId, safeSku)
-  ]);
+  const product = await catalogService.getCatalogProductBySku(safeSku);
 
   if (!product) {
     const error = new Error("Product not found.");
@@ -78,19 +128,23 @@ async function assignProductVendor({ sku, vendorId }) {
   }
 
   await catalogService.getVendorDetails(safeVendorId);
+  await catalogService.refreshProductBySku(safeSku, {
+    includeWarehouse: false
+  });
+
+  const existingVendorProduct =
+    await catalogService.getCatalogVendorProductByVendorAndSku(
+      safeVendorId,
+      safeSku
+    );
 
   if (!existingVendorProduct) {
     const productSku = product.sku || safeSku;
 
-    await skunexus.rest(`/vendors/${encodeURIComponent(safeVendorId)}/products`, {
-      method: "POST",
-      body: {
-        product_id: product.id,
-        sku: productSku,
-        label: productSku,
-        quantity: disabledVendorStockQuantity,
-        status: defaultAssignedVendorProductStatus
-      }
+    await createSkuNexusVendorProduct({
+      vendorId: safeVendorId,
+      productId: product.id,
+      productSku
     });
   }
 

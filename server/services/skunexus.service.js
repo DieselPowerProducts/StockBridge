@@ -71,6 +71,40 @@ async function readJson(response) {
   }
 }
 
+function formatErrorDetails(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatErrorDetails(item))
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (typeof value === "object") {
+    if (value.message) {
+      return formatErrorDetails(value.message);
+    }
+
+    return Object.entries(value)
+      .map(([key, detail]) => {
+        const formatted = formatErrorDetails(detail);
+
+        return formatted ? `${key}: ${formatted}` : "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return "";
+}
+
 async function login(force = false) {
   if (
     !force &&
@@ -178,7 +212,7 @@ async function rest(path, { method = "GET", body, retry = true } = {}) {
     const message =
       payload.message ||
       payload.error ||
-      payload.errors?.[0]?.message ||
+      formatErrorDetails(payload.errors) ||
       `SKU Nexus request failed with status ${response.status}.`;
     const error = new Error(message);
     error.statusCode =

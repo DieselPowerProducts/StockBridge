@@ -525,14 +525,15 @@ export function NotesModal({
   }, [sku]);
 
   useEffect(() => {
-    if (!isVendorSearchOpen || !productDetails) {
+    const search = vendorSearchInput.trim();
+
+    if (!isVendorSearchOpen || !productDetails || !search) {
       setVendorSearchResults([]);
       setIsVendorSearchLoading(false);
       return;
     }
 
     let ignore = false;
-    const search = vendorSearchInput.trim();
     const timeout = window.setTimeout(
       async () => {
         setIsVendorSearchLoading(true);
@@ -1332,6 +1333,7 @@ export function NotesModal({
                 onChange={(event) => {
                   setVendorSearchInput(event.target.value);
                   setVendorAssignStatus("");
+                  setDetailsError("");
                   setIsVendorSearchOpen(true);
                 }}
                 onFocus={() => setIsVendorSearchOpen(true)}
