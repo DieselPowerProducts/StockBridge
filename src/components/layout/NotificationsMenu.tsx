@@ -9,6 +9,8 @@ type NotificationsMenuProps = {
 
 const autoInventorySku = "AUTO-INVENTORY";
 const dropdownPreviewLength = 180;
+const notificationPollIntervalMs = 5 * 60 * 1000;
+const notificationFocusRefreshMinMs = 60 * 1000;
 
 function formatNotificationTimestamp(value: string) {
   const date = new Date(value);
@@ -83,9 +85,17 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
   const [selectedSystemNotification, setSelectedSystemNotification] =
     useState<AppNotification | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const lastLoadedAtRef = useRef(0);
+  const inFlightRef = useRef(false);
 
   const loadNotifications = useCallback(
     async (showSpinner = false) => {
+      if (inFlightRef.current) {
+        return;
+      }
+
+      inFlightRef.current = true;
+
       if (showSpinner) {
         setIsLoading(true);
       }
@@ -96,11 +106,14 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
         const result = await getNotifications();
         setNotifications(result.items);
         setUnreadCount(result.unreadCount);
+        lastLoadedAtRef.current = Date.now();
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Unable to load notifications."
         );
       } finally {
+        inFlightRef.current = false;
+
         if (showSpinner) {
           setIsLoading(false);
         }
@@ -113,10 +126,14 @@ export function NotificationsMenu({ onOpenSku }: NotificationsMenuProps) {
     loadNotifications(true);
 
     const interval = window.setInterval(() => {
-      void loadNotifications();
-    }, 60000);
+      if (document.visibilityState === "visible") {
+        void loadNotifications();
+      }
+    }, notificationPollIntervalMs);
     const handleFocus = () => {
-      void loadNotifications();
+      if (Date.now() - lastLoadedAtRef.current >= notificationFocusRefreshMinMs) {
+        void loadNotifications();
+      }
     };
 
     window.addEventListener("focus", handleFocus);

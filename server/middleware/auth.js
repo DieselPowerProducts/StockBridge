@@ -1,5 +1,4 @@
 const authService = require("../services/auth.service");
-const usersService = require("../services/users.service");
 
 function requireAuth(req, res, next) {
   const user = authService.getCurrentUser(req);
@@ -10,9 +9,6 @@ function requireAuth(req, res, next) {
   }
 
   req.user = user;
-  void usersService.registerAuthenticatedUser(user).catch((error) => {
-    console.error("Unable to sync authenticated user.", error);
-  });
   next();
 }
 

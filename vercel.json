@@ -11,7 +11,8 @@
       "includeFiles": "server/**"
     },
     "api/cron/auto-inventory.js": {
-      "includeFiles": "server/**"
+      "includeFiles": "server/**",
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -21,7 +22,7 @@
     },
     {
       "path": "/api/cron/auto-inventory",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 * * * *"
     }
   ],
   "routes": [

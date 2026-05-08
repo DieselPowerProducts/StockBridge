@@ -11,6 +11,7 @@ const shopifyRoutes = require("./routes/shopify.routes");
 const statusRoutes = require("./routes/status.routes");
 const usersRoutes = require("./routes/users.routes");
 const vendorsRoutes = require("./routes/vendors.routes");
+const statusController = require("./controllers/status.controller");
 const { requireAuth } = require("./middleware/auth");
 
 const app = express();
@@ -42,6 +43,7 @@ app.use(
 );
 
 app.use(authRoutes);
+app.get("/status/version", statusController.getVersion);
 app.use(requireAuth);
 app.use(backordersRoutes);
 app.use(emailRoutes);
