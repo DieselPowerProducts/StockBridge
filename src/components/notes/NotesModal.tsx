@@ -820,6 +820,15 @@ export function NotesModal({
         sku,
         vendorId: vendor.id
       });
+      const assignedVendor = result.vendors.find(
+        (productVendor) => productVendor.id === vendor.id
+      );
+
+      if (!assignedVendor) {
+        throw new Error(
+          "SKU Nexus did not return this vendor assignment after refresh."
+        );
+      }
 
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
@@ -830,6 +839,7 @@ export function NotesModal({
       onProductStockChanged?.(getProductDetailsStockUpdate(result));
       onFollowUpSaved();
     } catch (err) {
+      setVendorAssignStatus("");
       setDetailsError(
         err instanceof Error ? err.message : "Unable to assign this vendor."
       );

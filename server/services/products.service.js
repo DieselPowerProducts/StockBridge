@@ -230,7 +230,20 @@ async function assignProductVendor({ sku, vendorId }) {
     includeWarehouse: false
   });
 
-  return catalogService.getProductDetails(safeSku);
+  const details = await catalogService.getProductDetails(safeSku);
+  const assignedVendor = (details.vendors || []).find(
+    (vendor) => vendor.id === safeVendorId
+  );
+
+  if (!assignedVendor) {
+    const error = new Error(
+      "SKU Nexus did not return the assigned vendor after refresh."
+    );
+    error.statusCode = 502;
+    throw error;
+  }
+
+  return details;
 }
 
 async function setProductFollowUp({ sku, followUpDate }) {
