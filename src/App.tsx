@@ -53,6 +53,7 @@ function setHashRoute(page: PageName, vendor = "") {
 
 export function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
+  const isEmbeddedNotesRoute = route.page === "notes" && window.parent !== window;
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authStatus, setAuthStatus] = useState<"checking" | "ready">(
     "checking"
@@ -109,7 +110,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (authStatus !== "ready" || !authUser) {
+    if (authStatus !== "ready" || !authUser || isEmbeddedNotesRoute) {
       return;
     }
 
@@ -164,7 +165,7 @@ export function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", checkStaleVersion);
     };
-  }, [authStatus, authUser]);
+  }, [authStatus, authUser, isEmbeddedNotesRoute]);
 
   async function handleLogout() {
     try {

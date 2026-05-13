@@ -1,14 +1,18 @@
+const crypto = require("crypto");
 const { loadLocalEnv } = require("../config/env");
+const { getSql } = require("../db/neon");
 
 loadLocalEnv();
 
 const DEFAULT_API_VERSION = "2025-10";
 const TOKEN_EXPIRY_SAFETY_MS = 60 * 1000;
+const DEFAULT_RESOLVE_CACHE_DAYS = 7;
 
 let accessTokenCache = {
   token: "",
   expiresAt: 0
 };
+let resolveCacheSchemaReady;
 
 function createHttpError(statusCode, message) {
   const error = new Error(message);
@@ -92,6 +96,142 @@ function normalizeSku(value) {
     .trim()
     .replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/gi, "")
     .toUpperCase();
+}
+
+function getResolveCacheDays() {
+  const rawValue = Number.parseInt(
+    String(process.env.SHOPIFY_ORDER_RESOLVE_CACHE_DAYS || ""),
+    10
+  );
+
+  if (Number.isFinite(rawValue) && rawValue > 0) {
+    return rawValue;
+  }
+
+  return DEFAULT_RESOLVE_CACHE_DAYS;
+}
+
+function normalizeLookupCreatedAt(value) {
+  if (!value) {
+    return "";
+  }
+
+  const createdAt = new Date(String(value));
+
+  if (Number.isNaN(createdAt.getTime())) {
+    return "";
+  }
+
+  return createdAt.toISOString();
+}
+
+function getResolveCacheContext({
+  createdAt,
+  normalizedEmail,
+  normalizedOrderNumber,
+  normalizedSkus,
+  storeDomain
+}) {
+  return {
+    createdAt: normalizeLookupCreatedAt(createdAt),
+    customerEmail: normalizedEmail,
+    orderNumber: normalizedOrderNumber,
+    skus: [...normalizedSkus].sort(),
+    storeDomain
+  };
+}
+
+function getResolveCacheKey(context) {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(context))
+    .digest("hex");
+}
+
+async function ensureResolveCacheSchema() {
+  if (!resolveCacheSchemaReady) {
+    const sql = getSql();
+
+    resolveCacheSchemaReady = (async () => {
+      await sql`
+        CREATE TABLE IF NOT EXISTS shopify_order_resolve_cache (
+          cache_key TEXT PRIMARY KEY,
+          order_number TEXT NOT NULL,
+          customer_email TEXT NOT NULL,
+          lookup_created_at TEXT NOT NULL DEFAULT '',
+          skus_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+          order_json JSONB NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS shopify_order_resolve_cache_expires_idx
+        ON shopify_order_resolve_cache (expires_at)
+      `;
+    })();
+  }
+
+  return resolveCacheSchemaReady;
+}
+
+async function getCachedResolvedOrder(cacheKey) {
+  await ensureResolveCacheSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT order_json
+    FROM shopify_order_resolve_cache
+    WHERE cache_key = ${cacheKey}
+      AND expires_at > now()
+    LIMIT 1
+  `;
+  const cachedOrder = rows[0]?.order_json;
+
+  if (!cachedOrder) {
+    return null;
+  }
+
+  return typeof cachedOrder === "string" ? JSON.parse(cachedOrder) : cachedOrder;
+}
+
+async function cacheResolvedOrder(cacheKey, context, order) {
+  await ensureResolveCacheSchema();
+
+  const sql = getSql();
+  const expiresAt = new Date(
+    Date.now() + getResolveCacheDays() * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  await sql`
+    INSERT INTO shopify_order_resolve_cache (
+      cache_key,
+      order_number,
+      customer_email,
+      lookup_created_at,
+      skus_json,
+      order_json,
+      expires_at
+    )
+    VALUES (
+      ${cacheKey},
+      ${context.orderNumber},
+      ${context.customerEmail},
+      ${context.createdAt},
+      ${JSON.stringify(context.skus)},
+      ${JSON.stringify(order)},
+      ${expiresAt}
+    )
+    ON CONFLICT (cache_key) DO UPDATE SET
+      order_number = EXCLUDED.order_number,
+      customer_email = EXCLUDED.customer_email,
+      lookup_created_at = EXCLUDED.lookup_created_at,
+      skus_json = EXCLUDED.skus_json,
+      order_json = EXCLUDED.order_json,
+      expires_at = EXCLUDED.expires_at,
+      updated_at = now()
+  `;
 }
 
 function getCandidateEmails(node) {
@@ -354,6 +494,35 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
     new Set((Array.isArray(skus) ? skus : []).map((sku) => normalizeSku(sku)).filter(Boolean))
   );
   const { storeDomain } = getShopifyConfig();
+  const cacheContext = getResolveCacheContext({
+    createdAt,
+    normalizedEmail,
+    normalizedOrderNumber,
+    normalizedSkus,
+    storeDomain
+  });
+  const cacheKey = getResolveCacheKey(cacheContext);
+  let cachedOrder = null;
+
+  try {
+    cachedOrder = await getCachedResolvedOrder(cacheKey);
+  } catch (error) {
+    console.warn("[shopify] Unable to read order resolve cache.", error);
+  }
+
+  if (cachedOrder) {
+    return cachedOrder;
+  }
+
+  const cacheAndReturn = async (order) => {
+    try {
+      await cacheResolvedOrder(cacheKey, cacheContext, order);
+    } catch (error) {
+      console.warn("[shopify] Unable to write order resolve cache.", error);
+    }
+
+    return order;
+  };
   const searchQueries = [
     `name:${normalizedOrderNumber}`,
     `name:${quoteSearchValue(`#${normalizedOrderNumber}`)}`,
@@ -386,7 +555,7 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
     );
 
     if (exactMatches.length === 1) {
-      return formatOrderResult(exactMatches[0], storeDomain);
+      return cacheAndReturn(formatOrderResult(exactMatches[0], storeDomain));
     }
 
     if (exactMatches.length > 1) {
@@ -397,14 +566,14 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
       });
 
       if (rankedExactMatch) {
-        return formatOrderResult(rankedExactMatch, storeDomain);
+        return cacheAndReturn(formatOrderResult(rankedExactMatch, storeDomain));
       }
 
       throw createHttpError(409, "Multiple Shopify orders matched this order number and email.");
     }
 
     if (exactNumberMatches.length === 1) {
-      return formatOrderResult(exactNumberMatches[0], storeDomain);
+      return cacheAndReturn(formatOrderResult(exactNumberMatches[0], storeDomain));
     }
 
     if (exactNumberMatches.length > 1) {
@@ -415,7 +584,7 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
       });
 
       if (rankedNumberMatch) {
-        return formatOrderResult(rankedNumberMatch, storeDomain);
+        return cacheAndReturn(formatOrderResult(rankedNumberMatch, storeDomain));
       }
 
       throw createHttpError(

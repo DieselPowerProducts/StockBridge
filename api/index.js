@@ -1,3 +1,8 @@
+// Express currently depends on parseurl, which emits url.parse() deprecation
+// warnings under newer Node runtimes and makes successful requests look noisy in
+// Vercel's error charts.
+process.noDeprecation = true;
+
 const app = require("../server/app");
 const { initializeSchema } = require("../server/db/schema");
 

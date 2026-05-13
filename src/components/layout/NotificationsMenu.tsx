@@ -9,7 +9,7 @@ type NotificationsMenuProps = {
 
 const autoInventorySku = "AUTO-INVENTORY";
 const dropdownPreviewLength = 180;
-const notificationFocusRefreshMinMs = 60 * 1000;
+const notificationFocusRefreshMinMs = 5 * 60 * 1000;
 
 function formatNotificationTimestamp(value: string) {
   const date = new Date(value);
