@@ -4,6 +4,7 @@ async function listNotifications(req, res, next) {
   try {
     const result = await notificationsService.getNotificationsForUser(req.user, {
       limit: req.query.limit,
+      newestFirst: req.query.sort === "newest",
       unreadOnly: req.query.unreadOnly === "1" || req.query.unreadOnly === "true"
     });
     res.send(result);

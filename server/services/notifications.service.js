@@ -366,7 +366,10 @@ function buildRecipientConditions(user) {
   };
 }
 
-async function getNotificationsForUser(user, { limit = 20, unreadOnly = false } = {}) {
+async function getNotificationsForUser(
+  user,
+  { limit = 20, newestFirst = false, unreadOnly = false } = {}
+) {
   const { safeUserSub, safeUserEmail } = buildRecipientConditions(user);
 
   if (!safeUserSub && !safeUserEmail) {
@@ -380,6 +383,7 @@ async function getNotificationsForUser(user, { limit = 20, unreadOnly = false } 
 
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 200);
   const sql = getSql();
+  const shouldSortNewestFirst = Boolean(newestFirst);
   const [rows, unreadRows] = await Promise.all([
     sql`
       SELECT
@@ -402,7 +406,10 @@ async function getNotificationsForUser(user, { limit = 20, unreadOnly = false } 
         )
       )
         AND (${Boolean(unreadOnly)} = false OR read_at IS NULL)
-      ORDER BY read_at ASC NULLS FIRST, created_at DESC
+      ORDER BY
+        CASE WHEN ${shouldSortNewestFirst} THEN created_at END DESC,
+        CASE WHEN ${shouldSortNewestFirst} THEN NULL ELSE read_at END ASC NULLS FIRST,
+        created_at DESC
       LIMIT ${safeLimit}
     `,
     sql`

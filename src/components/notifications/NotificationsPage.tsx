@@ -26,7 +26,7 @@ export function NotificationsPage({ onOpenSku }: NotificationsPageProps) {
     setError("");
 
     try {
-      const result = await getNotifications({ limit: 100 });
+      const result = await getNotifications({ limit: 100, sort: "newest" });
       setNotifications(result.items);
       setUnreadCount(result.unreadCount);
     } catch (err) {

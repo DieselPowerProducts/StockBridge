@@ -90,9 +90,11 @@ export function getUsers() {
 
 export function getNotifications({
   limit,
+  sort,
   unreadOnly = false
 }: {
   limit?: number;
+  sort?: "newest";
   unreadOnly?: boolean;
 } = {}) {
   const params = new URLSearchParams();
@@ -103,6 +105,10 @@ export function getNotifications({
 
   if (unreadOnly) {
     params.set("unreadOnly", "1");
+  }
+
+  if (sort) {
+    params.set("sort", sort);
   }
 
   const query = params.toString();
