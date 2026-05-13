@@ -179,9 +179,6 @@ export function NotificationsMenu({ onOpenSku, onViewAll }: NotificationsMenuPro
         <div className="notifications-dropdown" role="menu" aria-label="Notifications">
           <div className="notifications-dropdown-header">
             <strong>Notifications</strong>
-            <span>{unreadCount > 0 ? `${unreadCount} unread` : "Up to date"}</span>
-          </div>
-          <div className="notifications-dropdown-actions">
             <button type="button" onClick={handleViewAll}>
               View all
             </button>
