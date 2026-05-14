@@ -16,7 +16,6 @@ type StockCheckPageProps = {
   followUpOverrides: FollowUpOverrides;
   vendorEmailSentUpdate: VendorEmailSentUpdate | null;
   onOpenNotes: (sku: string) => void;
-  refreshKey: number;
 };
 
 const pageSize = 30;
@@ -99,21 +98,24 @@ export function StockCheckPage({
   productStockUpdate,
   followUpOverrides,
   vendorEmailSentUpdate,
-  onOpenNotes,
-  refreshKey
+  onOpenNotes
 }: StockCheckPageProps) {
   const latestProductStockUpdate = useRef(productStockUpdate);
+  const latestFollowUpOverrides = useRef(followUpOverrides);
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [refreshNonce, setRefreshNonce] = useState(0);
   const [sort, setSort] = useState<StockCheckSort>("all");
 
   useEffect(() => {
     latestProductStockUpdate.current = productStockUpdate;
   }, [productStockUpdate]);
+
+  useEffect(() => {
+    latestFollowUpOverrides.current = followUpOverrides;
+  }, [followUpOverrides]);
 
   useEffect(() => {
     let ignore = false;
@@ -129,7 +131,7 @@ export function StockCheckPage({
           search: "",
           sort,
           referenceDate: getLocalDateText(),
-          bypassCache: refreshKey > 0 || refreshNonce > 0
+          bypassCache: false
         });
 
         if (!ignore) {
@@ -137,7 +139,7 @@ export function StockCheckPage({
             applyAndFilterStockCheckProducts(
               result.data,
               latestProductStockUpdate.current,
-              followUpOverrides,
+              latestFollowUpOverrides.current,
               sort
             )
           );
@@ -163,7 +165,7 @@ export function StockCheckPage({
     return () => {
       ignore = true;
     };
-  }, [currentPage, followUpOverrides, refreshKey, refreshNonce, sort]);
+  }, [currentPage, sort]);
 
   useEffect(() => {
     if (!productStockUpdate) {
@@ -178,7 +180,6 @@ export function StockCheckPage({
         sort
       )
     );
-    setRefreshNonce((current) => current + 1);
   }, [followUpOverrides, productStockUpdate, sort]);
 
   useEffect(() => {

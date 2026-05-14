@@ -65,7 +65,6 @@ export function App() {
     "checking"
   );
   const [selectedSku, setSelectedSku] = useState("");
-  const [productRefreshKey, setProductRefreshKey] = useState(0);
   const [productStockUpdate, setProductStockUpdate] =
     useState<ProductStockUpdate | null>(null);
   const [followUpOverrides, setFollowUpOverrides] = useState<FollowUpOverrides>(
@@ -245,7 +244,7 @@ export function App() {
           currentUser={authUser}
           sku={route.sku}
           onClose={handleCloseNotesRoute}
-          onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
+          onFollowUpSaved={() => undefined}
           onProductStockChanged={handleProductStockChanged}
           onVendorEmailSent={handleVendorEmailSent}
         />
@@ -291,7 +290,6 @@ export function App() {
               productStockUpdate={productStockUpdate}
               followUpOverrides={followUpOverrides}
               vendorEmailSentUpdate={vendorEmailSentUpdate}
-              refreshKey={productRefreshKey}
               onOpenNotes={setSelectedSku}
             />
           )}
@@ -307,7 +305,7 @@ export function App() {
           currentUser={authUser}
           sku={selectedSku}
           onClose={() => setSelectedSku("")}
-          onFollowUpSaved={() => setProductRefreshKey((key) => key + 1)}
+          onFollowUpSaved={() => undefined}
           onProductStockChanged={handleProductStockChanged}
           onVendorEmailSent={handleVendorEmailSent}
         />
