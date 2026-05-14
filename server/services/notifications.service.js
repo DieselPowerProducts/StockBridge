@@ -208,19 +208,37 @@ async function deleteNotificationsForNoteId(noteId) {
   `;
 }
 
-async function syncNoteNotifications({ noteId, sku, note, sender }) {
+async function syncNoteNotifications({
+  noteId,
+  sku,
+  note,
+  sender,
+  clearExisting = true
+}) {
   const safeNoteId = String(noteId || "").trim();
   const safeSku = String(sku || "").trim();
+  const safeNote = String(note || "");
 
   if (!safeNoteId || !safeSku) {
     return { count: 0 };
   }
 
+  if (!clearExisting && !safeNote.includes("@")) {
+    return { count: 0 };
+  }
+
   await initializeSchema();
-  await deleteNotificationsForNoteId(safeNoteId);
+
+  if (clearExisting) {
+    await deleteNotificationsForNoteId(safeNoteId);
+  }
+
+  if (!safeNote.includes("@")) {
+    return { count: 0 };
+  }
 
   const recipients = extractMentionedUsers(
-    note,
+    safeNote,
     await usersService.listUsers(),
     String(sender?.sub || "").trim(),
     String(sender?.email || "").trim().toLowerCase()
@@ -236,7 +254,7 @@ async function syncNoteNotifications({ noteId, sku, note, sender }) {
     name: normalizeText(sender?.name || sender?.email || "StockBridge"),
     picture: String(sender?.picture || "").trim()
   };
-  const notePreview = buildNotePreview(note);
+  const notePreview = buildNotePreview(safeNote);
   const sql = getSql();
 
   for (const recipient of recipients) {

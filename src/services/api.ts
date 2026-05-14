@@ -370,7 +370,7 @@ export function getNotesBootstrap(sku: string) {
 }
 
 export function createNote({ sku, note }: { sku: string; note: string }) {
-  return request<{ id: string }>("/notes", {
+  return request<Note>("/notes", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

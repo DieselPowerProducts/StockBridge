@@ -206,7 +206,17 @@ async function addNote({ sku, note, productId = "" }, author = {}) {
       ${author.name || author.email || null},
       ${author.picture || null}
     )
-    RETURNING id::text, sku
+    RETURNING
+      id::text,
+      product_id,
+      sku,
+      note,
+      author_sub,
+      author_email,
+      author_name,
+      author_picture,
+      created_at,
+      updated_at
   `;
 
   const noteId = String(rows[0]?.id || "");
@@ -214,11 +224,12 @@ async function addNote({ sku, note, productId = "" }, author = {}) {
     noteId,
     sku: rows[0]?.sku || safeSku,
     note: safeNote,
-    sender: author
+    sender: author,
+    clearExisting: false
   });
 
   return {
-    id: noteId
+    note: formatNote(rows[0])
   };
 }
 

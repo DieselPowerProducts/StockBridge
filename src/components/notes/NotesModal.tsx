@@ -670,11 +670,11 @@ export function NotesModal({
       return;
     }
 
-    await createNote({ sku, note });
+    const createdNote = await createNote({ sku, note });
     setNewNote("");
     setActiveMention(null);
     setSelectedMentionIndex(0);
-    loadNotes();
+    setNotes((current) => [...current, createdNote]);
   }
 
   async function handleDeleteNote(id: string) {

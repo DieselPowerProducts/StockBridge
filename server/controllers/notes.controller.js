@@ -29,7 +29,7 @@ async function getNotesBootstrap(req, res, next) {
 async function createNote(req, res, next) {
   try {
     const result = await notesService.addNote(req.body, req.user);
-    res.send({ id: result.id });
+    res.send(result.note);
   } catch (err) {
     next(err);
   }
