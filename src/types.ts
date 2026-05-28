@@ -86,6 +86,7 @@ export type ProductStockUpdate = {
   qtyAvailable: number;
   availability: ProductAvailability;
   followUpDate?: string;
+  followUpSaved?: boolean;
 };
 
 export type FollowUpOverrides = Record<string, string>;

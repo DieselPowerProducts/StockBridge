@@ -732,7 +732,8 @@ export function NotesModal({
       if (productDetails) {
         onProductStockChanged?.({
           ...getProductDetailsStockUpdate(productDetails),
-          followUpDate: result.followUpDate || ""
+          followUpDate: result.followUpDate || "",
+          followUpSaved: true
         });
       }
       onFollowUpSaved();

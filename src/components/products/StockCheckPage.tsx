@@ -419,7 +419,9 @@ export function StockCheckPage({
         return;
       }
 
-      setIsLoading(true);
+      if (!shouldBypassCache) {
+        setIsLoading(true);
+      }
       setError("");
 
       try {
@@ -526,7 +528,7 @@ export function StockCheckPage({
 
     updateProducts(nextProducts);
 
-    if (productStockUpdate.followUpDate !== undefined) {
+    if (productStockUpdate.followUpSaved) {
       stockCheckCache.current.clear();
       borrowedSkusByCacheKey.current.clear();
       setRefreshToken((current) => current + 1);
