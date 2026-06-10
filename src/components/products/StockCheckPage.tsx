@@ -435,6 +435,10 @@ export function StockCheckPage({
         });
 
         if (!ignore) {
+          if (shouldBypassCache && isFlowThroughStockCheckSort(sort)) {
+            removedSkusBySortKey.current.delete(getSortDateKey(sort, referenceDate));
+          }
+
           stockCheckCache.current.set(cacheKey, {
             data: result.data,
             isLastPage: result.isLastPage,
