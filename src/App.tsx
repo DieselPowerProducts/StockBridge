@@ -4,7 +4,6 @@ import { NotificationsMenu } from "./components/layout/NotificationsMenu";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
-import { ShopifyNotesPage } from "./components/prank/ShopifyNotesPage";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
@@ -31,10 +30,6 @@ function parseRoute(): AppRoute {
     return routeValue
       ? { page: "notes", sku: routeValue, vendor: "" }
       : { page: "products", sku: "", vendor: "" };
-  }
-
-  if (page === "shopify-notes") {
-    return { page: "shopify-notes", sku: "", vendor: "" };
   }
 
   if (
@@ -255,10 +250,6 @@ export function App() {
         />
       </main>
     );
-  }
-
-  if (route.page === "shopify-notes") {
-    return <ShopifyNotesPage />;
   }
 
   return (

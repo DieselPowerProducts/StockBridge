@@ -1,5 +1,5 @@
 export type PageName = "products" | "stock-check" | "vendors" | "notifications";
-export type RoutePageName = PageName | "notes" | "shopify-notes";
+export type RoutePageName = PageName | "notes";
 
 export type AppRoute = {
   page: RoutePageName;

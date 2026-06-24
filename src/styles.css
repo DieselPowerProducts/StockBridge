@@ -75,21 +75,6 @@ button:disabled {
   min-height: 44px;
 }
 
-.shopify-notes-page {
-  align-items: center;
-  background: #f4f4f4;
-  display: flex;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 0;
-}
-
-.shopify-notes-image {
-  display: block;
-  height: min(100vh, 512px);
-  width: min(100vw, 512px);
-}
-
 .container {
   display: flex;
   min-height: 100vh;
