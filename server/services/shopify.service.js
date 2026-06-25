@@ -20,11 +20,20 @@ const availabilityValues = {
 const availabilityStatuses = new Set(Object.keys(availabilityValues));
 const shopifyAvailabilityTimezone =
   process.env.SHOPIFY_AVAILABILITY_TIMEZONE || "America/Los_Angeles";
-
-let accessTokenCache = {
-  token: "",
-  expiresAt: 0
+const shopifyCredentialProfiles = {
+  availability: {
+    clientIdEnv: "SHOPIFY_CLIENT_ID2",
+    clientSecretEnv: "SHOPIFY_CLIENT_SECRET2"
+  },
+  orders: {
+    clientIdEnv: "SHOPIFY_CLIENT_ID",
+    clientSecretEnv: "SHOPIFY_CLIENT_SECRET"
+  }
 };
+const shopifyOrdersProfile = "orders";
+const shopifyAvailabilityProfile = "availability";
+
+const accessTokenCache = new Map();
 let resolveCacheSchemaReady;
 
 function createHttpError(statusCode, message) {
@@ -83,11 +92,14 @@ function normalizeStoreDomain(value) {
   }
 }
 
-function getShopifyConfig() {
+function getShopifyConfig(profile = shopifyOrdersProfile) {
+  const credentialProfile =
+    shopifyCredentialProfiles[profile] || shopifyCredentialProfiles.orders;
+
   return {
     apiVersion: String(process.env.SHOPIFY_API_VERSION || DEFAULT_API_VERSION).trim(),
-    clientId: getRequiredEnv("SHOPIFY_CLIENT_ID"),
-    clientSecret: getRequiredEnv("SHOPIFY_CLIENT_SECRET"),
+    clientId: getRequiredEnv(credentialProfile.clientIdEnv),
+    clientSecret: getRequiredEnv(credentialProfile.clientSecretEnv),
     storeDomain: normalizeStoreDomain(getRequiredEnv("SHOPIFY_STORE_DOMAIN"))
   };
 }
@@ -423,14 +435,24 @@ async function fetchFromShopify(url, init, contextLabel) {
   }
 }
 
-async function fetchShopifyAccessToken() {
-  if (accessTokenCache.token && accessTokenCache.expiresAt > Date.now() + TOKEN_EXPIRY_SAFETY_MS) {
-    return accessTokenCache.token;
+function getAccessTokenCacheKey({ clientId, storeDomain }) {
+  return `${storeDomain}:${clientId}`;
+}
+
+async function fetchShopifyAccessToken(profile = shopifyOrdersProfile) {
+  const config = getShopifyConfig(profile);
+  const cacheKey = getAccessTokenCacheKey(config);
+  const cachedToken = accessTokenCache.get(cacheKey);
+
+  if (
+    cachedToken?.token &&
+    cachedToken.expiresAt > Date.now() + TOKEN_EXPIRY_SAFETY_MS
+  ) {
+    return cachedToken.token;
   }
 
-  const { clientId, clientSecret, storeDomain } = getShopifyConfig();
   const response = await fetchFromShopify(
-    `https://${storeDomain}/admin/oauth/access_token`,
+    `https://${config.storeDomain}/admin/oauth/access_token`,
     {
       method: "POST",
       headers: {
@@ -438,8 +460,8 @@ async function fetchShopifyAccessToken() {
       },
       body: new URLSearchParams({
         grant_type: "client_credentials",
-        client_id: clientId,
-        client_secret: clientSecret
+        client_id: config.clientId,
+        client_secret: config.clientSecret
       }).toString()
     },
     "access token request"
@@ -463,18 +485,19 @@ async function fetchShopifyAccessToken() {
   }
 
   const expiresInSeconds = Number(payload.expires_in || 0);
-  accessTokenCache = {
+  const nextCachedToken = {
     token: payload.access_token,
     expiresAt:
       Date.now() + (Number.isFinite(expiresInSeconds) ? expiresInSeconds * 1000 : 0)
   };
+  accessTokenCache.set(cacheKey, nextCachedToken);
 
-  return accessTokenCache.token;
+  return nextCachedToken.token;
 }
 
-async function shopifyGraphQL(query, variables) {
-  const { apiVersion, storeDomain } = getShopifyConfig();
-  const accessToken = await fetchShopifyAccessToken();
+async function shopifyGraphQL(query, variables, profile = shopifyOrdersProfile) {
+  const { apiVersion, storeDomain } = getShopifyConfig(profile);
+  const accessToken = await fetchShopifyAccessToken(profile);
   const response = await fetchFromShopify(
     `https://${storeDomain}/admin/api/${apiVersion}/graphql.json`,
     {
@@ -538,7 +561,8 @@ async function findProductBySku(sku) {
     `,
     {
       query: getProductSearchQuery(safeSku)
-    }
+    },
+    shopifyAvailabilityProfile
   );
   const variants = Array.isArray(data?.productVariants?.nodes)
     ? data.productVariants.nodes
@@ -585,7 +609,8 @@ async function getProductVariants(productId) {
       {
         productId,
         after
-      }
+      },
+      shopifyAvailabilityProfile
     );
     const product = data?.product;
 
@@ -630,7 +655,8 @@ async function setMetafields(metafields) {
     `,
     {
       metafields
-    }
+    },
+    shopifyAvailabilityProfile
   );
   const payload = data?.metafieldsSet || {};
 
@@ -668,7 +694,8 @@ async function deleteMetafields(productId, keys) {
     `,
     {
       metafields
-    }
+    },
+    shopifyAvailabilityProfile
   );
   const payload = data?.metafieldsDelete || {};
 
@@ -714,7 +741,8 @@ async function updateVariantInventoryPolicy(productId, variants, inventoryPolicy
           id: variant.id,
           inventoryPolicy
         }))
-      }
+      },
+      shopifyAvailabilityProfile
     );
     const payload = data?.productVariantsBulkUpdate || {};
 
