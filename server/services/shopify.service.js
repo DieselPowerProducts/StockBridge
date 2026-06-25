@@ -18,8 +18,6 @@ const availabilityValues = {
   built_to_order: "Built to Order"
 };
 const availabilityStatuses = new Set(Object.keys(availabilityValues));
-const shopifyAvailabilityTimezone =
-  process.env.SHOPIFY_AVAILABILITY_TIMEZONE || "America/Los_Angeles";
 const shopifyCredentialProfiles = {
   availability: {
     clientIdEnv: "SHOPIFY_CLIENT_ID2",
@@ -172,42 +170,6 @@ function normalizeDateText(value) {
   return dateText;
 }
 
-function getTimeZoneOffsetMinutes(timeZone, date) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-    hourCycle: "h23"
-  });
-  const parts = Object.fromEntries(
-    formatter.formatToParts(date).map((part) => [part.type, part.value])
-  );
-  const zonedAsUtc = Date.UTC(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    Number(parts.hour),
-    Number(parts.minute),
-    Number(parts.second)
-  );
-
-  return Math.round((zonedAsUtc - date.getTime()) / 60000);
-}
-
-function formatOffset(minutes) {
-  const sign = minutes >= 0 ? "+" : "-";
-  const absoluteMinutes = Math.abs(minutes);
-  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, "0");
-  const remainder = String(absoluteMinutes % 60).padStart(2, "0");
-
-  return `${sign}${hours}${remainder}`;
-}
-
 function formatAvailabilityDateTime(value) {
   const dateText = normalizeDateText(value);
 
@@ -215,14 +177,7 @@ function formatAvailabilityDateTime(value) {
     return "";
   }
 
-  const [year, month, day] = dateText.split("-").map(Number);
-  const offsetProbe = new Date(Date.UTC(year, month - 1, day, 20, 0, 0));
-  const offsetMinutes = getTimeZoneOffsetMinutes(
-    shopifyAvailabilityTimezone,
-    offsetProbe
-  );
-
-  return `${dateText}T13:00${formatOffset(offsetMinutes)}`;
+  return `${dateText}T13:00:00`;
 }
 
 function formatUserErrors(userErrors) {
