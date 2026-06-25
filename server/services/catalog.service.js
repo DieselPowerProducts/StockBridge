@@ -2702,13 +2702,13 @@ async function getProductDetails(sku) {
     productGraph,
     vendorProducts,
     warehouseStock,
-    followUpDate,
+    followUpInfo,
     parentKits
   ] = await Promise.all([
     buildProductGraph([product]),
     queryVendorProductsByProductId(product.id),
     queryWarehouseStockByProductId(product.id),
-    followUpsService.getFollowUpForSku(safeSku),
+    followUpsService.getFollowUpInfoForSku(safeSku),
     getProductParentKitsForSku(safeSku)
   ]);
   const productNode =
@@ -2792,7 +2792,8 @@ async function getProductDetails(sku) {
     qtyAvailable,
     availability,
     isKit: Boolean(productNode?.is_kit),
-    followUpDate,
+    followUpDate: followUpInfo.followUpDate,
+    followUpNoEta: followUpInfo.followUpNoEta,
     childProducts,
     parentKits,
     vendors: assignedStockSources

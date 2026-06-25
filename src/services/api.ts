@@ -223,18 +223,24 @@ export function refreshProductDetails(
 }
 
 export function updateProductFollowUp({
-  sku,
-  followUpDate
+  followUpDate,
+  followUpNoEta,
+  sku
 }: {
-  sku: string;
   followUpDate: string;
+  followUpNoEta?: boolean;
+  sku: string;
 }) {
-  return request<{ sku: string; followUpDate: string }>("/products/follow-up", {
+  return request<{
+    sku: string;
+    followUpDate: string;
+    followUpNoEta: boolean;
+  }>("/products/follow-up", {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ sku, followUpDate })
+    body: JSON.stringify({ followUpDate, followUpNoEta, sku })
   });
 }
 

@@ -186,6 +186,7 @@ export type ProductDetails = {
   availability: ProductAvailability;
   isKit: boolean;
   followUpDate: string;
+  followUpNoEta: boolean;
   childProducts: ProductKitChild[];
   parentKits: ProductParentKit[];
   vendors: ProductVendor[];

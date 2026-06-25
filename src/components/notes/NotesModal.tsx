@@ -407,11 +407,11 @@ export function NotesModal({
   );
   const [newNote, setNewNote] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
+  const [followUpNoEta, setFollowUpNoEta] = useState(false);
   const [notesError, setNotesError] = useState("");
   const [detailsError, setDetailsError] = useState("");
   const [mentionUsers, setMentionUsers] = useState<AuthUser[]>([]);
   const [isMentionUsersLoading, setIsMentionUsersLoading] = useState(false);
-  const [followUpMessage, setFollowUpMessage] = useState("");
   const [isFollowUpPickerOpen, setIsFollowUpPickerOpen] = useState(false);
   const [isFollowUpSaving, setIsFollowUpSaving] = useState(false);
   const [isProductDetailsLoading, setIsProductDetailsLoading] = useState(false);
@@ -479,6 +479,7 @@ export function NotesModal({
       const result = await getProductDetails(sku);
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
+      setFollowUpNoEta(Boolean(result.followUpNoEta));
       onProductStockChanged?.(getProductDetailsStockUpdate(result));
     } catch (err) {
       setDetailsError(
@@ -486,6 +487,7 @@ export function NotesModal({
       );
       setProductDetails(null);
       setFollowUpDate("");
+      setFollowUpNoEta(false);
     } finally {
       setIsProductDetailsLoading(false);
     }
@@ -501,6 +503,7 @@ export function NotesModal({
       setNotes(result.notes);
       setProductDetails(result.productDetails);
       setFollowUpDate(result.productDetails.followUpDate || "");
+      setFollowUpNoEta(Boolean(result.productDetails.followUpNoEta));
       onProductStockChanged?.(getProductDetailsStockUpdate(result.productDetails));
     } catch (err) {
       const message =
@@ -509,6 +512,7 @@ export function NotesModal({
       setDetailsError(message);
       setProductDetails(null);
       setFollowUpDate("");
+      setFollowUpNoEta(false);
     } finally {
       setIsProductDetailsLoading(false);
     }
@@ -580,6 +584,7 @@ export function NotesModal({
     setIsVendorSearchLoading(false);
     setIsVendorAssigning(false);
     setVendorAssignStatus("");
+    setFollowUpNoEta(false);
     setIsShopifyAvailabilitySaving(false);
     setShopifyAvailabilityStatus("");
     setIsBuiltToOrderLeadTimeOpen(false);
@@ -741,6 +746,17 @@ export function NotesModal({
     }
   }
 
+  function getShopifyFollowUpDate(
+    nextProductDetails: ProductDetails,
+    availability: ShopifyAvailabilityStatus
+  ) {
+    if (availability === "backordered" && nextProductDetails.followUpNoEta) {
+      return "";
+    }
+
+    return nextProductDetails.followUpDate || "";
+  }
+
   async function syncShopifyAvailabilityFromDetails(
     nextProductDetails: ProductDetails,
     options: { quiet?: boolean } = {}
@@ -751,7 +767,7 @@ export function NotesModal({
       const result = await updateShopifyProductAvailability({
         sku: nextProductDetails.sku,
         availability,
-        followUpDate: nextProductDetails.followUpDate || "",
+        followUpDate: getShopifyFollowUpDate(nextProductDetails, availability),
         productName: nextProductDetails.name || ""
       });
 
@@ -769,7 +785,6 @@ export function NotesModal({
 
   async function handleFollowUpDateChange(value: string) {
     setFollowUpDate(value);
-    setFollowUpMessage("");
     setDetailsError("");
     setShopifyAvailabilityStatus("");
     setIsFollowUpSaving(true);
@@ -777,25 +792,26 @@ export function NotesModal({
     try {
       const result = await updateProductFollowUp({
         sku,
-        followUpDate: value
+        followUpDate: value,
+        followUpNoEta
       });
 
       setFollowUpDate(result.followUpDate || "");
-      setFollowUpMessage(
-        result.followUpDate ? "Follow-up date saved." : "Follow-up date cleared."
-      );
+      setFollowUpNoEta(Boolean(result.followUpNoEta));
       setProductDetails((current) =>
         current
           ? {
               ...current,
-              followUpDate: result.followUpDate || ""
+              followUpDate: result.followUpDate || "",
+              followUpNoEta: Boolean(result.followUpNoEta)
             }
           : current
       );
       if (productDetails) {
         const nextProductDetails = {
           ...productDetails,
-          followUpDate: result.followUpDate || ""
+          followUpDate: result.followUpDate || "",
+          followUpNoEta: Boolean(result.followUpNoEta)
         };
 
         onProductStockChanged?.({
@@ -811,6 +827,54 @@ export function NotesModal({
     } catch (err) {
       setDetailsError(
         err instanceof Error ? err.message : "Unable to save follow-up date."
+      );
+    } finally {
+      setIsFollowUpSaving(false);
+    }
+  }
+
+  async function handleFollowUpNoEtaChange(checked: boolean) {
+    setFollowUpNoEta(checked);
+    setDetailsError("");
+    setShopifyAvailabilityStatus("");
+    setIsFollowUpSaving(true);
+
+    try {
+      const result = await updateProductFollowUp({
+        sku,
+        followUpDate,
+        followUpNoEta: checked
+      });
+
+      setFollowUpDate(result.followUpDate || "");
+      setFollowUpNoEta(Boolean(result.followUpNoEta));
+      setProductDetails((current) =>
+        current
+          ? {
+              ...current,
+              followUpDate: result.followUpDate || "",
+              followUpNoEta: Boolean(result.followUpNoEta)
+            }
+          : current
+      );
+
+      if (productDetails) {
+        const nextProductDetails = {
+          ...productDetails,
+          followUpDate: result.followUpDate || "",
+          followUpNoEta: Boolean(result.followUpNoEta)
+        };
+
+        await syncShopifyAvailabilityFromDetails(nextProductDetails, {
+          quiet: true
+        });
+      }
+
+      onFollowUpSaved();
+    } catch (err) {
+      setFollowUpNoEta(!checked);
+      setDetailsError(
+        err instanceof Error ? err.message : "Unable to save No ETA."
       );
     } finally {
       setIsFollowUpSaving(false);
@@ -902,7 +966,7 @@ export function NotesModal({
       const result = await refreshProductDetails(sku);
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
-      setFollowUpMessage("");
+      setFollowUpNoEta(Boolean(result.followUpNoEta));
       onProductStockChanged?.(getProductDetailsStockUpdate(result));
       await syncShopifyAvailabilityFromDetails(result, { quiet: true });
       onFollowUpSaved();
@@ -941,6 +1005,7 @@ export function NotesModal({
 
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
+      setFollowUpNoEta(Boolean(result.followUpNoEta));
       setVendorSearchInput("");
       setVendorSearchResults([]);
       setIsVendorSearchOpen(false);
@@ -972,11 +1037,13 @@ export function NotesModal({
 
       setProductDetails(refreshedDetails);
       setFollowUpDate(refreshedDetails.followUpDate || "");
+      setFollowUpNoEta(Boolean(refreshedDetails.followUpNoEta));
       onProductStockChanged?.(getProductDetailsStockUpdate(refreshedDetails));
       return refreshedDetails;
     } catch (err) {
       if (fallbackDetails) {
         setProductDetails(fallbackDetails);
+        setFollowUpNoEta(Boolean(fallbackDetails.followUpNoEta));
       }
 
       if (fallbackStockUpdate) {
@@ -1426,7 +1493,7 @@ export function NotesModal({
       const result = await updateShopifyProductAvailability({
         sku,
         availability,
-        followUpDate: detailsForShopify.followUpDate || followUpDate || "",
+        followUpDate: getShopifyFollowUpDate(detailsForShopify, availability),
         productName: detailsForShopify.name || ""
       });
 
@@ -1502,6 +1569,7 @@ export function NotesModal({
                     disabled={
                       !productDetails ||
                       isShopifyAvailabilitySaving ||
+                      isFollowUpSaving ||
                       isBulkVendorStockSaving
                     }
                     onClick={() => handleShopifyAvailabilityChange(option.status)}
@@ -1751,12 +1819,17 @@ export function NotesModal({
                   aria-label="Follow-up date"
                   onChange={(event) => handleFollowUpDateChange(event.target.value)}
                 />
-                {isFollowUpSaving && (
-                  <span className="follow-up-status">Saving...</span>
-                )}
-                {!isFollowUpSaving && followUpMessage && (
-                  <span className="follow-up-status">{followUpMessage}</span>
-                )}
+                <label className="follow-up-no-eta">
+                  <input
+                    type="checkbox"
+                    checked={followUpNoEta}
+                    disabled={isFollowUpSaving || !followUpDate}
+                    onChange={(event) =>
+                      handleFollowUpNoEtaChange(event.target.checked)
+                    }
+                  />
+                  <span>No ETA</span>
+                </label>
               </div>
             )}
 

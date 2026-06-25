@@ -38,6 +38,12 @@ function normalizeDate(value) {
   return dateText;
 }
 
+function normalizeBoolean(value) {
+  return ["1", "true", "yes", "on"].includes(
+    String(value || "").trim().toLowerCase()
+  );
+}
+
 function formatDate(value) {
   if (!value) {
     return "";
@@ -59,9 +65,14 @@ async function initializeSchema() {
         CREATE TABLE IF NOT EXISTS product_follow_ups (
           sku TEXT PRIMARY KEY,
           follow_up_date DATE NOT NULL,
+          no_eta BOOLEAN NOT NULL DEFAULT false,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+      `;
+      await sql`
+        ALTER TABLE product_follow_ups
+        ADD COLUMN IF NOT EXISTS no_eta BOOLEAN NOT NULL DEFAULT false
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS product_follow_ups_date_idx
@@ -99,6 +110,38 @@ async function getFollowUpsForSkus(skus) {
   );
 }
 
+async function getFollowUpInfoForSkus(skus) {
+  const normalizedSkus = Array.from(
+    new Set((skus || []).map(normalizeSku).filter(Boolean))
+  );
+
+  if (normalizedSkus.length === 0) {
+    return new Map();
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const skuJson = JSON.stringify(normalizedSkus);
+  const rows = await sql`
+    SELECT sku, follow_up_date::text AS follow_up_date, no_eta
+    FROM product_follow_ups
+    WHERE sku IN (
+      SELECT jsonb_array_elements_text(${skuJson}::jsonb)
+    )
+  `;
+
+  return new Map(
+    rows.map((row) => [
+      row.sku,
+      {
+        followUpDate: formatDate(row.follow_up_date),
+        followUpNoEta: Boolean(row.no_eta)
+      }
+    ])
+  );
+}
+
 async function getAllFollowUps() {
   await initializeSchema();
 
@@ -121,12 +164,26 @@ async function getFollowUpForSku(sku) {
   return followUps.get(normalizeSku(sku)) || "";
 }
 
-async function setFollowUp({ sku, followUpDate }) {
+async function getFollowUpInfoForSku(sku) {
+  assertSku(sku);
+
+  const followUps = await getFollowUpInfoForSkus([sku]);
+
+  return (
+    followUps.get(normalizeSku(sku)) || {
+      followUpDate: "",
+      followUpNoEta: false
+    }
+  );
+}
+
+async function setFollowUp({ sku, followUpDate, followUpNoEta = false }) {
   assertSku(sku);
   await initializeSchema();
 
   const safeSku = normalizeSku(sku);
   const safeDate = normalizeDate(followUpDate);
+  const safeNoEta = normalizeBoolean(followUpNoEta);
   const sql = getSql();
 
   if (!safeDate) {
@@ -137,27 +194,32 @@ async function setFollowUp({ sku, followUpDate }) {
 
     return {
       sku: safeSku,
-      followUpDate: ""
+      followUpDate: "",
+      followUpNoEta: false
     };
   }
 
   const rows = await sql`
-    INSERT INTO product_follow_ups (sku, follow_up_date)
-    VALUES (${safeSku}, ${safeDate})
+    INSERT INTO product_follow_ups (sku, follow_up_date, no_eta)
+    VALUES (${safeSku}, ${safeDate}, ${safeNoEta})
     ON CONFLICT (sku) DO UPDATE
     SET follow_up_date = EXCLUDED.follow_up_date,
+        no_eta = EXCLUDED.no_eta,
         updated_at = now()
-    RETURNING sku, follow_up_date::text AS follow_up_date
+    RETURNING sku, follow_up_date::text AS follow_up_date, no_eta
   `;
 
   return {
     sku: rows[0]?.sku || safeSku,
-    followUpDate: formatDate(rows[0]?.follow_up_date || safeDate)
+    followUpDate: formatDate(rows[0]?.follow_up_date || safeDate),
+    followUpNoEta: Boolean(rows[0]?.no_eta)
   };
 }
 
 module.exports = {
   getAllFollowUps,
+  getFollowUpInfoForSku,
+  getFollowUpInfoForSkus,
   getFollowUpForSku,
   getFollowUpsForSkus,
   setFollowUp

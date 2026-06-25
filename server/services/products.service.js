@@ -247,8 +247,12 @@ async function assignProductVendor({ sku, vendorId }) {
   return details;
 }
 
-async function setProductFollowUp({ sku, followUpDate }) {
-  const result = await followUpsService.setFollowUp({ sku, followUpDate });
+async function setProductFollowUp({ sku, followUpDate, followUpNoEta }) {
+  const result = await followUpsService.setFollowUp({
+    sku,
+    followUpDate,
+    followUpNoEta
+  });
 
   await stockCheckEmailsService.clearVendorEmailsForSku(result.sku || sku);
   clearProductCaches();

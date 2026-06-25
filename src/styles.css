@@ -1554,6 +1554,24 @@ body:has(.notes-popup-page),
   padding: 8px 10px;
 }
 
+.follow-up-no-eta {
+  align-items: center;
+  color: #dddddd;
+  display: inline-flex;
+  font-size: 14px;
+  gap: 6px;
+}
+
+.follow-up-no-eta input {
+  accent-color: #5d7188;
+  height: 16px;
+  width: 16px;
+}
+
+.follow-up-no-eta:has(input:disabled) {
+  color: #888888;
+}
+
 .follow-up-status {
   color: #cccccc;
   font-size: 13px;
