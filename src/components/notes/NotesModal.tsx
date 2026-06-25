@@ -751,7 +751,8 @@ export function NotesModal({
       const result = await updateShopifyProductAvailability({
         sku: nextProductDetails.sku,
         availability,
-        followUpDate: nextProductDetails.followUpDate || ""
+        followUpDate: nextProductDetails.followUpDate || "",
+        productName: nextProductDetails.name || ""
       });
 
       if (!options.quiet) {
@@ -1425,11 +1426,18 @@ export function NotesModal({
       const result = await updateShopifyProductAvailability({
         sku,
         availability,
-        followUpDate: detailsForShopify.followUpDate || followUpDate || ""
+        followUpDate: detailsForShopify.followUpDate || followUpDate || "",
+        productName: detailsForShopify.name || ""
       });
 
       setShopifyAvailabilityStatus(
-        `Shopify set to ${result.availabilityText}${
+        `Shopify set to ${result.availabilityText} on ${
+          result.productTitle || result.matchedSku
+        }${
+          result.duplicateSkuMatchCount > 1
+            ? ` (${result.duplicateSkuMatchCount} SKU matches found)`
+            : ""
+        }${
           availability === "out_of_stock"
             ? ` and ${result.updatedInventoryPolicyCount} variant${
                 result.updatedInventoryPolicyCount === 1 ? "" : "s"

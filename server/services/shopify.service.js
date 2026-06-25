@@ -121,6 +121,15 @@ function normalizeSku(value) {
     .toUpperCase();
 }
 
+function normalizeMatchText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeAvailabilityStatus(value) {
   const normalized = String(value || "")
     .trim()
@@ -492,7 +501,29 @@ function getProductSearchQuery(sku) {
   return `sku:${quoteSearchValue(sku)}`;
 }
 
-async function findProductBySku(sku) {
+function scoreProductVariantMatch(variant, { productName, safeSku }) {
+  const product = variant?.product || {};
+  const skuScore = normalizeSku(variant?.sku) === safeSku ? 1000 : 0;
+  const statusScore = product.status === "ACTIVE" ? 100 : 0;
+  const productTitle = normalizeMatchText(product.title);
+  const stockBridgeTitle = normalizeMatchText(productName);
+  let titleScore = 0;
+
+  if (productTitle && stockBridgeTitle) {
+    if (productTitle === stockBridgeTitle) {
+      titleScore = 75;
+    } else if (
+      productTitle.includes(stockBridgeTitle) ||
+      stockBridgeTitle.includes(productTitle)
+    ) {
+      titleScore = 35;
+    }
+  }
+
+  return skuScore + statusScore + titleScore;
+}
+
+async function findProductBySku(sku, { productName = "" } = {}) {
   const safeSku = normalizeSku(sku);
 
   if (!safeSku) {
@@ -508,6 +539,8 @@ async function findProductBySku(sku) {
             sku
             product {
               id
+              handle
+              status
               title
             }
           }
@@ -522,15 +555,23 @@ async function findProductBySku(sku) {
   const variants = Array.isArray(data?.productVariants?.nodes)
     ? data.productVariants.nodes
     : [];
-  const variant =
-    variants.find((item) => normalizeSku(item?.sku) === safeSku) || variants[0];
+  const exactVariants = variants.filter((item) => normalizeSku(item?.sku) === safeSku);
+  const candidateVariants = exactVariants.length > 0 ? exactVariants : variants;
+  const variant = [...candidateVariants].sort(
+    (left, right) =>
+      scoreProductVariantMatch(right, { productName, safeSku }) -
+      scoreProductVariantMatch(left, { productName, safeSku })
+  )[0];
 
   if (!variant?.product?.id) {
     throw createHttpError(404, "No Shopify product matched this SKU.");
   }
 
   return {
+    duplicateSkuMatchCount: exactVariants.length,
+    handle: variant.product.handle || "",
     productId: variant.product.id,
+    productStatus: variant.product.status || "",
     productTitle: variant.product.title || "",
     matchedVariantId: variant.id || "",
     matchedSku: variant.sku || safeSku
@@ -657,6 +698,110 @@ async function deleteMetafields(productId, keys) {
   assertNoUserErrors(payload.userErrors, "Shopify metafields could not be cleared.");
 
   return payload.deletedMetafields || [];
+}
+
+async function getProductAvailabilityMetafields(productId) {
+  const data = await shopifyGraphQL(
+    `
+      query ProductAvailabilityMetafields($productId: ID!) {
+        product(id: $productId) {
+          id
+          productAvailability: metafield(
+            namespace: "custom"
+            key: "product_availability"
+          ) {
+            id
+            key
+            namespace
+            type
+            value
+          }
+          productAvailabilityDate: metafield(
+            namespace: "custom"
+            key: "product_availability_date"
+          ) {
+            id
+            key
+            namespace
+            type
+            value
+          }
+          availabilityDateConfirmed: metafield(
+            namespace: "custom"
+            key: "availability_date_confirmed"
+          ) {
+            id
+            key
+            namespace
+            type
+            value
+          }
+        }
+      }
+    `,
+    {
+      productId
+    },
+    shopifyAvailabilityProfile
+  );
+  const product = data?.product;
+
+  if (!product?.id) {
+    throw createHttpError(404, "Shopify product was not found after saving.");
+  }
+
+  return {
+    [availabilityMetafieldKey]: product.productAvailability || null,
+    [availabilityDateMetafieldKey]: product.productAvailabilityDate || null,
+    [availabilityDateConfirmedMetafieldKey]:
+      product.availabilityDateConfirmed || null
+  };
+}
+
+function metafieldValueMatches(expectedMetafield, verifiedMetafield) {
+  if (!verifiedMetafield) {
+    return false;
+  }
+
+  const expectedValue = String(expectedMetafield.value);
+  const verifiedValue = String(verifiedMetafield.value);
+
+  if (expectedMetafield.type === "date_time") {
+    return verifiedValue === expectedValue || verifiedValue.startsWith(expectedValue);
+  }
+
+  return verifiedValue === expectedValue;
+}
+
+function verifyMetafieldChanges({ deleteKeys, metafields, verifiedMetafields }) {
+  const mismatches = [];
+
+  for (const metafield of metafields) {
+    const verified = verifiedMetafields[metafield.key];
+
+    if (!metafieldValueMatches(metafield, verified)) {
+      mismatches.push(
+        `${metafield.key} expected ${metafield.value}, got ${
+          verified ? verified.value : "blank"
+        }`
+      );
+    }
+  }
+
+  for (const key of deleteKeys) {
+    if (verifiedMetafields[key]) {
+      mismatches.push(`${key} was not cleared`);
+    }
+  }
+
+  if (mismatches.length > 0) {
+    throw createHttpError(
+      502,
+      `Shopify saved the request, but read-back did not match: ${mismatches.join(
+        "; "
+      )}`
+    );
+  }
 }
 
 async function updateVariantInventoryPolicy(productId, variants, inventoryPolicy) {
@@ -795,8 +940,13 @@ function getInventoryPolicyForAvailability(status) {
   return "";
 }
 
-async function updateProductAvailability({ sku, availability, followUpDate }) {
-  const productMatch = await findProductBySku(sku);
+async function updateProductAvailability({
+  sku,
+  availability,
+  followUpDate,
+  productName
+}) {
+  const productMatch = await findProductBySku(sku, { productName });
   const variants = await getProductVariants(productMatch.productId);
   const { deleteKeys, metafields, status } = getMetafieldChanges({
     productId: productMatch.productId,
@@ -807,6 +957,10 @@ async function updateProductAvailability({ sku, availability, followUpDate }) {
 
   const savedMetafields = await setMetafields(metafields);
   const deletedMetafields = await deleteMetafields(productMatch.productId, deleteKeys);
+  const verifiedMetafields = await getProductAvailabilityMetafields(
+    productMatch.productId
+  );
+  verifyMetafieldChanges({ deleteKeys, metafields, verifiedMetafields });
   const updatedVariants = inventoryPolicy
     ? await updateVariantInventoryPolicy(
         productMatch.productId,
@@ -819,11 +973,15 @@ async function updateProductAvailability({ sku, availability, followUpDate }) {
     availability: status,
     availabilityText: availabilityValues[status],
     deletedMetafields,
+    duplicateSkuMatchCount: productMatch.duplicateSkuMatchCount,
+    handle: productMatch.handle,
     matchedSku: productMatch.matchedSku,
     productId: productMatch.productId,
+    productStatus: productMatch.productStatus,
     productTitle: productMatch.productTitle,
     savedMetafields,
-    updatedInventoryPolicyCount: updatedVariants.length
+    updatedInventoryPolicyCount: updatedVariants.length,
+    verifiedMetafields
   };
 }
 

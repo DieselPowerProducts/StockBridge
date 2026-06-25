@@ -106,8 +106,11 @@ export type ProductsResponse = {
 export type ShopifyAvailabilityResponse = {
   availability: ShopifyAvailabilityStatus;
   availabilityText: string;
+  duplicateSkuMatchCount: number;
+  handle: string;
   matchedSku: string;
   productId: string;
+  productStatus: string;
   productTitle: string;
   updatedInventoryPolicyCount: number;
 };
