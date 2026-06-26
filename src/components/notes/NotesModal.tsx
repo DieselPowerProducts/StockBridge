@@ -467,10 +467,6 @@ export function NotesModal({
   const [vendorAssignStatus, setVendorAssignStatus] = useState("");
   const [isShopifyAvailabilitySaving, setIsShopifyAvailabilitySaving] =
     useState(false);
-  const [
-    isShopifyAvailabilitySyncPending,
-    setIsShopifyAvailabilitySyncPending
-  ] = useState(false);
   const [shopifyAvailabilityStatus, setShopifyAvailabilityStatus] =
     useState("");
   const [
@@ -492,6 +488,8 @@ export function NotesModal({
   const mentionUsersLoadingRef = useRef(false);
   const pendingShopifySyncTimerRef = useRef<number | null>(null);
   const pendingShopifySyncDetailsRef = useRef<ProductDetails | null>(null);
+  const pendingShopifySyncAvailabilityRef =
+    useRef<ShopifyAvailabilityStatus | null>(null);
   const pendingShopifySyncTokenRef = useRef(0);
   const vendorAddResultsId = useId();
 
@@ -626,9 +624,8 @@ export function NotesModal({
     setIsVendorAssigning(false);
     setVendorAssignStatus("");
     setFollowUpNoEta(false);
-    cancelScheduledShopifyAvailabilitySync({ clearPendingState: false });
+    cancelScheduledShopifyAvailabilitySync();
     setIsShopifyAvailabilitySaving(false);
-    setIsShopifyAvailabilitySyncPending(false);
     setShopifyAvailabilityStatus("");
     setCurrentShopifyAvailability("");
     setIsBuiltToOrderLeadTimeOpen(false);
@@ -637,7 +634,7 @@ export function NotesModal({
 
   useEffect(() => {
     return () => {
-      cancelScheduledShopifyAvailabilitySync({ clearPendingState: false });
+      cancelScheduledShopifyAvailabilitySync();
     };
   }, [sku]);
 
@@ -809,12 +806,17 @@ export function NotesModal({
 
   async function syncShopifyAvailabilityFromDetails(
     nextProductDetails: ProductDetails,
-    options: { quiet?: boolean } = {}
+    options: {
+      availability?: ShopifyAvailabilityStatus;
+      quiet?: boolean;
+    } = {}
   ) {
-    const availability = getShopifyAvailabilityStatus(
-      nextProductDetails,
-      currentShopifyAvailability || nextProductDetails.shopifyAvailabilityStatus || ""
-    );
+    const availability =
+      options.availability ||
+      getShopifyAvailabilityStatus(
+        nextProductDetails,
+        currentShopifyAvailability || nextProductDetails.shopifyAvailabilityStatus || ""
+      );
 
     try {
       const result = await updateShopifyProductAvailability({
@@ -824,15 +826,7 @@ export function NotesModal({
         productName: nextProductDetails.name || ""
       });
 
-      setCurrentShopifyAvailability(result.availability);
-      setProductDetails((current) =>
-        current
-          ? {
-              ...current,
-              shopifyAvailabilityStatus: result.availability
-            }
-          : current
-      );
+      setDisplayedShopifyAvailability(result.availability);
 
       if (!options.quiet) {
         setShopifyAvailabilityStatus(`Shopify set to ${result.availabilityText}.`);
@@ -846,29 +840,45 @@ export function NotesModal({
     }
   }
 
-  function cancelScheduledShopifyAvailabilitySync({
-    clearPendingState = true
-  }: { clearPendingState?: boolean } = {}) {
+  function setDisplayedShopifyAvailability(
+    availability: ShopifyAvailabilityStatus
+  ) {
+    setCurrentShopifyAvailability(availability);
+    setProductDetails((current) =>
+      current
+        ? {
+            ...current,
+            shopifyAvailabilityStatus: availability
+          }
+        : current
+    );
+  }
+
+  function cancelScheduledShopifyAvailabilitySync() {
     pendingShopifySyncTokenRef.current += 1;
     pendingShopifySyncDetailsRef.current = null;
+    pendingShopifySyncAvailabilityRef.current = null;
 
     if (pendingShopifySyncTimerRef.current !== null) {
       window.clearTimeout(pendingShopifySyncTimerRef.current);
       pendingShopifySyncTimerRef.current = null;
     }
-
-    if (clearPendingState) {
-      setIsShopifyAvailabilitySyncPending(false);
-    }
   }
 
   function scheduleShopifyAvailabilitySync(nextProductDetails: ProductDetails) {
-    cancelScheduledShopifyAvailabilitySync({ clearPendingState: false });
+    cancelScheduledShopifyAvailabilitySync();
 
     const syncToken = pendingShopifySyncTokenRef.current + 1;
+    const availability = getShopifyAvailabilityStatus(
+      nextProductDetails,
+      currentShopifyAvailability || nextProductDetails.shopifyAvailabilityStatus || ""
+    );
+
     pendingShopifySyncTokenRef.current = syncToken;
     pendingShopifySyncDetailsRef.current = nextProductDetails;
-    setIsShopifyAvailabilitySyncPending(true);
+    pendingShopifySyncAvailabilityRef.current = availability;
+    setShopifyAvailabilityStatus("");
+    setDisplayedShopifyAvailability(availability);
 
     pendingShopifySyncTimerRef.current = window.setTimeout(() => {
       if (syncToken !== pendingShopifySyncTokenRef.current) {
@@ -876,12 +886,14 @@ export function NotesModal({
       }
 
       const scheduledProductDetails = pendingShopifySyncDetailsRef.current;
+      const scheduledAvailability = pendingShopifySyncAvailabilityRef.current;
       pendingShopifySyncTimerRef.current = null;
       pendingShopifySyncDetailsRef.current = null;
-      setIsShopifyAvailabilitySyncPending(false);
+      pendingShopifySyncAvailabilityRef.current = null;
 
-      if (scheduledProductDetails) {
+      if (scheduledProductDetails && scheduledAvailability) {
         void syncShopifyAvailabilityFromDetails(scheduledProductDetails, {
+          availability: scheduledAvailability,
           quiet: false
         });
       }
@@ -1588,6 +1600,7 @@ export function NotesModal({
     cancelScheduledShopifyAvailabilitySync();
     setDetailsError("");
     setShopifyAvailabilityStatus("");
+    setDisplayedShopifyAvailability(availability);
     setIsShopifyAvailabilitySaving(true);
 
     try {
@@ -1597,6 +1610,9 @@ export function NotesModal({
           ? await handleAllVendorStockChange(true, { syncShopify: false })
           : await handleAllVendorStockChange(false, { syncShopify: false });
       const detailsForShopify = nextProductDetails || productDetails;
+      // Re-apply after stock changes because the product refresh can return the
+      // last saved Shopify value before the new push completes.
+      setDisplayedShopifyAvailability(availability);
       const result = await updateShopifyProductAvailability({
         sku,
         availability,
@@ -1604,15 +1620,7 @@ export function NotesModal({
         productName: detailsForShopify.name || ""
       });
 
-      setCurrentShopifyAvailability(result.availability);
-      setProductDetails((current) =>
-        current
-          ? {
-              ...current,
-              shopifyAvailabilityStatus: result.availability
-            }
-          : current
-      );
+      setDisplayedShopifyAvailability(result.availability);
       setShopifyAvailabilityStatus(
         `Shopify set to ${result.availabilityText} on ${
           result.productTitle || result.matchedSku
@@ -1722,20 +1730,11 @@ export function NotesModal({
                 <p className="shopify-availability-note">Updating Shopify...</p>
               )}
 
-              {!isShopifyAvailabilitySaving &&
-                isShopifyAvailabilitySyncPending && (
-                  <p className="shopify-availability-note">
-                    Shopify update scheduled in 30 seconds...
-                  </p>
-                )}
-
-              {!isShopifyAvailabilitySaving &&
-                !isShopifyAvailabilitySyncPending &&
-                shopifyAvailabilityStatus && (
-                  <p className="shopify-availability-note success">
-                    {shopifyAvailabilityStatus}
-                  </p>
-                )}
+              {!isShopifyAvailabilitySaving && shopifyAvailabilityStatus && (
+                <p className="shopify-availability-note success">
+                  {shopifyAvailabilityStatus}
+                </p>
+              )}
             </div>
 
             <div className="vendor-add-control">
