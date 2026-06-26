@@ -288,8 +288,11 @@ function getShopifyAvailabilityStatus(
     return "in_stock";
   }
 
-  if (currentAvailability === "out_of_stock") {
-    return "out_of_stock";
+  if (
+    currentAvailability === "out_of_stock" ||
+    currentAvailability === "built_to_order"
+  ) {
+    return currentAvailability;
   }
 
   if (productDetails.availability === "Built to Order") {
