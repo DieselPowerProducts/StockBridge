@@ -1505,6 +1505,10 @@ export function NotesModal({
   );
   const builtToOrderLeadTimeValue =
     builtToOrderVendor?.buildTime || builtToOrderLeadTime;
+  const shouldShowBuiltToOrderLeadTime =
+    currentShopifyAvailability === "built_to_order" ||
+    isBuiltToOrderLeadTimeOpen ||
+    productDetails?.availability === "Built to Order";
   const canShowKits = Boolean(productDetails?.isKit && childProducts.length > 0);
   const canShowParentKits = parentKits.length > 0;
   const isRouteMode = mode === "route";
@@ -1780,7 +1784,7 @@ export function NotesModal({
                 ))}
               </div>
 
-              {isBuiltToOrderLeadTimeOpen && !builtToOrderVendor && (
+              {shouldShowBuiltToOrderLeadTime && !builtToOrderVendor && (
                 <label className="built-to-order-lead-time">
                   <span>Lead time</span>
                   <input
@@ -1792,9 +1796,9 @@ export function NotesModal({
                 </label>
               )}
 
-              {builtToOrderVendor && builtToOrderLeadTimeValue && (
+              {shouldShowBuiltToOrderLeadTime && builtToOrderVendor && (
                 <p className="shopify-availability-note">
-                  Built to order lead time: {builtToOrderLeadTimeValue}
+                  Built to order lead time: {builtToOrderLeadTimeValue || "Not set"}
                 </p>
               )}
 
