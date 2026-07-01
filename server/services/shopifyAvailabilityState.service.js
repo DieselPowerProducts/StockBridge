@@ -65,6 +65,40 @@ async function getAvailabilityStatusForSku(sku) {
   return normalizeAvailabilityStatus(rows[0]?.availability_status);
 }
 
+async function getAvailabilityStatusesForSkus(skus) {
+  const safeSkus = Array.from(
+    new Set((skus || []).map(normalizeSku).filter(Boolean))
+  );
+
+  if (safeSkus.length === 0) {
+    return new Map();
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const skuJson = JSON.stringify(safeSkus);
+  const rows = await sql.query(
+    `
+      SELECT sku, availability_status
+      FROM product_shopify_availability_state
+      WHERE sku IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [skuJson]
+  );
+
+  return new Map(
+    rows
+      .map((row) => [
+        normalizeSku(row?.sku),
+        normalizeAvailabilityStatus(row?.availability_status)
+      ])
+      .filter(([sku, availability]) => sku && availability)
+  );
+}
+
 async function setAvailabilityStatus({ sku, availability }) {
   assertSku(sku);
   const safeAvailability = normalizeAvailabilityStatus(availability);
@@ -93,5 +127,6 @@ async function setAvailabilityStatus({ sku, availability }) {
 
 module.exports = {
   getAvailabilityStatusForSku,
+  getAvailabilityStatusesForSkus,
   setAvailabilityStatus
 };

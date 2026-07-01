@@ -1079,6 +1079,11 @@ async function updateProductAvailability({
       sku,
       availability: status
     });
+  try {
+    require("./catalog.service").clearCaches();
+  } catch (error) {
+    console.error("Unable to clear catalog caches after Shopify availability update.", error);
+  }
 
   return {
     availability: savedAvailabilityStatus || status,

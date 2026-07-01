@@ -34,6 +34,7 @@ import type {
   ProductDetails,
   ProductKitChild,
   ProductParentKit,
+  ProductAvailability,
   ProductStockUpdate,
   ShopifyAvailabilityStatus,
   VendorContact,
@@ -256,6 +257,18 @@ function getProductDetailsStockUpdate(
   };
 }
 
+function getProductDetailsStockUpdateWithShopifyAvailability(
+  productDetails: ProductDetails,
+  status: ShopifyAvailabilityStatus
+): ProductStockUpdate {
+  return {
+    ...getProductDetailsStockUpdate(productDetails),
+    availability:
+      getProductAvailabilityFromShopifyStatus(status) ||
+      productDetails.availability
+  };
+}
+
 function formatKitQuantityLabel(childProduct: ProductKitChild) {
   return childProduct.qtyRequired === 1
     ? "1 required"
@@ -301,6 +314,22 @@ function getShopifyAvailabilityStatus(
   }
 
   return "backordered";
+}
+
+function getProductAvailabilityFromShopifyStatus(
+  status: ShopifyAvailabilityStatus | ""
+): ProductAvailability | "" {
+  switch (status) {
+    case "in_stock":
+      return "Available";
+    case "built_to_order":
+      return "Built to Order";
+    case "out_of_stock":
+    case "backordered":
+      return "Backorder";
+    default:
+      return "";
+  }
 }
 
 function getShopifyAvailabilityButtonClass(
@@ -868,11 +897,17 @@ export function NotesModal({
   function setDisplayedShopifyAvailability(
     availability: ShopifyAvailabilityStatus
   ) {
+    const productAvailability =
+      getProductAvailabilityFromShopifyStatus(availability);
+
     setCurrentShopifyAvailability(availability);
     setProductDetails((current) =>
       current
         ? {
             ...current,
+            ...(productAvailability
+              ? { availability: productAvailability }
+              : {}),
             shopifyAvailabilityStatus: availability
           }
         : current
@@ -1629,7 +1664,6 @@ export function NotesModal({
     setIsShopifyAvailabilitySaving(true);
 
     try {
-      const shouldEnableStock = availability === "in_stock";
       const nextProductDetails =
         availability === "in_stock"
           ? await handleAllVendorStockChange(true, { syncShopify: false })
@@ -1638,6 +1672,12 @@ export function NotesModal({
       // Re-apply after stock changes because the product refresh can return the
       // last saved Shopify value before the new push completes.
       setDisplayedShopifyAvailability(availability);
+      onProductStockChanged?.(
+        getProductDetailsStockUpdateWithShopifyAvailability(
+          detailsForShopify,
+          availability
+        )
+      );
       const result = await updateShopifyProductAvailability({
         sku,
         availability,
@@ -1668,9 +1708,12 @@ export function NotesModal({
         }.`
       );
 
-      if (shouldEnableStock && nextProductDetails) {
-        onProductStockChanged?.(getProductDetailsStockUpdate(nextProductDetails));
-      }
+      onProductStockChanged?.(
+        getProductDetailsStockUpdateWithShopifyAvailability(
+          detailsForShopify,
+          result.availability
+        )
+      );
     } catch (err) {
       setDetailsError(
         err instanceof Error
