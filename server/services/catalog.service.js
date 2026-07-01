@@ -223,16 +223,26 @@ function mapShopifyAvailabilityToProductAvailability(status) {
   }
 }
 
-function getProductAvailabilityOverride(sku, shopifyAvailabilityBySku = new Map()) {
+function getProductAvailabilityOverride(
+  sku,
+  shopifyAvailabilityBySku = new Map(),
+  { hasActiveVendor = true } = {}
+) {
   const safeSku = String(sku || "").trim();
 
   if (!safeSku) {
     return "";
   }
 
-  return mapShopifyAvailabilityToProductAvailability(
+  const availability = mapShopifyAvailabilityToProductAvailability(
     shopifyAvailabilityBySku.get(safeSku) || ""
   );
+
+  if (availability === "Backorder" && !hasActiveVendor) {
+    return "";
+  }
+
+  return availability;
 }
 
 function isActiveVendor(vendor) {
@@ -344,16 +354,6 @@ function getEffectiveAvailability(
     return "Backorder";
   }
 
-  const availabilityOverride = getProductAvailabilityOverride(
-    safeSku,
-    shopifyAvailabilityBySku
-  );
-
-  if (availabilityOverride) {
-    availabilityCache.set(safeSku, availabilityOverride);
-    return availabilityOverride;
-  }
-
   if (availabilityCache.has(safeSku)) {
     return availabilityCache.get(safeSku);
   }
@@ -363,6 +363,18 @@ function getEffectiveAvailability(
   if (!product) {
     availabilityCache.set(safeSku, "Backorder");
     return "Backorder";
+  }
+
+  const productHasActiveVendor = hasActiveVendor(product, productVendorAvailability);
+  const availabilityOverride = getProductAvailabilityOverride(
+    safeSku,
+    shopifyAvailabilityBySku,
+    { hasActiveVendor: productHasActiveVendor }
+  );
+
+  if (availabilityOverride) {
+    availabilityCache.set(safeSku, availabilityOverride);
+    return availabilityOverride;
   }
 
   const qtyAvailable = Math.max(
@@ -378,7 +390,7 @@ function getEffectiveAvailability(
   if (!product.is_kit || product.relatedProduct.length === 0) {
     const availability = mapAvailability(
       qtyAvailable,
-      hasActiveVendor(product, productVendorAvailability),
+      productHasActiveVendor,
       hasBuiltToOrderVendor(product, productVendorAvailability)
     );
 
@@ -1509,7 +1521,9 @@ function mapProduct(
         new Set(),
         shopifyAvailabilityBySku
       )
-    : getProductAvailabilityOverride(sku, shopifyAvailabilityBySku) ||
+    : getProductAvailabilityOverride(sku, shopifyAvailabilityBySku, {
+        hasActiveVendor
+      }) ||
       mapAvailability(qtyAvailable, hasActiveVendor, hasBuiltToOrderVendor);
 
   return {

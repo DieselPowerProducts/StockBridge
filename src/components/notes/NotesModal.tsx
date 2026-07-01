@@ -264,7 +264,7 @@ function getProductDetailsStockUpdateWithShopifyAvailability(
   return {
     ...getProductDetailsStockUpdate(productDetails),
     availability:
-      getProductAvailabilityFromShopifyStatus(status) ||
+      getProductAvailabilityFromShopifyStatus(status, productDetails) ||
       productDetails.availability
   };
 }
@@ -309,6 +309,10 @@ function getShopifyAvailabilityStatus(
     return currentAvailability;
   }
 
+  if (productDetails.availability === "Available") {
+    return "in_stock";
+  }
+
   if (productDetails.availability === "Built to Order") {
     return "built_to_order";
   }
@@ -317,8 +321,13 @@ function getShopifyAvailabilityStatus(
 }
 
 function getProductAvailabilityFromShopifyStatus(
-  status: ShopifyAvailabilityStatus | ""
+  status: ShopifyAvailabilityStatus | "",
+  productDetails?: ProductDetails
 ): ProductAvailability | "" {
+  const hasAssignedVendor = Boolean(
+    productDetails?.vendors?.some((vendor) => vendor.stockSource === "vendor")
+  );
+
   switch (status) {
     case "in_stock":
       return "Available";
@@ -326,7 +335,7 @@ function getProductAvailabilityFromShopifyStatus(
       return "Built to Order";
     case "out_of_stock":
     case "backordered":
-      return "Backorder";
+      return productDetails && !hasAssignedVendor ? "Available" : "Backorder";
     default:
       return "";
   }
@@ -897,19 +906,21 @@ export function NotesModal({
   function setDisplayedShopifyAvailability(
     availability: ShopifyAvailabilityStatus
   ) {
-    const productAvailability =
-      getProductAvailabilityFromShopifyStatus(availability);
-
     setCurrentShopifyAvailability(availability);
     setProductDetails((current) =>
       current
-        ? {
-            ...current,
-            ...(productAvailability
-              ? { availability: productAvailability }
-              : {}),
-            shopifyAvailabilityStatus: availability
-          }
+        ? (() => {
+            const productAvailability =
+              getProductAvailabilityFromShopifyStatus(availability, current);
+
+            return {
+              ...current,
+              ...(productAvailability
+                ? { availability: productAvailability }
+                : {}),
+              shopifyAvailabilityStatus: availability
+            };
+          })()
         : current
     );
   }
