@@ -1593,6 +1593,7 @@ function mapProduct(
     name: row.name || "",
     qtyAvailable,
     availability,
+    hasBuiltToOrderVendor,
     followUpDate: followUpsBySku?.get(sku) || "",
     isKit
   };
@@ -3023,7 +3024,11 @@ async function getStockCheckProducts({
       })
     )
     .filter((product) => !product.isKit)
-    .filter((product) => product.availability !== "Built to Order")
+    .filter(
+      (product) =>
+        product.availability !== "Built to Order" ||
+        !product.hasBuiltToOrderVendor
+    )
     .filter(
       (product) =>
         product.availability !== "Available" || Boolean(product.followUpDate)

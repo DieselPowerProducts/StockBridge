@@ -76,6 +76,7 @@ export type Product = {
   name: string;
   qtyAvailable: number;
   availability: ProductAvailability;
+  hasBuiltToOrderVendor?: boolean;
   followUpDate: string;
   isKit: boolean;
   vendorEmailSent?: boolean;
