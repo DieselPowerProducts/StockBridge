@@ -168,16 +168,19 @@ async function initializeSchema() {
   return schemaReady;
 }
 
-async function getSettings(vendorId) {
-  const safeVendorId = normalizeText(vendorId);
+async function getSettingsByVendorIds(vendorIds) {
+  const safeVendorIds = Array.from(
+    new Set((vendorIds || []).map(normalizeText).filter(Boolean))
+  );
 
-  if (!safeVendorId) {
-    return formatSettings({ vendor_id: "" });
+  if (safeVendorIds.length === 0) {
+    return new Map();
   }
 
   await initializeSchema();
 
   const sql = getSql();
+  const vendorIdJson = JSON.stringify(safeVendorIds);
   const rows = await sql`
     SELECT
       vendor_id,
@@ -191,11 +194,40 @@ async function getSettings(vendorId) {
       in_stock_phrases::text AS in_stock_phrases,
       out_of_stock_phrases::text AS out_of_stock_phrases
     FROM vendor_auto_inventory_settings
-    WHERE vendor_id = ${safeVendorId}
-    LIMIT 1
+    WHERE vendor_id IN (
+      SELECT jsonb_array_elements_text(${vendorIdJson}::jsonb)
+    )
   `;
+  const settingsByVendorId = new Map(
+    rows.map((row) => {
+      const settings = formatSettings(row);
 
-  return formatSettings(rows[0] || { vendor_id: safeVendorId });
+      return [settings.vendorId, settings];
+    })
+  );
+
+  for (const vendorId of safeVendorIds) {
+    if (!settingsByVendorId.has(vendorId)) {
+      settingsByVendorId.set(vendorId, formatSettings({ vendor_id: vendorId }));
+    }
+  }
+
+  return settingsByVendorId;
+}
+
+async function getSettings(vendorId) {
+  const safeVendorId = normalizeText(vendorId);
+
+  if (!safeVendorId) {
+    return formatSettings({ vendor_id: "" });
+  }
+
+  const settingsByVendorId = await getSettingsByVendorIds([safeVendorId]);
+
+  return (
+    settingsByVendorId.get(safeVendorId) ||
+    formatSettings({ vendor_id: safeVendorId })
+  );
 }
 
 async function getEnabledSettings() {
@@ -294,6 +326,7 @@ async function saveSettings(vendorId, input = {}) {
 module.exports = {
   getEnabledSettings,
   getSettings,
+  getSettingsByVendorIds,
   initializeSchema,
   saveSettings
 };

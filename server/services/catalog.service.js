@@ -3,6 +3,8 @@ const followUpsService = require("./followUps.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 const skunexus = require("./skunexus.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
+const autoInventoryProductUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
+const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
 const fullSyncPageSize = 1000;
@@ -49,6 +51,65 @@ function normalizePaging({ page = 1, limit = 50 } = {}) {
 
 function normalizeSearch(search) {
   return String(search || "").trim();
+}
+
+function normalizeAutoInventorySkuKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getAutoInventorySkuMatchKeys(value) {
+  const safeValue = String(value || "").trim().toLowerCase();
+  const keys = new Set();
+  const addKey = (keyValue) => {
+    const key = normalizeAutoInventorySkuKey(keyValue);
+
+    if (key) {
+      keys.add(key);
+    }
+  };
+
+  addKey(safeValue);
+
+  const parts = safeValue.split(/[-_\s]+/).filter(Boolean);
+
+  if (parts.length > 1) {
+    addKey(parts.slice(1).join("-"));
+  }
+
+  return Array.from(keys);
+}
+
+function getVendorProductAutoInventorySkuValues(vendorProduct) {
+  return [
+    vendorProduct?.product_sku,
+    vendorProduct?.sku,
+    vendorProduct?.label
+  ].filter(Boolean);
+}
+
+function isVendorProductAutoInventoryExcepted(vendorProduct, settings) {
+  if (!settings?.skuExceptions?.length) {
+    return false;
+  }
+
+  const exceptionKeys = new Set();
+
+  for (const sku of settings.skuExceptions) {
+    for (const key of getAutoInventorySkuMatchKeys(sku)) {
+      exceptionKeys.add(key);
+    }
+  }
+
+  if (exceptionKeys.size === 0) {
+    return false;
+  }
+
+  return getVendorProductAutoInventorySkuValues(vendorProduct).some((value) =>
+    getAutoInventorySkuMatchKeys(value).some((key) => exceptionKeys.has(key))
+  );
 }
 
 function normalizeProductState(state) {
@@ -2833,9 +2894,21 @@ async function getProductDetails(sku) {
   const vendorIds = Array.from(
     new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))
   );
-  const [vendors, settingsByVendorId] = await Promise.all([
+  const vendorProductIds = vendorProducts
+    .map((row) => row.id)
+    .filter(Boolean);
+  const [
+    vendors,
+    settingsByVendorId,
+    autoInventorySettingsByVendorId,
+    autoInventoryUpdatesByVendorProductId
+  ] = await Promise.all([
     queryVendorsByIds(vendorIds),
-    vendorSettingsService.getVendorSettingsByVendorIds(vendorIds)
+    vendorSettingsService.getVendorSettingsByVendorIds(vendorIds),
+    vendorAutoInventorySettingsService.getSettingsByVendorIds(vendorIds),
+    autoInventoryProductUpdatesService.getUpdatesForVendorProductIds(
+      vendorProductIds
+    )
   ]);
   const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
   const assignedVendors = vendorProducts
@@ -2843,6 +2916,21 @@ async function getProductDetails(sku) {
     .map((vendorProduct) => {
       const vendor = vendorsById.get(vendorProduct.vendor_id);
       const settings = settingsByVendorId.get(vendorProduct.vendor_id);
+      const autoInventorySettings = autoInventorySettingsByVendorId.get(
+        vendorProduct.vendor_id
+      );
+      const isAutoInventoryExcepted = isVendorProductAutoInventoryExcepted(
+        vendorProduct,
+        autoInventorySettings
+      );
+      const canUseAutoInventoryUpdate = Boolean(
+        autoInventorySettings?.enabled &&
+          autoInventorySettings.inventoryMode !== "alphabetical" &&
+          !isAutoInventoryExcepted
+      );
+      const autoInventoryUpdate = canUseAutoInventoryUpdate
+        ? autoInventoryUpdatesByVendorProductId.get(vendorProduct.id)
+        : null;
 
       return {
         id: vendorProduct.vendor_id,
@@ -2853,7 +2941,13 @@ async function getProductDetails(sku) {
         stockType: "VENDOR",
         canUpdateStock: !settings?.builtToOrder,
         builtToOrder: Boolean(settings?.builtToOrder),
-        buildTime: String(settings?.buildTime || "")
+        buildTime: String(settings?.buildTime || ""),
+        autoInventoryManaged: Boolean(autoInventoryUpdate),
+        autoInventoryQuantity: autoInventoryUpdate
+          ? Number(autoInventoryUpdate.quantity || 0)
+          : null,
+        autoInventoryUpdatedAt: autoInventoryUpdate?.updatedAt || "",
+        autoInventorySheetSku: autoInventoryUpdate?.sheetSku || ""
       };
     });
   const assignedStockSources = [

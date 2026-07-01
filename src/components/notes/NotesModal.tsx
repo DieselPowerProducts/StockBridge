@@ -202,7 +202,11 @@ function applyVendorQuantityUpdates(
 }
 
 function canUpdateVendorStock(vendor: ProductVendor) {
-  return vendor.stockSource === "vendor" && vendor.canUpdateStock;
+  return (
+    vendor.stockSource === "vendor" &&
+    vendor.canUpdateStock &&
+    !vendor.autoInventoryManaged
+  );
 }
 
 function formatStockQuantity(value: number) {
@@ -211,6 +215,48 @@ function formatStockQuantity(value: number) {
   return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 2
   }).format(Number.isFinite(quantity) ? Math.max(quantity, 0) : 0);
+}
+
+function getBuiltToOrderVendor(productDetails: ProductDetails | null) {
+  return (
+    productDetails?.vendors.find(
+      (vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder
+    ) || null
+  );
+}
+
+function getProductDetailsBuiltToOrderLeadTime(
+  productDetails: ProductDetails | null
+) {
+  return getBuiltToOrderVendor(productDetails)?.buildTime || "";
+}
+
+function formatBuiltToOrderMessage(leadTime: string) {
+  const safeLeadTime = leadTime.trim();
+
+  return safeLeadTime
+    ? `This product will ship in ${safeLeadTime} from the manufacturer`
+    : "";
+}
+
+function formatAutoInventoryUpdateTitle(vendor: ProductVendor) {
+  const sheetSku = vendor.autoInventorySheetSku
+    ? ` for ${vendor.autoInventorySheetSku}`
+    : "";
+
+  if (!vendor.autoInventoryUpdatedAt) {
+    return `Last sheet update${sheetSku}: not available`;
+  }
+
+  const updatedAt = new Date(vendor.autoInventoryUpdatedAt);
+  const formattedUpdatedAt = Number.isNaN(updatedAt.getTime())
+    ? vendor.autoInventoryUpdatedAt
+    : new Intl.DateTimeFormat(undefined, {
+        dateStyle: "short",
+        timeStyle: "short"
+      }).format(updatedAt);
+
+  return `Last sheet update${sheetSku}: ${formattedUpdatedAt}`;
 }
 
 function getUnavailableAvailability(vendors: ProductVendor[]) {
@@ -552,6 +598,7 @@ export function NotesModal({
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
       setCurrentShopifyAvailability(result.shopifyAvailabilityStatus || "");
+      setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       onProductStockChanged?.(getProductDetailsStockUpdate(result));
     } catch (err) {
       setDetailsError(
@@ -561,6 +608,7 @@ export function NotesModal({
       setFollowUpDate("");
       setFollowUpNoEta(false);
       setCurrentShopifyAvailability("");
+      setBuiltToOrderLeadTime("");
     } finally {
       setIsProductDetailsLoading(false);
     }
@@ -580,6 +628,9 @@ export function NotesModal({
       setCurrentShopifyAvailability(
         result.productDetails.shopifyAvailabilityStatus || ""
       );
+      setBuiltToOrderLeadTime(
+        getProductDetailsBuiltToOrderLeadTime(result.productDetails)
+      );
       onProductStockChanged?.(getProductDetailsStockUpdate(result.productDetails));
     } catch (err) {
       const message =
@@ -590,6 +641,7 @@ export function NotesModal({
       setFollowUpDate("");
       setFollowUpNoEta(false);
       setCurrentShopifyAvailability("");
+      setBuiltToOrderLeadTime("");
     } finally {
       setIsProductDetailsLoading(false);
     }
@@ -850,17 +902,13 @@ export function NotesModal({
       return "";
     }
 
-    const builtToOrderProductVendor = nextProductDetails.vendors.find(
-      (vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder
-    );
+    const builtToOrderProductVendor = getBuiltToOrderVendor(nextProductDetails);
 
     const buildToOrderTime = String(
       builtToOrderProductVendor?.buildTime || builtToOrderLeadTime || ""
     ).trim();
 
-    return buildToOrderTime
-      ? `This product will ship in ${buildToOrderTime} from the manufacturer`
-      : "";
+    return formatBuiltToOrderMessage(buildToOrderTime);
   }
 
   async function syncShopifyAvailabilityFromDetails(
@@ -1150,6 +1198,7 @@ export function NotesModal({
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
       setCurrentShopifyAvailability(result.shopifyAvailabilityStatus || "");
+      setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       onProductStockChanged?.(getProductDetailsStockUpdate(result));
       scheduleShopifyAvailabilitySync(result);
       onFollowUpSaved();
@@ -1190,6 +1239,7 @@ export function NotesModal({
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
       setCurrentShopifyAvailability(result.shopifyAvailabilityStatus || "");
+      setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       setVendorSearchInput("");
       setVendorSearchResults([]);
       setIsVendorSearchOpen(false);
@@ -1226,6 +1276,9 @@ export function NotesModal({
       setCurrentShopifyAvailability(
         refreshedDetails.shopifyAvailabilityStatus || currentShopifyAvailability
       );
+      setBuiltToOrderLeadTime(
+        getProductDetailsBuiltToOrderLeadTime(refreshedDetails)
+      );
       onProductStockChanged?.(getProductDetailsStockUpdate(refreshedDetails));
       return refreshedDetails;
     } catch (err) {
@@ -1234,6 +1287,9 @@ export function NotesModal({
         setFollowUpNoEta(Boolean(fallbackDetails.followUpNoEta));
         setCurrentShopifyAvailability(
           fallbackDetails.shopifyAvailabilityStatus || currentShopifyAvailability
+        );
+        setBuiltToOrderLeadTime(
+          getProductDetailsBuiltToOrderLeadTime(fallbackDetails)
         );
       }
 
@@ -1511,11 +1567,12 @@ export function NotesModal({
   const childProducts = productDetails?.childProducts || [];
   const parentKits = productDetails?.parentKits || [];
   const editableVendors = vendors.filter(canUpdateVendorStock);
-  const builtToOrderVendor = vendors.find(
-    (vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder
-  );
+  const builtToOrderVendor = getBuiltToOrderVendor(productDetails);
   const builtToOrderLeadTimeValue =
     builtToOrderVendor?.buildTime || builtToOrderLeadTime;
+  const builtToOrderMessagePreview = formatBuiltToOrderMessage(
+    builtToOrderLeadTimeValue
+  );
   const shouldShowBuiltToOrderLeadTime =
     currentShopifyAvailability === "built_to_order" ||
     isBuiltToOrderLeadTimeOpen ||
@@ -1795,21 +1852,22 @@ export function NotesModal({
                 ))}
               </div>
 
-              {shouldShowBuiltToOrderLeadTime && !builtToOrderVendor && (
+              {shouldShowBuiltToOrderLeadTime && (
                 <label className="built-to-order-lead-time">
                   <span>Lead time</span>
                   <input
                     type="text"
-                    value={builtToOrderLeadTime}
+                    value={builtToOrderLeadTimeValue}
                     placeholder="4-6 weeks"
+                    readOnly={Boolean(builtToOrderVendor)}
                     onChange={(event) => setBuiltToOrderLeadTime(event.target.value)}
                   />
                 </label>
               )}
 
-              {shouldShowBuiltToOrderLeadTime && builtToOrderVendor && (
+              {shouldShowBuiltToOrderLeadTime && builtToOrderMessagePreview && (
                 <p className="shopify-availability-note">
-                  Built to order lead time: {builtToOrderLeadTimeValue || "Not set"}
+                  {builtToOrderMessagePreview}
                 </p>
               )}
 
@@ -1887,7 +1945,16 @@ export function NotesModal({
                 {vendors.map((vendor) => {
                   const stockEnabled = vendor.quantity > 0;
                   const canEditStock = canUpdateVendorStock(vendor);
-                  const formattedQuantity = formatStockQuantity(vendor.quantity);
+                  const displayQuantity =
+                    vendor.autoInventoryManaged &&
+                    vendor.autoInventoryQuantity !== null &&
+                    vendor.autoInventoryQuantity !== undefined
+                      ? vendor.autoInventoryQuantity
+                      : vendor.quantity;
+                  const formattedQuantity = formatStockQuantity(displayQuantity);
+                  const stockTitle = vendor.autoInventoryManaged
+                    ? `Current sheet quantity: ${formattedQuantity}. ${formatAutoInventoryUpdateTitle(vendor)}`
+                    : `Current quantity: ${formattedQuantity}`;
                   const isPending = Boolean(
                     pendingVendorStock[vendor.vendorProductId]
                   );
@@ -1932,7 +1999,7 @@ export function NotesModal({
                           className="vendor-stock-switch"
                           role="group"
                           aria-label={`${vendor.name} stock override`}
-                          title={`Current quantity: ${formattedQuantity}`}
+                          title={stockTitle}
                         >
                           <button
                             type="button"
@@ -1966,7 +2033,7 @@ export function NotesModal({
                       ) : (
                         <span
                           className="vendor-stock-readonly"
-                          title={`Current quantity: ${formattedQuantity}`}
+                          title={stockTitle}
                         >
                           Qty {formattedQuantity}
                         </span>

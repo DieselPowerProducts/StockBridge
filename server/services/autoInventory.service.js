@@ -7,6 +7,7 @@ const { simpleParser } = require("mailparser");
 const catalogService = require("./catalog.service");
 const notificationsService = require("./notifications.service");
 const productsService = require("./products.service");
+const productUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 const settingsService = require("./vendorAutoInventorySettings.service");
 const importsService = require("./vendorAutoInventoryImports.service");
 const { loadLocalEnv } = require("../config/env");
@@ -378,7 +379,11 @@ function parseNumericalCount(value, { blankAsZero = false } = {}) {
   return Number(match[0]);
 }
 
-function parseNumericalQuantity(value, subtractiveValue = "", hasSubtractiveColumn = false) {
+function parseNumericalInventoryResult(
+  value,
+  subtractiveValue = "",
+  hasSubtractiveColumn = false
+) {
   const inventoryCount = parseNumericalCount(value);
 
   if (inventoryCount === null) {
@@ -393,9 +398,25 @@ function parseNumericalQuantity(value, subtractiveValue = "", hasSubtractiveColu
     return null;
   }
 
-  return inventoryCount - subtractiveCount > 0
-    ? enabledVendorStockQuantity
-    : disabledVendorStockQuantity;
+  const sheetQuantity = inventoryCount - subtractiveCount;
+
+  return {
+    quantity:
+      sheetQuantity > 0
+        ? enabledVendorStockQuantity
+        : disabledVendorStockQuantity,
+    sheetQuantity: Math.max(sheetQuantity, 0)
+  };
+}
+
+function parseNumericalQuantity(value, subtractiveValue = "", hasSubtractiveColumn = false) {
+  const result = parseNumericalInventoryResult(
+    value,
+    subtractiveValue,
+    hasSubtractiveColumn
+  );
+
+  return result ? result.quantity : null;
 }
 
 function phraseMatches(value, phrases) {
@@ -424,14 +445,33 @@ function parseAlphabeticalQuantity(value, settings) {
   return null;
 }
 
-function parseInventoryQuantity(value, settings, subtractiveValue = "") {
+function parseInventoryResult(value, settings, subtractiveValue = "") {
   const hasSubtractiveColumn = Boolean(
     settings.inventoryMode !== "alphabetical" && settings.subtractiveColumn
   );
 
-  return settings.inventoryMode === "alphabetical"
-    ? parseAlphabeticalQuantity(value, settings)
-    : parseNumericalQuantity(value, subtractiveValue, hasSubtractiveColumn);
+  if (settings.inventoryMode === "alphabetical") {
+    const quantity = parseAlphabeticalQuantity(value, settings);
+
+    return quantity === null
+      ? null
+      : {
+          quantity,
+          sheetQuantity: null
+        };
+  }
+
+  return parseNumericalInventoryResult(
+    value,
+    subtractiveValue,
+    hasSubtractiveColumn
+  );
+}
+
+function parseInventoryQuantity(value, settings, subtractiveValue = "") {
+  const result = parseInventoryResult(value, settings, subtractiveValue);
+
+  return result ? result.quantity : null;
 }
 
 function parseCsvRows(content) {
@@ -691,6 +731,8 @@ async function importSheetAttachment({ settings, attachment, message }) {
     );
   const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
   const skuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const sheetManagedProductUpdates = new Map();
+  const shouldTrackSheetUpdates = settings.inventoryMode !== "alphabetical";
 
   for (const row of rows) {
     const sku = findHeaderValue(row, settings.skuHeader);
@@ -721,13 +763,18 @@ async function importSheetAttachment({ settings, attachment, message }) {
       continue;
     }
 
-    const quantity = parseInventoryQuantity(
+    if (isVendorProductExcepted(vendorProduct, skuExceptionKeys)) {
+      skipped += 1;
+      continue;
+    }
+
+    const inventoryResult = parseInventoryResult(
       inventoryValue,
       settings,
       subtractiveValue
     );
 
-    if (quantity === null) {
+    if (!inventoryResult) {
       skipped += 1;
 
       if (unmatchedInventorySamples.length < 5) {
@@ -741,11 +788,35 @@ async function importSheetAttachment({ settings, attachment, message }) {
       continue;
     }
 
+    const quantity = inventoryResult.quantity;
+    const sheetManagedProductUpdate =
+      shouldTrackSheetUpdates && inventoryResult.sheetQuantity !== null
+        ? {
+            vendorId: settings.vendorId,
+            vendorProductId: vendorProduct.id,
+            productId: vendorProduct.product_id || "",
+            sku: getVendorProductDisplaySku(vendorProduct),
+            sheetSku: sku,
+            quantity: inventoryResult.sheetQuantity,
+            inventoryValue,
+            subtractiveValue,
+            attachmentFilename: attachment.filename,
+            messageId: message.messageId
+          }
+        : null;
+
     try {
       const currentIsAvailable = Number(vendorProduct.quantity || 0) > 0;
       const nextIsAvailable = quantity > 0;
 
       if (currentIsAvailable === nextIsAvailable) {
+        if (sheetManagedProductUpdate) {
+          sheetManagedProductUpdates.set(
+            vendorProduct.id,
+            sheetManagedProductUpdate
+          );
+        }
+
         skipped += 1;
         continue;
       }
@@ -756,6 +827,14 @@ async function importSheetAttachment({ settings, attachment, message }) {
         quantity,
         vendorProduct
       });
+
+      if (sheetManagedProductUpdate) {
+        sheetManagedProductUpdates.set(
+          vendorProduct.id,
+          sheetManagedProductUpdate
+        );
+      }
+
       imported += 1;
     } catch (error) {
       errors += 1;
@@ -769,6 +848,11 @@ async function importSheetAttachment({ settings, attachment, message }) {
       });
     }
   }
+
+  await productUpdatesService.replaceVendorProductUpdatesForVendor({
+    vendorId: settings.vendorId,
+    updates: Array.from(sheetManagedProductUpdates.values())
+  });
 
   const failureDetails = [];
 

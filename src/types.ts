@@ -141,6 +141,10 @@ export type ProductVendor = {
   canUpdateStock: boolean;
   builtToOrder: boolean;
   buildTime: string;
+  autoInventoryManaged?: boolean;
+  autoInventoryQuantity?: number | null;
+  autoInventoryUpdatedAt?: string;
+  autoInventorySheetSku?: string;
 };
 
 export type VendorContact = {
