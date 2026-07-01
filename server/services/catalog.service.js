@@ -2861,9 +2861,16 @@ async function getProductDetails(sku) {
   const productNode =
     productGraph.productsBySku.get(product.sku || safeSku) || normalizeProductNode(product);
   const graphSkus = getProductGraphSkus(productGraph);
-  const [productVendorAvailability, shopifyAvailabilityBySku] = await Promise.all([
+  const [
+    productVendorAvailability,
+    shopifyAvailabilityBySku,
+    builtToOrderLeadTime
+  ] = await Promise.all([
     getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
-    shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus)
+    shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus),
+    shopifyAvailabilityStateService.getBuildToOrderLeadTimeForSku(
+      productNode?.sku || product.sku || safeSku
+    )
   ]);
   const shopifyAvailabilityStatus =
     shopifyAvailabilityBySku.get(productNode?.sku || product.sku || safeSku) || "";
@@ -2982,6 +2989,7 @@ async function getProductDetails(sku) {
     followUpDate: followUpInfo.followUpDate,
     followUpNoEta: followUpInfo.followUpNoEta,
     shopifyAvailabilityStatus,
+    builtToOrderLeadTime,
     childProducts,
     parentKits,
     vendors: assignedStockSources

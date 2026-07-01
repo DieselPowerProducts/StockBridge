@@ -8,6 +8,10 @@ router.get("/products/details", productsController.getProductDetails);
 router.get("/products/stock-check", productsController.listStockCheckProducts);
 router.post("/products/details/refresh", productsController.refreshProductDetails);
 router.post("/products/vendors", productsController.assignProductVendor);
+router.put(
+  "/products/built-to-order-lead-time",
+  productsController.updateProductBuiltToOrderLeadTime
+);
 router.put("/products/follow-up", productsController.updateProductFollowUp);
 router.put("/products/vendor-stock", productsController.updateProductVendorStock);
 

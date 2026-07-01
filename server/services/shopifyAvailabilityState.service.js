@@ -22,6 +22,18 @@ function normalizeAvailabilityStatus(value) {
   return availabilityStatuses.has(normalized) ? normalized : "";
 }
 
+function normalizeBuildToOrderLeadTime(value) {
+  const safeValue = String(value || "").trim();
+
+  if (safeValue.length > 120) {
+    const error = new Error("Built to order lead time must be 120 characters or fewer.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return safeValue;
+}
+
 function assertSku(sku) {
   if (!normalizeSku(sku)) {
     const error = new Error("Product SKU is required.");
@@ -39,9 +51,14 @@ async function initializeSchema() {
         CREATE TABLE IF NOT EXISTS product_shopify_availability_state (
           sku TEXT PRIMARY KEY,
           availability_status TEXT NOT NULL,
+          build_to_order_lead_time TEXT NOT NULL DEFAULT '',
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+      `;
+      await sql`
+        ALTER TABLE product_shopify_availability_state
+        ADD COLUMN IF NOT EXISTS build_to_order_lead_time TEXT NOT NULL DEFAULT ''
       `;
     })();
   }
@@ -63,6 +80,22 @@ async function getAvailabilityStatusForSku(sku) {
   `;
 
   return normalizeAvailabilityStatus(rows[0]?.availability_status);
+}
+
+async function getBuildToOrderLeadTimeForSku(sku) {
+  assertSku(sku);
+  await initializeSchema();
+
+  const sql = getSql();
+  const safeSku = normalizeSku(sku);
+  const rows = await sql`
+    SELECT build_to_order_lead_time
+    FROM product_shopify_availability_state
+    WHERE sku = ${safeSku}
+    LIMIT 1
+  `;
+
+  return String(rows[0]?.build_to_order_lead_time || "").trim();
 }
 
 async function getAvailabilityStatusesForSkus(skus) {
@@ -99,9 +132,17 @@ async function getAvailabilityStatusesForSkus(skus) {
   );
 }
 
-async function setAvailabilityStatus({ sku, availability }) {
+async function setAvailabilityStatus({
+  sku,
+  availability,
+  buildToOrderLeadTime
+}) {
   assertSku(sku);
   const safeAvailability = normalizeAvailabilityStatus(availability);
+  const shouldUpdateLeadTime = buildToOrderLeadTime !== undefined;
+  const safeBuildToOrderLeadTime = shouldUpdateLeadTime
+    ? normalizeBuildToOrderLeadTime(buildToOrderLeadTime)
+    : "";
 
   if (!safeAvailability) {
     const error = new Error("Shopify availability status is invalid.");
@@ -114,10 +155,24 @@ async function setAvailabilityStatus({ sku, availability }) {
   const sql = getSql();
   const safeSku = normalizeSku(sku);
   const rows = await sql`
-    INSERT INTO product_shopify_availability_state (sku, availability_status)
-    VALUES (${safeSku}, ${safeAvailability})
+    INSERT INTO product_shopify_availability_state (
+      sku,
+      availability_status,
+      build_to_order_lead_time
+    )
+    VALUES (
+      ${safeSku},
+      ${safeAvailability},
+      ${safeBuildToOrderLeadTime}
+    )
     ON CONFLICT (sku) DO UPDATE
     SET availability_status = EXCLUDED.availability_status,
+        build_to_order_lead_time =
+          CASE
+            WHEN ${shouldUpdateLeadTime}
+            THEN EXCLUDED.build_to_order_lead_time
+            ELSE product_shopify_availability_state.build_to_order_lead_time
+          END,
         updated_at = now()
     RETURNING availability_status
   `;
@@ -125,8 +180,35 @@ async function setAvailabilityStatus({ sku, availability }) {
   return normalizeAvailabilityStatus(rows[0]?.availability_status);
 }
 
+async function setBuildToOrderLeadTime({ sku, buildToOrderLeadTime }) {
+  assertSku(sku);
+  const safeBuildToOrderLeadTime =
+    normalizeBuildToOrderLeadTime(buildToOrderLeadTime);
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const safeSku = normalizeSku(sku);
+  const rows = await sql`
+    INSERT INTO product_shopify_availability_state (
+      sku,
+      availability_status,
+      build_to_order_lead_time
+    )
+    VALUES (${safeSku}, 'built_to_order', ${safeBuildToOrderLeadTime})
+    ON CONFLICT (sku) DO UPDATE
+    SET build_to_order_lead_time = EXCLUDED.build_to_order_lead_time,
+        updated_at = now()
+    RETURNING build_to_order_lead_time
+  `;
+
+  return String(rows[0]?.build_to_order_lead_time || "").trim();
+}
+
 module.exports = {
   getAvailabilityStatusForSku,
   getAvailabilityStatusesForSkus,
-  setAvailabilityStatus
+  getBuildToOrderLeadTimeForSku,
+  setAvailabilityStatus,
+  setBuildToOrderLeadTime
 };

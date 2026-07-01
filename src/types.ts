@@ -193,6 +193,7 @@ export type ProductDetails = {
   followUpDate: string;
   followUpNoEta: boolean;
   shopifyAvailabilityStatus: ShopifyAvailabilityStatus | "";
+  builtToOrderLeadTime: string;
   childProducts: ProductKitChild[];
   parentKits: ProductParentKit[];
   vendors: ProductVendor[];

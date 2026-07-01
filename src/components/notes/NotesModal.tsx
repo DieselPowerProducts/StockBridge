@@ -21,6 +21,7 @@ import {
   saveEmailTemplate,
   sendVendorStockCheckEmail,
   setVendorDefaultContact,
+  updateProductBuiltToOrderLeadTime,
   updateShopifyProductAvailability,
   updateProductFollowUp,
   updateProductVendorStock,
@@ -228,7 +229,11 @@ function getBuiltToOrderVendor(productDetails: ProductDetails | null) {
 function getProductDetailsBuiltToOrderLeadTime(
   productDetails: ProductDetails | null
 ) {
-  return getBuiltToOrderVendor(productDetails)?.buildTime || "";
+  return (
+    getBuiltToOrderVendor(productDetails)?.buildTime ||
+    productDetails?.builtToOrderLeadTime ||
+    ""
+  );
 }
 
 function formatBuiltToOrderMessage(leadTime: string) {
@@ -560,6 +565,8 @@ export function NotesModal({
   const [isBuiltToOrderLeadTimeOpen, setIsBuiltToOrderLeadTimeOpen] =
     useState(false);
   const [builtToOrderLeadTime, setBuiltToOrderLeadTime] = useState("");
+  const [isBuiltToOrderLeadTimeSaving, setIsBuiltToOrderLeadTimeSaving] =
+    useState(false);
   const [emailError, setEmailError] = useState("");
   const [emailStatus, setEmailStatus] = useState("");
   const [isTemplateNameModalOpen, setIsTemplateNameModalOpen] = useState(false);
@@ -720,6 +727,7 @@ export function NotesModal({
     setCurrentShopifyAvailability("");
     setIsBuiltToOrderLeadTimeOpen(false);
     setBuiltToOrderLeadTime("");
+    setIsBuiltToOrderLeadTimeSaving(false);
   }, [sku]);
 
   useEffect(() => {
@@ -898,17 +906,25 @@ export function NotesModal({
     nextProductDetails: ProductDetails,
     availability: ShopifyAvailabilityStatus
   ) {
+    return formatBuiltToOrderMessage(
+      getShopifyBuildToOrderLeadTime(nextProductDetails, availability)
+    );
+  }
+
+  function getShopifyBuildToOrderLeadTime(
+    nextProductDetails: ProductDetails,
+    availability: ShopifyAvailabilityStatus
+  ) {
     if (availability !== "built_to_order") {
       return "";
     }
 
-    const builtToOrderProductVendor = getBuiltToOrderVendor(nextProductDetails);
-
-    const buildToOrderTime = String(
-      builtToOrderProductVendor?.buildTime || builtToOrderLeadTime || ""
+    return String(
+      getBuiltToOrderVendor(nextProductDetails)?.buildTime ||
+        nextProductDetails.builtToOrderLeadTime ||
+        builtToOrderLeadTime ||
+        ""
     ).trim();
-
-    return formatBuiltToOrderMessage(buildToOrderTime);
   }
 
   async function syncShopifyAvailabilityFromDetails(
@@ -929,6 +945,10 @@ export function NotesModal({
       const result = await updateShopifyProductAvailability({
         sku: nextProductDetails.sku,
         availability,
+        buildToOrderLeadTime: getShopifyBuildToOrderLeadTime(
+          nextProductDetails,
+          availability
+        ),
         buildToOrderMessage: getShopifyBuildToOrderMessage(
           nextProductDetails,
           availability
@@ -1017,6 +1037,54 @@ export function NotesModal({
         });
       }
     }, shopifyAvailabilitySyncDelayMs);
+  }
+
+  function handleBuiltToOrderLeadTimeChange(value: string) {
+    setBuiltToOrderLeadTime(value);
+  }
+
+  async function saveBuiltToOrderLeadTime() {
+    if (!productDetails || builtToOrderVendor || isBuiltToOrderLeadTimeSaving) {
+      return productDetails;
+    }
+
+    const nextLeadTime = builtToOrderLeadTime.trim();
+
+    if (nextLeadTime === String(productDetails.builtToOrderLeadTime || "").trim()) {
+      return productDetails;
+    }
+
+    setDetailsError("");
+    setIsBuiltToOrderLeadTimeSaving(true);
+
+    try {
+      const result = await updateProductBuiltToOrderLeadTime({
+        sku,
+        buildToOrderLeadTime: nextLeadTime
+      });
+      const nextProductDetails = {
+        ...productDetails,
+        builtToOrderLeadTime: result.buildToOrderLeadTime
+      };
+
+      setBuiltToOrderLeadTime(result.buildToOrderLeadTime);
+      setProductDetails(nextProductDetails);
+
+      if (currentShopifyAvailability === "built_to_order") {
+        scheduleShopifyAvailabilitySync(nextProductDetails);
+      }
+
+      return nextProductDetails;
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? `Unable to save built to order lead time: ${err.message}`
+          : "Unable to save built to order lead time."
+      );
+      return productDetails;
+    } finally {
+      setIsBuiltToOrderLeadTimeSaving(false);
+    }
   }
 
   async function handleFollowUpDateChange(value: string) {
@@ -1740,7 +1808,29 @@ export function NotesModal({
         availability === "in_stock"
           ? await handleAllVendorStockChange(true, { syncShopify: false })
           : await handleAllVendorStockChange(false, { syncShopify: false });
-      const detailsForShopify = nextProductDetails || productDetails;
+      let detailsForShopify = nextProductDetails || productDetails;
+
+      if (isBuiltToOrder && !hasBuiltToOrderVendor) {
+        const savedLeadTime = await updateProductBuiltToOrderLeadTime({
+          sku,
+          buildToOrderLeadTime: builtToOrderLeadTime.trim()
+        });
+
+        detailsForShopify = {
+          ...detailsForShopify,
+          builtToOrderLeadTime: savedLeadTime.buildToOrderLeadTime
+        };
+        setBuiltToOrderLeadTime(savedLeadTime.buildToOrderLeadTime);
+        setProductDetails((current) =>
+          current
+            ? {
+                ...current,
+                builtToOrderLeadTime: savedLeadTime.buildToOrderLeadTime
+              }
+            : current
+        );
+      }
+
       // Re-apply after stock changes because the product refresh can return the
       // last saved Shopify value before the new push completes.
       setDisplayedShopifyAvailability(availability);
@@ -1753,6 +1843,10 @@ export function NotesModal({
       const result = await updateShopifyProductAvailability({
         sku,
         availability,
+        buildToOrderLeadTime: getShopifyBuildToOrderLeadTime(
+          detailsForShopify,
+          availability
+        ),
         buildToOrderMessage: getShopifyBuildToOrderMessage(
           detailsForShopify,
           availability
@@ -1860,7 +1954,13 @@ export function NotesModal({
                     value={builtToOrderLeadTimeValue}
                     placeholder="4-6 weeks"
                     readOnly={Boolean(builtToOrderVendor)}
-                    onChange={(event) => setBuiltToOrderLeadTime(event.target.value)}
+                    disabled={isBuiltToOrderLeadTimeSaving}
+                    onBlur={() => {
+                      void saveBuiltToOrderLeadTime();
+                    }}
+                    onChange={(event) =>
+                      handleBuiltToOrderLeadTimeChange(event.target.value)
+                    }
                   />
                 </label>
               )}

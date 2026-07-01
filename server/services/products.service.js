@@ -1,6 +1,7 @@
 const skunexus = require("./skunexus.service");
 const catalogService = require("./catalog.service");
 const followUpsService = require("./followUps.service");
+const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
@@ -284,6 +285,22 @@ async function setProductFollowUp({ sku, followUpDate, followUpNoEta }) {
   return result;
 }
 
+async function setProductBuiltToOrderLeadTime({ sku, buildToOrderLeadTime }) {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const savedLeadTime =
+    await shopifyAvailabilityStateService.setBuildToOrderLeadTime({
+      sku: safeSku,
+      buildToOrderLeadTime
+    });
+
+  clearProductCaches();
+
+  return {
+    sku: safeSku,
+    buildToOrderLeadTime: savedLeadTime
+  };
+}
+
 async function setProductVendorStock({
   sku,
   vendorId,
@@ -463,6 +480,7 @@ module.exports = {
   listProducts,
   listStockCheckProducts,
   refreshProductDetails,
+  setProductBuiltToOrderLeadTime,
   setProductFollowUp,
   setProductVendorStock,
   setVendorProductQuantity

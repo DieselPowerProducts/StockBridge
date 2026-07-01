@@ -1036,6 +1036,7 @@ function getInventoryPolicyForAvailability(status) {
 async function updateProductAvailability({
   sku,
   availability,
+  buildToOrderLeadTime,
   buildToOrderMessage,
   followUpDate,
   productName
@@ -1077,7 +1078,9 @@ async function updateProductAvailability({
   const savedAvailabilityStatus =
     await shopifyAvailabilityStateService.setAvailabilityStatus({
       sku,
-      availability: status
+      availability: status,
+      buildToOrderLeadTime:
+        status === "built_to_order" ? buildToOrderLeadTime : undefined
     });
   try {
     require("./catalog.service").clearCaches();

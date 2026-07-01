@@ -244,6 +244,25 @@ export function updateProductFollowUp({
   });
 }
 
+export function updateProductBuiltToOrderLeadTime({
+  buildToOrderLeadTime,
+  sku
+}: {
+  buildToOrderLeadTime: string;
+  sku: string;
+}) {
+  return request<{
+    sku: string;
+    buildToOrderLeadTime: string;
+  }>("/products/built-to-order-lead-time", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ buildToOrderLeadTime, sku })
+  });
+}
+
 export function updateProductVendorStock({
   sku,
   vendorId,
@@ -288,12 +307,14 @@ export function assignProductVendor({
 
 export function updateShopifyProductAvailability({
   availability,
+  buildToOrderLeadTime,
   buildToOrderMessage,
   followUpDate,
   productName,
   sku
 }: {
   availability: ShopifyAvailabilityStatus;
+  buildToOrderLeadTime?: string;
   buildToOrderMessage?: string;
   followUpDate: string;
   productName?: string;
@@ -306,6 +327,7 @@ export function updateShopifyProductAvailability({
     },
     body: JSON.stringify({
       availability,
+      buildToOrderLeadTime,
       buildToOrderMessage,
       followUpDate,
       productName,
