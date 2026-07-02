@@ -287,12 +287,16 @@ function mapShopifyAvailabilityToProductAvailability(status) {
 function getProductAvailabilityOverride(
   sku,
   shopifyAvailabilityBySku = new Map(),
-  { hasActiveVendor = true } = {}
+  { hasActiveVendor = true, qtyAvailable = 0 } = {}
 ) {
   const safeSku = String(sku || "").trim();
 
   if (!safeSku) {
     return "";
+  }
+
+  if (Number(qtyAvailable || 0) > 0) {
+    return "Available";
   }
 
   const availability = mapShopifyAvailabilityToProductAvailability(
@@ -427,21 +431,28 @@ function getEffectiveAvailability(
   }
 
   const productHasActiveVendor = hasActiveVendor(product, productVendorAvailability);
+  const qtyAvailable = product.is_kit
+    ? getEffectiveQtyAvailable(
+        safeSku,
+        productsBySku,
+        new Map(),
+        new Set(),
+        productVendorAvailability
+      )
+    : Math.max(
+        product.qty_available,
+        getVendorQtyAvailable(product, productVendorAvailability)
+      );
   const availabilityOverride = getProductAvailabilityOverride(
     safeSku,
     shopifyAvailabilityBySku,
-    { hasActiveVendor: productHasActiveVendor }
+    { hasActiveVendor: productHasActiveVendor, qtyAvailable }
   );
 
   if (availabilityOverride) {
     availabilityCache.set(safeSku, availabilityOverride);
     return availabilityOverride;
   }
-
-  const qtyAvailable = Math.max(
-    product.is_kit ? 0 : product.qty_available,
-    getVendorQtyAvailable(product, productVendorAvailability)
-  );
 
   if (qtyAvailable > 0) {
     availabilityCache.set(safeSku, "Available");
@@ -1583,7 +1594,8 @@ function mapProduct(
         shopifyAvailabilityBySku
       )
     : getProductAvailabilityOverride(sku, shopifyAvailabilityBySku, {
-        hasActiveVendor
+        hasActiveVendor,
+        qtyAvailable
       }) ||
       mapAvailability(qtyAvailable, hasActiveVendor, hasBuiltToOrderVendor);
 
@@ -3161,7 +3173,8 @@ async function listVendorProducts(vendorId, queryParams = {}) {
         availability:
           getProductAvailabilityOverride(
             row.product_sku || row.sku || row.label || "",
-            shopifyAvailabilityBySku
+            shopifyAvailabilityBySku,
+            { qtyAvailable }
           ) ||
           mapAvailability(
             qtyAvailable,

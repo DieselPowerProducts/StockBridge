@@ -226,15 +226,6 @@ function getBuiltToOrderVendor(productDetails: ProductDetails | null) {
   );
 }
 
-function getWarehouseStockQuantity(productDetails: ProductDetails | null) {
-  return (productDetails?.vendors || [])
-    .filter((vendor) => vendor.stockSource === "warehouse")
-    .reduce(
-      (total, vendor) => total + Math.max(Number(vendor.quantity || 0), 0),
-      0
-    );
-}
-
 function getProductDetailsBuiltToOrderLeadTime(
   productDetails: ProductDetails | null
 ) {
@@ -380,10 +371,23 @@ function getShopifyAvailabilityStatus(
   return "backordered";
 }
 
+function getDisplayedShopifyAvailabilityStatus(
+  productDetails: ProductDetails
+): ShopifyAvailabilityStatus {
+  return getShopifyAvailabilityStatus(
+    productDetails,
+    productDetails.shopifyAvailabilityStatus || ""
+  );
+}
+
 function getProductAvailabilityFromShopifyStatus(
   status: ShopifyAvailabilityStatus | "",
   productDetails?: ProductDetails
 ): ProductAvailability | "" {
+  if (productDetails && productDetails.qtyAvailable > 0) {
+    return "Available";
+  }
+
   const hasAssignedVendor = Boolean(
     productDetails?.vendors?.some((vendor) => vendor.stockSource === "vendor")
   );
@@ -614,7 +618,7 @@ export function NotesModal({
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
-      setCurrentShopifyAvailability(result.shopifyAvailabilityStatus || "");
+      setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
       setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       savedBuiltToOrderLeadTimeRef.current = String(
         result.builtToOrderLeadTime || ""
@@ -647,7 +651,7 @@ export function NotesModal({
       setFollowUpDate(result.productDetails.followUpDate || "");
       setFollowUpNoEta(Boolean(result.productDetails.followUpNoEta));
       setCurrentShopifyAvailability(
-        result.productDetails.shopifyAvailabilityStatus || ""
+        getDisplayedShopifyAvailabilityStatus(result.productDetails)
       );
       setBuiltToOrderLeadTime(
         getProductDetailsBuiltToOrderLeadTime(result.productDetails)
@@ -1315,7 +1319,7 @@ export function NotesModal({
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
-      setCurrentShopifyAvailability(result.shopifyAvailabilityStatus || "");
+      setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
       setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       savedBuiltToOrderLeadTimeRef.current = String(
         result.builtToOrderLeadTime || ""
@@ -1359,7 +1363,7 @@ export function NotesModal({
       setProductDetails(result);
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
-      setCurrentShopifyAvailability(result.shopifyAvailabilityStatus || "");
+      setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
       setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       savedBuiltToOrderLeadTimeRef.current = String(
         result.builtToOrderLeadTime || ""
@@ -1398,7 +1402,7 @@ export function NotesModal({
       setFollowUpDate(refreshedDetails.followUpDate || "");
       setFollowUpNoEta(Boolean(refreshedDetails.followUpNoEta));
       setCurrentShopifyAvailability(
-        refreshedDetails.shopifyAvailabilityStatus || currentShopifyAvailability
+        getDisplayedShopifyAvailabilityStatus(refreshedDetails)
       );
       setBuiltToOrderLeadTime(
         getProductDetailsBuiltToOrderLeadTime(refreshedDetails)
@@ -1413,7 +1417,7 @@ export function NotesModal({
         setProductDetails(fallbackDetails);
         setFollowUpNoEta(Boolean(fallbackDetails.followUpNoEta));
         setCurrentShopifyAvailability(
-          fallbackDetails.shopifyAvailabilityStatus || currentShopifyAvailability
+          getDisplayedShopifyAvailabilityStatus(fallbackDetails)
         );
         setBuiltToOrderLeadTime(
           getProductDetailsBuiltToOrderLeadTime(fallbackDetails)
@@ -1695,8 +1699,11 @@ export function NotesModal({
   const parentKits = productDetails?.parentKits || [];
   const editableVendors = vendors.filter(canUpdateVendorStock);
   const builtToOrderVendor = getBuiltToOrderVendor(productDetails);
-  const warehouseStockQuantity = getWarehouseStockQuantity(productDetails);
-  const hasWarehouseStock = warehouseStockQuantity > 0;
+  const productStockQuantity = Math.max(
+    Number(productDetails?.qtyAvailable || 0),
+    getVendorDrivenAvailability(vendors).qtyAvailable
+  );
+  const hasProductStock = productStockQuantity > 0;
   const builtToOrderLeadTimeValue =
     builtToOrderVendor?.buildTime || builtToOrderLeadTime;
   const builtToOrderMessagePreview = formatBuiltToOrderMessage(
@@ -1849,11 +1856,11 @@ export function NotesModal({
       return;
     }
 
-    if (availability === "backordered" && hasWarehouseStock) {
+    if (availability === "backordered" && hasProductStock) {
       setDetailsError(
         `This product has ${formatStockQuantity(
-          warehouseStockQuantity
-        )} in DPP Warehouse, so it cannot be set to Backordered.`
+          productStockQuantity
+        )} in stock, so it cannot be set to Backordered.`
       );
       setShopifyAvailabilityStatus("");
       return;
@@ -1998,7 +2005,7 @@ export function NotesModal({
               >
                 {shopifyAvailabilityOptions.map((option) => {
                   const isBackorderedBlocked =
-                    option.status === "backordered" && hasWarehouseStock;
+                    option.status === "backordered" && hasProductStock;
 
                   return (
                   <button
@@ -2018,8 +2025,8 @@ export function NotesModal({
                     }
                     title={
                       isBackorderedBlocked
-                        ? `DPP Warehouse has ${formatStockQuantity(
-                            warehouseStockQuantity
+                        ? `StockBridge shows ${formatStockQuantity(
+                            productStockQuantity
                           )} in stock.`
                         : undefined
                     }
@@ -2031,9 +2038,9 @@ export function NotesModal({
                 })}
               </div>
 
-              {hasWarehouseStock && (
+              {hasProductStock && (
                 <p className="shopify-availability-note">
-                  Backordered is disabled while DPP Warehouse has stock.
+                  Backordered is disabled while StockBridge shows stock.
                 </p>
               )}
 
