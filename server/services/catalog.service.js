@@ -299,9 +299,11 @@ function getProductAvailabilityOverride(
     return "Available";
   }
 
-  const availability = mapShopifyAvailabilityToProductAvailability(
-    shopifyAvailabilityBySku.get(safeSku) || ""
-  );
+  const savedAvailability = shopifyAvailabilityBySku.get(safeSku) || "";
+  const availability =
+    savedAvailability === "in_stock"
+      ? ""
+      : mapShopifyAvailabilityToProductAvailability(savedAvailability);
 
   if (availability === "Backorder" && !hasActiveVendor) {
     return "";
