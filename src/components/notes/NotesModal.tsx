@@ -226,6 +226,15 @@ function getBuiltToOrderVendor(productDetails: ProductDetails | null) {
   );
 }
 
+function getWarehouseStockQuantity(productDetails: ProductDetails | null) {
+  return (productDetails?.vendors || [])
+    .filter((vendor) => vendor.stockSource === "warehouse")
+    .reduce(
+      (total, vendor) => total + Math.max(Number(vendor.quantity || 0), 0),
+      0
+    );
+}
+
 function getProductDetailsBuiltToOrderLeadTime(
   productDetails: ProductDetails | null
 ) {
@@ -1686,6 +1695,8 @@ export function NotesModal({
   const parentKits = productDetails?.parentKits || [];
   const editableVendors = vendors.filter(canUpdateVendorStock);
   const builtToOrderVendor = getBuiltToOrderVendor(productDetails);
+  const warehouseStockQuantity = getWarehouseStockQuantity(productDetails);
+  const hasWarehouseStock = warehouseStockQuantity > 0;
   const builtToOrderLeadTimeValue =
     builtToOrderVendor?.buildTime || builtToOrderLeadTime;
   const builtToOrderMessagePreview = formatBuiltToOrderMessage(
@@ -1838,6 +1849,16 @@ export function NotesModal({
       return;
     }
 
+    if (availability === "backordered" && hasWarehouseStock) {
+      setDetailsError(
+        `This product has ${formatStockQuantity(
+          warehouseStockQuantity
+        )} in DPP Warehouse, so it cannot be set to Backordered.`
+      );
+      setShopifyAvailabilityStatus("");
+      return;
+    }
+
     const isBuiltToOrder = availability === "built_to_order";
     const hasBuiltToOrderVendor = vendors.some(
       (vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder
@@ -1975,7 +1996,11 @@ export function NotesModal({
                 role="group"
                 aria-label="Shopify product availability"
               >
-                {shopifyAvailabilityOptions.map((option) => (
+                {shopifyAvailabilityOptions.map((option) => {
+                  const isBackorderedBlocked =
+                    option.status === "backordered" && hasWarehouseStock;
+
+                  return (
                   <button
                     key={option.status}
                     type="button"
@@ -1988,14 +2013,29 @@ export function NotesModal({
                       !productDetails ||
                       isShopifyAvailabilitySaving ||
                       isFollowUpSaving ||
-                      isBulkVendorStockSaving
+                      isBulkVendorStockSaving ||
+                      isBackorderedBlocked
+                    }
+                    title={
+                      isBackorderedBlocked
+                        ? `DPP Warehouse has ${formatStockQuantity(
+                            warehouseStockQuantity
+                          )} in stock.`
+                        : undefined
                     }
                     onClick={() => handleShopifyAvailabilityChange(option.status)}
                   >
                     {option.label}
                   </button>
-                ))}
+                  );
+                })}
               </div>
+
+              {hasWarehouseStock && (
+                <p className="shopify-availability-note">
+                  Backordered is disabled while DPP Warehouse has stock.
+                </p>
+              )}
 
               {shouldShowBuiltToOrderLeadTime && (
                 <label className="built-to-order-lead-time">

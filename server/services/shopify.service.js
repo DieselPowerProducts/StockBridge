@@ -823,6 +823,24 @@ async function getVariantAvailabilityMetafields(variantIds) {
   return metafieldsByVariantId;
 }
 
+async function getWarehouseQtyAvailableForSku(sku) {
+  const safeSku = normalizeSku(sku);
+
+  if (!safeSku) {
+    return 0;
+  }
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT COALESCE(SUM(ws.qty_available), 0)::float AS qty_available
+    FROM catalog_products p
+    JOIN catalog_warehouse_stock ws ON ws.product_id = p.product_id
+    WHERE UPPER(p.sku) = ${safeSku}
+  `;
+
+  return Math.max(Number(rows[0]?.qty_available || 0), 0);
+}
+
 async function getVariantAvailabilityStatePage({ after = "", first = 250 } = {}) {
   const pageSize = Math.max(
     1,
@@ -1222,6 +1240,19 @@ async function updateProductAvailability({
   followUpDate,
   productName
 }) {
+  const requestedStatus = normalizeAvailabilityStatus(availability);
+
+  if (requestedStatus === "backordered") {
+    const warehouseQtyAvailable = await getWarehouseQtyAvailableForSku(sku);
+
+    if (warehouseQtyAvailable > 0) {
+      throw createHttpError(
+        400,
+        `This product has ${warehouseQtyAvailable} in DPP Warehouse, so it cannot be set to Backordered.`
+      );
+    }
+  }
+
   const productMatch = await findProductBySku(sku, { productName });
   const variants = await getProductVariants(productMatch.productId);
   const variantIds = variants.map((variant) => variant.id).filter(Boolean);
@@ -1232,7 +1263,7 @@ async function updateProductAvailability({
 
   const { deleteKeys, metafields, status } = getMetafieldChanges({
     ownerIds: variantIds,
-    availability,
+    availability: requestedStatus,
     buildToOrderMessage,
     followUpDate
   });
