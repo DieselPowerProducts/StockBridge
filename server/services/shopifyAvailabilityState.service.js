@@ -180,6 +180,99 @@ async function setAvailabilityStatus({
   return normalizeAvailabilityStatus(rows[0]?.availability_status);
 }
 
+async function setAvailabilityStatuses(records) {
+  const safeRecords = (records || [])
+    .map((record) => {
+      const sku = normalizeSku(record?.sku);
+      const availabilityStatus = normalizeAvailabilityStatus(
+        record?.availability
+      );
+      const shouldUpdateLeadTime = record?.buildToOrderLeadTime !== undefined;
+      const buildToOrderLeadTime = shouldUpdateLeadTime
+        ? normalizeBuildToOrderLeadTime(record.buildToOrderLeadTime)
+        : "";
+
+      return {
+        sku,
+        availability_status: availabilityStatus,
+        build_to_order_lead_time: buildToOrderLeadTime,
+        should_update_lead_time: shouldUpdateLeadTime
+      };
+    })
+    .filter((record) => record.sku && record.availability_status);
+
+  if (safeRecords.length === 0) {
+    return [];
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const upsertRecords = async (nextRecords, shouldUpdateLeadTime) => {
+    if (nextRecords.length === 0) {
+      return [];
+    }
+
+    return sql.query(
+      `
+        WITH input_rows AS (
+          SELECT *
+          FROM jsonb_to_recordset($1::jsonb) AS row(
+            sku TEXT,
+            availability_status TEXT,
+            build_to_order_lead_time TEXT
+          )
+        )
+        INSERT INTO product_shopify_availability_state (
+          sku,
+          availability_status,
+          build_to_order_lead_time
+        )
+        SELECT
+          sku,
+          availability_status,
+          build_to_order_lead_time
+        FROM input_rows
+        ON CONFLICT (sku) DO UPDATE
+        SET availability_status = EXCLUDED.availability_status,
+            build_to_order_lead_time =
+              CASE
+                WHEN $2::boolean
+                THEN EXCLUDED.build_to_order_lead_time
+                ELSE product_shopify_availability_state.build_to_order_lead_time
+              END,
+            updated_at = now()
+        RETURNING sku, availability_status
+      `,
+      [
+        JSON.stringify(
+          nextRecords.map((record) => ({
+            sku: record.sku,
+            availability_status: record.availability_status,
+            build_to_order_lead_time: record.build_to_order_lead_time
+          }))
+        ),
+        shouldUpdateLeadTime
+      ]
+    );
+  };
+  const rows = [
+    ...(await upsertRecords(
+      safeRecords.filter((record) => record.should_update_lead_time),
+      true
+    )),
+    ...(await upsertRecords(
+      safeRecords.filter((record) => !record.should_update_lead_time),
+      false
+    ))
+  ];
+
+  return rows.map((row) => ({
+    sku: normalizeSku(row?.sku),
+    availability: normalizeAvailabilityStatus(row?.availability_status)
+  }));
+}
+
 async function setBuildToOrderLeadTime({ sku, buildToOrderLeadTime }) {
   assertSku(sku);
   const safeBuildToOrderLeadTime =
@@ -210,5 +303,6 @@ module.exports = {
   getAvailabilityStatusesForSkus,
   getBuildToOrderLeadTimeForSku,
   setAvailabilityStatus,
+  setAvailabilityStatuses,
   setBuildToOrderLeadTime
 };

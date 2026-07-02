@@ -195,6 +195,23 @@ function normalizeBuildToOrderMessage(value) {
   return String(value || "").trim();
 }
 
+function normalizeOptionalAvailabilityStatus(value) {
+  try {
+    return normalizeAvailabilityStatus(value);
+  } catch (error) {
+    return "";
+  }
+}
+
+function parseBuildToOrderLeadTimeFromMessage(value) {
+  const message = normalizeBuildToOrderMessage(value);
+  const match = message.match(
+    /^This product will ship in\s+(.+?)\s+from the manufacturer\.?$/i
+  );
+
+  return match ? match[1].trim() : "";
+}
+
 function formatUserErrors(userErrors) {
   return (userErrors || [])
     .map((error) => {
@@ -806,6 +823,170 @@ async function getVariantAvailabilityMetafields(variantIds) {
   return metafieldsByVariantId;
 }
 
+async function getVariantAvailabilityStatePage({ after = "", first = 250 } = {}) {
+  const pageSize = Math.max(
+    1,
+    Math.min(250, Number.parseInt(String(first || 250), 10) || 250)
+  );
+  const data = await shopifyGraphQL(
+    `
+      query VariantAvailabilityStatePage($first: Int!, $after: String) {
+        productVariants(first: $first, after: $after) {
+          nodes {
+            id
+            sku
+            productAvailability: metafield(
+              namespace: "custom"
+              key: "product_availability"
+            ) {
+              value
+            }
+            buildToOrderMessage: metafield(
+              namespace: "custom"
+              key: "build_to_order_message"
+            ) {
+              value
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    `,
+    {
+      first: pageSize,
+      after: after || null
+    },
+    shopifyAvailabilityProfile
+  );
+  const variants = Array.isArray(data?.productVariants?.nodes)
+    ? data.productVariants.nodes
+    : [];
+  const pageInfo = data?.productVariants?.pageInfo || {};
+
+  return {
+    variants,
+    pageInfo: {
+      hasNextPage: Boolean(pageInfo.hasNextPage),
+      endCursor: pageInfo.endCursor || ""
+    }
+  };
+}
+
+function mergeVariantAvailabilityRecords(variants) {
+  const recordsBySku = new Map();
+  const skipped = [];
+  const conflictSkus = new Set();
+
+  for (const variant of variants) {
+    const sku = normalizeSku(variant?.sku);
+
+    if (!sku) {
+      skipped.push({
+        reason: "missing_sku",
+        variantId: variant?.id || ""
+      });
+      continue;
+    }
+
+    const availability = normalizeOptionalAvailabilityStatus(
+      variant?.productAvailability?.value
+    );
+
+    if (!availability) {
+      skipped.push({
+        reason: "missing_or_unknown_availability",
+        sku,
+        value: String(variant?.productAvailability?.value || "")
+      });
+      continue;
+    }
+
+    const buildToOrderLeadTime =
+      availability === "built_to_order"
+        ? parseBuildToOrderLeadTimeFromMessage(
+            variant?.buildToOrderMessage?.value
+          )
+        : undefined;
+    const nextRecord = {
+      sku,
+      availability,
+      buildToOrderLeadTime
+    };
+    const currentRecord = recordsBySku.get(sku);
+
+    if (!currentRecord) {
+      recordsBySku.set(sku, nextRecord);
+      continue;
+    }
+
+    if (
+      currentRecord.availability === nextRecord.availability &&
+      String(currentRecord.buildToOrderLeadTime || "") ===
+        String(nextRecord.buildToOrderLeadTime || "")
+    ) {
+      continue;
+    }
+
+    conflictSkus.add(sku);
+    skipped.push({
+      reason: "duplicate_sku_conflict",
+      sku,
+      value: String(variant?.productAvailability?.value || "")
+    });
+  }
+
+  for (const sku of conflictSkus) {
+    recordsBySku.delete(sku);
+  }
+
+  return {
+    records: Array.from(recordsBySku.values()),
+    skipped
+  };
+}
+
+function countAvailabilityRecords(records) {
+  return records.reduce(
+    (counts, record) => ({
+      ...counts,
+      [record.availability]: (counts[record.availability] || 0) + 1
+    }),
+    {}
+  );
+}
+
+async function syncAvailabilityStateFromShopifyPage({
+  after = "",
+  first = 250
+} = {}) {
+  const { variants, pageInfo } = await getVariantAvailabilityStatePage({
+    after,
+    first
+  });
+  const { records, skipped } = mergeVariantAvailabilityRecords(variants);
+  const savedRecords =
+    await shopifyAvailabilityStateService.setAvailabilityStatuses(records);
+
+  try {
+    require("./catalog.service").clearCaches();
+  } catch (error) {
+    console.error("Unable to clear catalog caches after Shopify availability sync.", error);
+  }
+
+  return {
+    availabilityCounts: countAvailabilityRecords(records),
+    hasNextPage: pageInfo.hasNextPage,
+    nextCursor: pageInfo.hasNextPage ? pageInfo.endCursor : "",
+    scannedVariantCount: variants.length,
+    skippedCount: skipped.length,
+    skippedSamples: skipped.slice(0, 25),
+    updatedCount: savedRecords.length
+  };
+}
+
 function metafieldValueMatches(expectedMetafield, verifiedMetafield) {
   if (!verifiedMetafield) {
     return false;
@@ -1328,5 +1509,6 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
 
 module.exports = {
   resolveOrder,
+  syncAvailabilityStateFromShopifyPage,
   updateProductAvailability
 };

@@ -10,6 +10,7 @@ import type {
   ProductDetails,
   ProductsResponse,
   ShopifyAvailabilityResponse,
+  ShopifyAvailabilitySyncResponse,
   ShopifyAvailabilityStatus,
   StockCheckSort,
   VendorAutoInventorySettings,
@@ -334,6 +335,25 @@ export function updateShopifyProductAvailability({
       sku
     })
   });
+}
+
+export function syncShopifyAvailabilityState({
+  cursor,
+  first = 250
+}: {
+  cursor?: string;
+  first?: number;
+}) {
+  return request<ShopifyAvailabilitySyncResponse>(
+    "/shopify/products/availability/sync-state",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ cursor, first })
+    }
+  );
 }
 
 export function getVendorContacts(vendorId: string) {

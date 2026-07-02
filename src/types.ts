@@ -1,5 +1,5 @@
 export type PageName = "products" | "stock-check" | "vendors" | "notifications";
-export type RoutePageName = PageName | "notes";
+export type RoutePageName = PageName | "notes" | "shopify-availability-sync";
 
 export type AppRoute = {
   page: RoutePageName;
@@ -63,6 +63,20 @@ export type ShopifyAvailabilityStatus =
   | "out_of_stock"
   | "backordered"
   | "built_to_order";
+export type ShopifyAvailabilitySyncResponse = {
+  availabilityCounts: Partial<Record<ShopifyAvailabilityStatus, number>>;
+  hasNextPage: boolean;
+  nextCursor: string;
+  scannedVariantCount: number;
+  skippedCount: number;
+  skippedSamples: Array<{
+    reason: string;
+    sku?: string;
+    value?: string;
+    variantId?: string;
+  }>;
+  updatedCount: number;
+};
 export type StockCheckSort =
   | "yesterday"
   | "today"

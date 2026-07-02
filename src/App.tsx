@@ -6,6 +6,7 @@ import { NotesModal } from "./components/notes/NotesModal";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
+import { ShopifyAvailabilitySyncPage } from "./components/shopify/ShopifyAvailabilitySyncPage";
 import { VendorsPage } from "./components/vendors/VendorsPage";
 import { getAppVersion, getCurrentUser, signOut } from "./services/api";
 import type {
@@ -36,7 +37,8 @@ function parseRoute(): AppRoute {
     page === "vendors" ||
     page === "products" ||
     page === "stock-check" ||
-    page === "notifications"
+    page === "notifications" ||
+    page === "shopify-availability-sync"
   ) {
     return { page, sku: "", vendor: page === "vendors" ? routeValue : "" };
   }
@@ -252,10 +254,17 @@ export function App() {
     );
   }
 
+  const sidebarPage: PageName =
+    route.page === "stock-check" ||
+    route.page === "vendors" ||
+    route.page === "notifications"
+      ? route.page
+      : "products";
+
   return (
     <div className="container">
       <Sidebar
-        currentPage={route.page}
+        currentPage={sidebarPage}
         user={authUser}
         onNavigate={(page) => setHashRoute(page)}
         onLogout={handleLogout}
@@ -296,6 +305,10 @@ export function App() {
 
           {route.page === "notifications" && (
             <NotificationsPage onOpenSku={setSelectedSku} />
+          )}
+
+          {route.page === "shopify-availability-sync" && (
+            <ShopifyAvailabilitySyncPage />
           )}
         </main>
       </div>

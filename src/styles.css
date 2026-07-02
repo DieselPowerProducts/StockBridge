@@ -621,6 +621,85 @@ button:disabled {
   color: #ffb4a8;
 }
 
+.shopify-sync-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shopify-sync-header {
+  align-items: flex-start;
+  border-bottom: 1px solid #444444;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding-bottom: 16px;
+}
+
+.shopify-sync-header h1 {
+  margin: 0;
+}
+
+.shopify-sync-actions {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.shopify-sync-actions button {
+  background: #26384c;
+  border: 1px solid #5d7897;
+  color: #f0f6ff;
+  min-width: 96px;
+  padding: 8px 12px;
+}
+
+.shopify-sync-actions button:not(:disabled):hover {
+  background: #314760;
+}
+
+.shopify-sync-stats,
+.shopify-sync-counts {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: 0;
+}
+
+.shopify-sync-stats div,
+.shopify-sync-counts div {
+  background: #242424;
+  border: 1px solid #444444;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.shopify-sync-stats dt,
+.shopify-sync-counts span {
+  color: #cccccc;
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.shopify-sync-stats dd,
+.shopify-sync-counts strong {
+  color: #ffffff;
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.shopify-sync-skips {
+  display: grid;
+  gap: 10px;
+}
+
+.shopify-sync-skips h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
 table {
   border-collapse: collapse;
   table-layout: fixed;

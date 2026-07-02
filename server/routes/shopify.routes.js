@@ -8,5 +8,9 @@ router.post(
   "/shopify/products/availability",
   shopifyController.updateProductAvailability
 );
+router.post(
+  "/shopify/products/availability/sync-state",
+  shopifyController.syncAvailabilityStateFromShopify
+);
 
 module.exports = router;

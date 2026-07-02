@@ -32,7 +32,21 @@ async function updateProductAvailability(req, res, next) {
   }
 }
 
+async function syncAvailabilityStateFromShopify(req, res, next) {
+  try {
+    const result = await shopifyService.syncAvailabilityStateFromShopifyPage({
+      after: req.body.cursor,
+      first: req.body.first
+    });
+
+    res.send(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   resolveOrder,
+  syncAvailabilityStateFromShopify,
   updateProductAvailability
 };
