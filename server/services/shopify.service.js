@@ -13,6 +13,7 @@ const availabilityMetafieldKey = "product_availability";
 const availabilityDateMetafieldKey = "product_availability_date";
 const availabilityDateConfirmedMetafieldKey = "availability_date_confirmed";
 const buildToOrderMessageMetafieldKey = "build_to_order_message";
+const quickShipMetafieldKey = "quick_ship";
 const availabilityValues = {
   in_stock: "In Stock",
   out_of_stock: "Out of Stock",
@@ -657,6 +658,192 @@ async function getProductVariants(productId) {
   }
 
   return variants;
+}
+
+function normalizeQuickShipValue(value) {
+  return Number(value || 0) > 0 ? "1" : "0";
+}
+
+function getQuickShipMetafieldsForTarget(target) {
+  const quickShipValue = normalizeQuickShipValue(target.quickShip);
+
+  return target.variantIds.map((ownerId) => ({
+    key: quickShipMetafieldKey,
+    namespace: metafieldNamespace,
+    ownerId,
+    type: "number_integer",
+    value: quickShipValue
+  }));
+}
+
+async function getQuickShipVariantTargets(records) {
+  const targets = [];
+
+  for (const chunk of chunkItems(records, 20)) {
+    const variableDefinitions = chunk
+      .map((_, index) => `$query${index}: String!`)
+      .join(", ");
+    const fields = chunk
+      .map(
+        (_, index) => `
+          variant${index}: productVariants(first: 25, query: $query${index}) {
+            nodes {
+              id
+              sku
+              product {
+                id
+                handle
+                status
+                title
+              }
+            }
+          }
+        `
+      )
+      .join("\n");
+    const variables = Object.fromEntries(
+      chunk.map((record, index) => [
+        `query${index}`,
+        getProductSearchQuery(record.safeSku)
+      ])
+    );
+    const data = await shopifyGraphQL(
+      `
+        query QuickShipVariantTargets(${variableDefinitions}) {
+          ${fields}
+        }
+      `,
+      variables,
+      shopifyAvailabilityProfile
+    );
+
+    chunk.forEach((record, index) => {
+      const nodes = Array.isArray(data?.[`variant${index}`]?.nodes)
+        ? data[`variant${index}`].nodes
+        : [];
+      const exactVariants = nodes.filter(
+        (variant) => normalizeSku(variant?.sku) === record.safeSku
+      );
+
+      if (exactVariants.length === 0) {
+        targets.push({
+          ...record,
+          error: "No Shopify variants matched this SKU.",
+          ok: false
+        });
+        return;
+      }
+
+      const firstVariant = exactVariants[0] || {};
+      const product = firstVariant.product || {};
+      const variantIds = exactVariants.map((variant) => variant.id).filter(Boolean);
+
+      if (variantIds.length === 0) {
+        targets.push({
+          ...record,
+          error: "No Shopify variant IDs matched this SKU.",
+          ok: false
+        });
+        return;
+      }
+
+      targets.push({
+        ...record,
+        duplicateSkuMatchCount: exactVariants.length,
+        handle: product.handle || "",
+        matchedSku: firstVariant.sku || record.sku,
+        productId: product.id || "",
+        productTitle: product.title || "",
+        productStatus: product.status || "",
+        variantIds
+      });
+    });
+  }
+
+  return targets;
+}
+
+async function saveQuickShipTarget(target) {
+  const quickShipValue = normalizeQuickShipValue(target.quickShip);
+  const savedMetafields = await setMetafields(getQuickShipMetafieldsForTarget(target));
+
+  return {
+    ...target,
+    ok: true,
+    quickShip: Number(quickShipValue),
+    savedMetafields,
+    updatedMetafieldOwnerCount: target.variantIds.length
+  };
+}
+
+async function saveQuickShipTargetBatch(targets) {
+  try {
+    const savedMetafields = await setMetafields(
+      targets.flatMap(getQuickShipMetafieldsForTarget)
+    );
+
+    return targets.map((target) => {
+      const quickShipValue = normalizeQuickShipValue(target.quickShip);
+
+      return {
+        ...target,
+        ok: true,
+        quickShip: Number(quickShipValue),
+        savedMetafields,
+        updatedMetafieldOwnerCount: target.variantIds.length
+      };
+    });
+  } catch (batchError) {
+    const results = [];
+
+    for (const target of targets) {
+      try {
+        results.push(await saveQuickShipTarget(target));
+      } catch (error) {
+        results.push({
+          ...target,
+          error: String(
+            error?.message ||
+              batchError?.message ||
+              error ||
+              "Unable to update Shopify."
+          ),
+          ok: false
+        });
+      }
+    }
+
+    return results;
+  }
+}
+
+async function updateQuickShipMetafields(records) {
+  const safeRecords = (records || [])
+    .map((record) => ({
+      parentProductId: String(record?.parentProductId || "").trim(),
+      productName: String(record?.productName || "").trim(),
+      quickShip: Number(record?.quickShip || 0) > 0 ? 1 : 0,
+      safeSku: normalizeSku(record?.sku),
+      sku: String(record?.sku || "").trim()
+    }))
+    .filter((record) => record.sku && record.safeSku);
+  const targets = await getQuickShipVariantTargets(safeRecords);
+  const failedTargetResults = targets.filter((target) => target.ok === false);
+  const validTargets = targets.filter((target) => target.ok !== false);
+  const savedTargetResults = [];
+
+  for (const targetBatch of chunkItems(validTargets, 25)) {
+    savedTargetResults.push(...(await saveQuickShipTargetBatch(targetBatch)));
+  }
+
+  const results = [...failedTargetResults, ...savedTargetResults];
+
+  return {
+    requested: safeRecords.length,
+    updated: results.filter((result) => result.ok).length,
+    failed: results.filter((result) => !result.ok).length,
+    results
+  };
 }
 
 async function setMetafields(metafields) {
@@ -1541,5 +1728,6 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
 module.exports = {
   resolveOrder,
   syncAvailabilityStateFromShopifyPage,
-  updateProductAvailability
+  updateProductAvailability,
+  updateQuickShipMetafields
 };

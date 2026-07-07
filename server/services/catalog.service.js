@@ -1,5 +1,6 @@
 const { getSql } = require("../db/neon");
 const followUpsService = require("./followUps.service");
+const kitQuickShipService = require("./kitQuickShip.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 const skunexus = require("./skunexus.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
@@ -2266,17 +2267,31 @@ async function deleteProductsDisplacedBySku(rows) {
 }
 
 async function upsertComponents(rows, syncStamp) {
-  const normalizedRows = dedupeRows(
-    rows
-      .map((row) => ({
-        parent_product_id: String(row?.parent_product_id || "").trim(),
-        child_sku: String(row?.child_sku || "").trim(),
-        child_name: String(row?.child_name || row?.child_sku || "").trim(),
-        qty_required: Math.max(Number(row?.qty_required || 0), 1)
-      }))
-      .filter((row) => row.parent_product_id && row.child_sku),
-    (row) => `${row.parent_product_id}:${row.child_sku}`
-  );
+  const rowsByKey = new Map();
+
+  for (const row of rows) {
+    const normalizedRow = {
+      parent_product_id: String(row?.parent_product_id || "").trim(),
+      child_sku: String(row?.child_sku || "").trim(),
+      child_name: String(row?.child_name || row?.child_sku || "").trim(),
+      qty_required: Math.max(Number(row?.qty_required || 0), 1)
+    };
+
+    if (!normalizedRow.parent_product_id || !normalizedRow.child_sku) {
+      continue;
+    }
+
+    const key = `${normalizedRow.parent_product_id}:${normalizedRow.child_sku}`;
+    const current = rowsByKey.get(key);
+
+    rowsByKey.set(key, {
+      ...normalizedRow,
+      child_name: current?.child_name || normalizedRow.child_name,
+      qty_required: (current?.qty_required || 0) + normalizedRow.qty_required
+    });
+  }
+
+  const normalizedRows = Array.from(rowsByKey.values());
 
   if (normalizedRows.length === 0) {
     return;
@@ -2618,6 +2633,36 @@ async function syncInactiveProductStates(syncStamp) {
   };
 }
 
+async function syncKitQuickShipAfterWarehouseUpdate(reason) {
+  try {
+    const result = await kitQuickShipService.syncKitQuickShipMetafields();
+    await setSyncState("catalog_last_kit_quick_ship_sync_at", new Date().toISOString());
+    await setSyncState("catalog_last_kit_quick_ship_sync_reason", reason);
+    await setSyncState("catalog_last_kit_quick_ship_sync_error_at", "");
+    await setSyncState("catalog_last_kit_quick_ship_sync_error", "");
+
+    return result;
+  } catch (error) {
+    const errorMessage = String(
+      error?.message || error || "Kit quick ship sync failed."
+    ).slice(0, 1000);
+
+    console.error("Kit quick ship sync failed; continuing catalog sync.", error);
+    await setSyncState(
+      "catalog_last_kit_quick_ship_sync_error_at",
+      new Date().toISOString()
+    );
+    await setSyncState("catalog_last_kit_quick_ship_sync_error", errorMessage);
+
+    return {
+      error: errorMessage,
+      failed: 0,
+      requested: 0,
+      updated: 0
+    };
+  }
+}
+
 async function runFullSync({ reason = "manual" } = {}) {
   await initializeSchema();
 
@@ -2662,6 +2707,14 @@ async function runFullSync({ reason = "manual" } = {}) {
       await upsertWarehouseStock(warehouseStockRows, syncStamp);
     }
     await deleteStaleFullSyncRows(syncStamp, { includeWarehouse: didSyncWarehouse });
+    const kitQuickShip = didSyncWarehouse
+      ? await syncKitQuickShipAfterWarehouseUpdate(reason)
+      : {
+          failed: 0,
+          requested: 0,
+          skipped: true,
+          updated: 0
+        };
     await setSyncState("catalog_last_full_sync_at", syncStamp);
     await setSyncState("catalog_last_full_sync_reason", reason);
     if (didSyncWarehouse) {
@@ -2675,7 +2728,8 @@ async function runFullSync({ reason = "manual" } = {}) {
       products: normalizedProducts.length,
       vendors: vendors.length,
       vendorProducts: vendorProducts.length,
-      warehouseProducts: warehouseStockRows.length
+      warehouseProducts: warehouseStockRows.length,
+      kitQuickShip
     };
   })();
 
@@ -2715,6 +2769,7 @@ async function runWarehouseSync({ reason = "manual" } = {}) {
     } catch (error) {
       console.error("Product active-state sync failed; continuing warehouse sync.", error);
     }
+    const kitQuickShip = await syncKitQuickShipAfterWarehouseUpdate(reason);
     await setSyncState("catalog_last_warehouse_sync_at", syncStamp);
     await setSyncState("catalog_last_warehouse_sync_reason", reason);
     clearCaches();
@@ -2723,7 +2778,8 @@ async function runWarehouseSync({ reason = "manual" } = {}) {
       syncedAt: syncStamp,
       warehouseProducts: warehouseStockRows.length,
       activeProducts: productStateResult.activeProducts,
-      deactivatedProducts: productStateResult.deactivatedProducts
+      deactivatedProducts: productStateResult.deactivatedProducts,
+      kitQuickShip
     };
   })();
 
