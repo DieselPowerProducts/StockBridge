@@ -349,28 +349,41 @@ function getShopifyAvailabilityStatus(
   productDetails: ProductDetails,
   currentAvailability: ShopifyAvailabilityStatus | "" = ""
 ): ShopifyAvailabilityStatus {
+  const savedAvailability = productDetails.shopifyAvailabilityStatus || "";
+  const hasBuiltToOrderLeadTime = Boolean(
+    getProductDetailsBuiltToOrderLeadTime(productDetails).trim()
+  );
+
   if (productDetails.qtyAvailable > 0) {
     return "in_stock";
   }
 
-  if (currentAvailability === "out_of_stock") {
+  if (savedAvailability === "out_of_stock" || currentAvailability === "out_of_stock") {
     return "out_of_stock";
+  }
+
+  if (savedAvailability === "backordered" || currentAvailability === "backordered") {
+    return "backordered";
+  }
+
+  if (hasBuiltToOrderLeadTime) {
+    return "built_to_order";
   }
 
   if (productDetails.availability === "Available") {
     return "in_stock";
   }
 
-  if (productDetails.availability === "Backorder") {
-    return "backordered";
-  }
-
-  if (currentAvailability === "built_to_order") {
+  if (savedAvailability === "built_to_order" || currentAvailability === "built_to_order") {
     return "built_to_order";
   }
 
   if (productDetails.availability === "Built to Order") {
     return "built_to_order";
+  }
+
+  if (productDetails.availability === "Backorder") {
+    return "backordered";
   }
 
   return "backordered";

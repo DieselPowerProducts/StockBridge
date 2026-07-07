@@ -98,6 +98,40 @@ async function getBuildToOrderLeadTimeForSku(sku) {
   return String(rows[0]?.build_to_order_lead_time || "").trim();
 }
 
+async function getBuildToOrderLeadTimesForSkus(skus) {
+  const safeSkus = Array.from(
+    new Set((skus || []).map(normalizeSku).filter(Boolean))
+  );
+
+  if (safeSkus.length === 0) {
+    return new Map();
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const skuJson = JSON.stringify(safeSkus);
+  const rows = await sql.query(
+    `
+      SELECT sku, build_to_order_lead_time
+      FROM product_shopify_availability_state
+      WHERE sku IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [skuJson]
+  );
+
+  return new Map(
+    rows
+      .map((row) => [
+        normalizeSku(row?.sku),
+        String(row?.build_to_order_lead_time || "").trim()
+      ])
+      .filter(([sku, leadTime]) => sku && leadTime)
+  );
+}
+
 async function getAvailabilityStatusesForSkus(skus) {
   const safeSkus = Array.from(
     new Set((skus || []).map(normalizeSku).filter(Boolean))
@@ -302,6 +336,7 @@ module.exports = {
   getAvailabilityStatusForSku,
   getAvailabilityStatusesForSkus,
   getBuildToOrderLeadTimeForSku,
+  getBuildToOrderLeadTimesForSkus,
   setAvailabilityStatus,
   setAvailabilityStatuses,
   setBuildToOrderLeadTime
