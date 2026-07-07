@@ -287,7 +287,7 @@ function mapShopifyAvailabilityToProductAvailability(status) {
 function getProductAvailabilityOverride(
   sku,
   shopifyAvailabilityBySku = new Map(),
-  { hasActiveVendor = true, qtyAvailable = 0 } = {}
+  { hasActiveVendor = true, hasBuiltToOrderVendor = false, qtyAvailable = 0 } = {}
 ) {
   const safeSku = String(sku || "").trim();
 
@@ -305,7 +305,7 @@ function getProductAvailabilityOverride(
       ? ""
       : mapShopifyAvailabilityToProductAvailability(savedAvailability);
 
-  if (availability === "Backorder" && !hasActiveVendor) {
+  if (availability === "Backorder" && !hasActiveVendor && !hasBuiltToOrderVendor) {
     return "";
   }
 
@@ -448,7 +448,14 @@ function getEffectiveAvailability(
   const availabilityOverride = getProductAvailabilityOverride(
     safeSku,
     shopifyAvailabilityBySku,
-    { hasActiveVendor: productHasActiveVendor, qtyAvailable }
+    {
+      hasActiveVendor: productHasActiveVendor,
+      hasBuiltToOrderVendor: hasBuiltToOrderVendor(
+        product,
+        productVendorAvailability
+      ),
+      qtyAvailable
+    }
   );
 
   if (availabilityOverride) {
@@ -1597,6 +1604,7 @@ function mapProduct(
       )
     : getProductAvailabilityOverride(sku, shopifyAvailabilityBySku, {
         hasActiveVendor,
+        hasBuiltToOrderVendor,
         qtyAvailable
       }) ||
       mapAvailability(qtyAvailable, hasActiveVendor, hasBuiltToOrderVendor);
@@ -3176,7 +3184,10 @@ async function listVendorProducts(vendorId, queryParams = {}) {
           getProductAvailabilityOverride(
             row.product_sku || row.sku || row.label || "",
             shopifyAvailabilityBySku,
-            { qtyAvailable }
+            {
+              hasBuiltToOrderVendor: builtToOrderProductIds.has(row.product_id),
+              qtyAvailable
+            }
           ) ||
           mapAvailability(
             qtyAvailable,

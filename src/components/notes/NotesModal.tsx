@@ -353,15 +353,20 @@ function getShopifyAvailabilityStatus(
     return "in_stock";
   }
 
-  if (
-    currentAvailability === "out_of_stock" ||
-    currentAvailability === "built_to_order"
-  ) {
-    return currentAvailability;
+  if (currentAvailability === "out_of_stock") {
+    return "out_of_stock";
   }
 
   if (productDetails.availability === "Available") {
     return "in_stock";
+  }
+
+  if (productDetails.availability === "Backorder") {
+    return "backordered";
+  }
+
+  if (currentAvailability === "built_to_order") {
+    return "built_to_order";
   }
 
   if (productDetails.availability === "Built to Order") {
