@@ -120,7 +120,6 @@ function normalizeEmail(value) {
 function normalizeSku(value) {
   return String(value || "")
     .trim()
-    .replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/gi, "")
     .toUpperCase();
 }
 
