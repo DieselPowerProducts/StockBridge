@@ -43,7 +43,7 @@ async function initializeSchema() {
   return schemaReady;
 }
 
-async function getKitQuickShipChanges() {
+async function getCalculatedKitQuickShipRows() {
   await initializeSchema();
 
   const sql = getSql();
@@ -117,11 +117,55 @@ async function getKitQuickShipChanges() {
       calculated.product_name AS "productName",
       calculated.quick_ship AS "quickShip"
     FROM calculated
-    LEFT JOIN kit_quick_ship_state state
-      ON state.parent_product_id = calculated.parent_product_id
-    WHERE state.last_pushed_quick_ship IS DISTINCT FROM calculated.quick_ship
     ORDER BY calculated.sku ASC
   `;
+}
+
+async function getPushedQuickShipByParentId(parentProductIds) {
+  const safeIds = Array.from(
+    new Set((parentProductIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (safeIds.length === 0) {
+    return new Map();
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql.query(
+    `
+      SELECT parent_product_id, last_pushed_quick_ship
+      FROM kit_quick_ship_state
+      WHERE parent_product_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [JSON.stringify(safeIds)]
+  );
+
+  return new Map(
+    rows.map((row) => [
+      String(row?.parent_product_id || "").trim(),
+      row?.last_pushed_quick_ship === null ||
+      row?.last_pushed_quick_ship === undefined
+        ? null
+        : normalizeQuickShip(row.last_pushed_quick_ship)
+    ])
+  );
+}
+
+async function getKitQuickShipChanges() {
+  const calculatedRows = await getCalculatedKitQuickShipRows();
+  const pushedQuickShipByParentId = await getPushedQuickShipByParentId(
+    calculatedRows.map((row) => row.parentProductId)
+  );
+
+  return calculatedRows.filter(
+    (row) =>
+      pushedQuickShipByParentId.get(String(row?.parentProductId || "").trim()) !==
+      normalizeQuickShip(row?.quickShip)
+  );
 }
 
 async function recordSuccessfulSyncs(records, syncedAt) {
@@ -247,28 +291,57 @@ async function recordFailedSyncs(records, syncedAt) {
 }
 
 async function syncKitQuickShipMetafields() {
-  const changes = (await getKitQuickShipChanges()).map(normalizeSyncRecord);
+  const calculatedRows = (await getCalculatedKitQuickShipRows()).map(
+    normalizeSyncRecord
+  );
 
-  if (changes.length === 0) {
+  if (calculatedRows.length === 0) {
     return {
       failed: 0,
       requested: 0,
+      verified: 0,
       updated: 0
     };
   }
 
   const syncedAt = new Date().toISOString();
-  const result = await shopifyService.updateQuickShipMetafields(changes);
-  const successfulRecords = result.results.filter((item) => item.ok);
-  const failedRecords = result.results.filter((item) => !item.ok);
+  const shopifyState = await shopifyService.getQuickShipMetafieldStates(
+    calculatedRows
+  );
+  const failedStateRecords = shopifyState.results.filter((item) => !item.ok);
+  const verifiedRecords = shopifyState.results.filter(
+    (item) => item.ok && item.matchesExpected
+  );
+  const mismatchRecords = shopifyState.results
+    .filter((item) => item.ok && !item.matchesExpected)
+    .map(normalizeSyncRecord);
+  const updateResult =
+    mismatchRecords.length > 0
+      ? await shopifyService.updateQuickShipMetafields(mismatchRecords)
+      : {
+          failed: 0,
+          requested: 0,
+          results: [],
+          updated: 0
+        };
+  const successfulRecords = [
+    ...verifiedRecords,
+    ...updateResult.results.filter((item) => item.ok)
+  ];
+  const failedRecords = [
+    ...failedStateRecords,
+    ...updateResult.results.filter((item) => !item.ok)
+  ];
 
   await recordSuccessfulSyncs(successfulRecords, syncedAt);
   await recordFailedSyncs(failedRecords, syncedAt);
 
   return {
-    failed: result.failed,
-    requested: result.requested,
-    updated: result.updated
+    failed: failedRecords.length,
+    mismatched: mismatchRecords.length,
+    requested: calculatedRows.length,
+    updated: updateResult.updated,
+    verified: verifiedRecords.length
   };
 }
 

@@ -9,11 +9,11 @@
     },
     "api/cron/catalog-full-sync.js": {
       "includeFiles": "server/**",
-      "maxDuration": 60
+      "maxDuration": 180
     },
     "api/cron/catalog-warehouse-sync.js": {
       "includeFiles": "server/**",
-      "maxDuration": 60
+      "maxDuration": 180
     },
     "api/cron/auto-inventory.js": {
       "includeFiles": "server/**",

@@ -689,6 +689,10 @@ async function getQuickShipVariantTargets(records) {
             nodes {
               id
               sku
+              quickShip: metafield(namespace: "custom", key: "quick_ship") {
+                value
+                type
+              }
               product {
                 id
                 handle
@@ -736,6 +740,9 @@ async function getQuickShipVariantTargets(records) {
       const firstVariant = exactVariants[0] || {};
       const product = firstVariant.product || {};
       const variantIds = exactVariants.map((variant) => variant.id).filter(Boolean);
+      const quickShipValues = exactVariants.map((variant) =>
+        normalizeQuickShipValue(variant?.quickShip?.value)
+      );
 
       if (variantIds.length === 0) {
         targets.push({
@@ -754,12 +761,52 @@ async function getQuickShipVariantTargets(records) {
         productId: product.id || "",
         productTitle: product.title || "",
         productStatus: product.status || "",
+        quickShipValues,
+        quickShipMetafieldCount: exactVariants.filter((variant) => variant?.quickShip)
+          .length,
         variantIds
       });
     });
   }
 
   return targets;
+}
+
+async function getQuickShipMetafieldStates(records) {
+  const safeRecords = (records || [])
+    .map((record) => ({
+      parentProductId: String(record?.parentProductId || "").trim(),
+      productName: String(record?.productName || "").trim(),
+      quickShip: Number(record?.quickShip || 0) > 0 ? 1 : 0,
+      safeSku: normalizeSku(record?.sku),
+      sku: String(record?.sku || "").trim()
+    }))
+    .filter((record) => record.sku && record.safeSku);
+  const targets = await getQuickShipVariantTargets(safeRecords);
+
+  return {
+    requested: safeRecords.length,
+    results: targets.map((target) => {
+      if (target.ok === false) {
+        return target;
+      }
+
+      const expectedValue = normalizeQuickShipValue(target.quickShip);
+      const hasAllMetafields =
+        Number(target.quickShipMetafieldCount || 0) === target.variantIds.length;
+      const matchesExpected =
+        hasAllMetafields &&
+        target.quickShipValues.every((value) => value === expectedValue);
+
+      return {
+        ...target,
+        currentQuickShipValues: target.quickShipValues,
+        matchesExpected,
+        ok: true,
+        quickShip: Number(expectedValue)
+      };
+    })
+  };
 }
 
 async function saveQuickShipTarget(target) {
@@ -1725,6 +1772,7 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
 }
 
 module.exports = {
+  getQuickShipMetafieldStates,
   resolveOrder,
   syncAvailabilityStateFromShopifyPage,
   updateProductAvailability,
