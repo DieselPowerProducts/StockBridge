@@ -19,6 +19,7 @@ import { VendorsTable } from "./VendorsTable";
 type VendorsPageProps = {
   selectedVendor: string;
   onBackToVendors: () => void;
+  onOpenNotes: (sku: string) => void;
   onSelectVendor: (vendor: string) => void;
 };
 
@@ -68,6 +69,7 @@ function parseSkuExceptions(value: string) {
 export function VendorsPage({
   selectedVendor,
   onBackToVendors,
+  onOpenNotes,
   onSelectVendor
 }: VendorsPageProps) {
   const [vendors, setVendors] = useState<VendorSummary[]>([]);
@@ -440,6 +442,7 @@ export function VendorsPage({
             onBuildTimeBlur={handleBuildTimeBlur}
             onOpenAutoInventory={handleOpenAutoInventoryModal}
             onBackToVendors={onBackToVendors}
+            onOpenNotes={onOpenNotes}
           />
 
           <Pagination

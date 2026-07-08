@@ -290,6 +290,7 @@ export function App() {
             <VendorsPage
               selectedVendor={route.vendor}
               onBackToVendors={() => setHashRoute("vendors")}
+              onOpenNotes={setSelectedSku}
               onSelectVendor={(vendorId) => setHashRoute("vendors", vendorId)}
             />
           )}

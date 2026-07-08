@@ -16,6 +16,7 @@ type VendorProductsTableProps = {
   onBuildTimeBlur: () => void;
   onOpenAutoInventory: () => void;
   onBackToVendors: () => void;
+  onOpenNotes: (sku: string) => void;
 };
 
 function getAvailabilityClass(product: VendorProduct) {
@@ -65,7 +66,8 @@ export function VendorProductsTable({
   onBuildTimeChange,
   onBuildTimeBlur,
   onOpenAutoInventory,
-  onBackToVendors
+  onBackToVendors,
+  onOpenNotes
 }: VendorProductsTableProps) {
   return (
     <section aria-label="Vendor products">
@@ -163,7 +165,15 @@ export function VendorProductsTable({
           ) : (
             products.map((product) => (
               <tr key={product.vendorProductId}>
-                <td>{product.sku}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="sku-link"
+                    onClick={() => onOpenNotes(product.sku)}
+                  >
+                    {product.sku}
+                  </button>
+                </td>
                 <td>{product.name}</td>
                 <td>
                   <span
