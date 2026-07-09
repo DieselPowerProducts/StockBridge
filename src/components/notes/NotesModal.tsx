@@ -2319,7 +2319,6 @@ export function NotesModal({
                             aria-label={`Open notes for ${childProduct.sku}`}
                           >
                             <strong>{childProduct.sku}</strong>
-                            <span>{childProduct.name}</span>
                           </button>
 
                           <div className="kit-child-product-meta">

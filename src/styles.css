@@ -1695,8 +1695,7 @@ body:has(.notes-popup-page),
   outline-offset: 3px;
 }
 
-.kit-child-product-open strong,
-.kit-child-product-open span {
+.kit-child-product-open strong {
   overflow-wrap: anywhere;
 }
 
