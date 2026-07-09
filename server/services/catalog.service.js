@@ -460,6 +460,7 @@ function getEffectiveAvailability(
         product.qty_available,
         getVendorQtyAvailable(product, productVendorAvailability)
       );
+  const isKitWithComponents = Boolean(product.is_kit && product.relatedProduct.length > 0);
   const availabilityOverride = getProductAvailabilityOverride(
     safeSku,
     shopifyAvailabilityBySku,
@@ -474,7 +475,7 @@ function getEffectiveAvailability(
     }
   );
 
-  if (availabilityOverride) {
+  if (availabilityOverride && !isKitWithComponents) {
     availabilityCache.set(safeSku, availabilityOverride);
     return availabilityOverride;
   }
@@ -484,7 +485,7 @@ function getEffectiveAvailability(
     return "Available";
   }
 
-  if (!product.is_kit || product.relatedProduct.length === 0) {
+  if (!isKitWithComponents) {
     const availability = mapAvailability(
       qtyAvailable,
       productHasActiveVendor,
@@ -514,13 +515,15 @@ function getEffectiveAvailability(
   );
   visiting.delete(safeSku);
 
-  const availability = childAvailabilities.includes("Backorder")
-    ? "Backorder"
-    : childAvailabilities.includes("Built to Order")
-      ? "Built to Order"
-      : childAvailabilities.length > 0
-        ? "Available"
-        : "Backorder";
+  const availability = childAvailabilities.includes("Built to Order")
+    ? "Built to Order"
+    : availabilityOverride
+      ? availabilityOverride
+      : childAvailabilities.includes("Backorder")
+        ? "Backorder"
+        : childAvailabilities.length > 0
+          ? "Available"
+          : "Backorder";
 
   availabilityCache.set(safeSku, availability);
   return availability;
@@ -1687,6 +1690,167 @@ function formatBuildToOrderMessage(leadTime) {
     : "";
 }
 
+function getOwnBuildToOrderLeadTime(
+  product,
+  productVendorAvailability,
+  buildToOrderLeadTimeBySku = new Map()
+) {
+  if (!product?.sku) {
+    return "";
+  }
+
+  const vendorBuildTime = String(
+    productVendorAvailability.builtToOrderBuildTimeByProductId.get(product.id) || ""
+  ).trim();
+  const storedLeadTime = String(buildToOrderLeadTimeBySku.get(product.sku) || "").trim();
+
+  return vendorBuildTime || storedLeadTime;
+}
+
+function getEffectiveBuildToOrderLeadTime(
+  sku,
+  productGraph,
+  productVendorAvailability,
+  shopifyAvailabilityBySku = new Map(),
+  buildToOrderLeadTimeBySku = new Map(),
+  visiting = new Set()
+) {
+  const safeSku = String(sku || "").trim();
+
+  if (!safeSku || visiting.has(safeSku)) {
+    return "";
+  }
+
+  const product = productGraph.productsBySku.get(safeSku);
+
+  if (!product) {
+    return "";
+  }
+
+  const availability = getEffectiveAvailability(
+    safeSku,
+    productGraph.productsBySku,
+    productVendorAvailability,
+    productGraph.availabilityCache,
+    new Set(),
+    shopifyAvailabilityBySku,
+    buildToOrderLeadTimeBySku
+  );
+
+  if (availability !== "Built to Order") {
+    return "";
+  }
+
+  const ownLeadTime = getOwnBuildToOrderLeadTime(
+    product,
+    productVendorAvailability,
+    buildToOrderLeadTimeBySku
+  );
+
+  if (ownLeadTime) {
+    return ownLeadTime;
+  }
+
+  if (!product.is_kit || product.relatedProduct.length === 0) {
+    return "";
+  }
+
+  visiting.add(safeSku);
+
+  for (const child of product.relatedProduct) {
+    const childLeadTime = getEffectiveBuildToOrderLeadTime(
+      child.sku,
+      productGraph,
+      productVendorAvailability,
+      shopifyAvailabilityBySku,
+      buildToOrderLeadTimeBySku,
+      visiting
+    );
+
+    if (childLeadTime) {
+      visiting.delete(safeSku);
+      return childLeadTime;
+    }
+  }
+
+  visiting.delete(safeSku);
+  return "";
+}
+
+function getLatestBackorderFollowUpDateForKit(
+  sku,
+  productGraph,
+  productVendorAvailability,
+  followUpInfoBySku = new Map(),
+  shopifyAvailabilityBySku = new Map(),
+  buildToOrderLeadTimeBySku = new Map(),
+  visiting = new Set()
+) {
+  const safeSku = String(sku || "").trim();
+
+  if (!safeSku || visiting.has(safeSku)) {
+    return "";
+  }
+
+  const product = productGraph.productsBySku.get(safeSku);
+
+  if (!product?.is_kit || product.relatedProduct.length === 0) {
+    return "";
+  }
+
+  visiting.add(safeSku);
+  let latestFollowUpDate = "";
+
+  for (const child of product.relatedProduct) {
+    const childSku = String(child?.sku || "").trim();
+
+    if (!childSku) {
+      continue;
+    }
+
+    const childAvailability = getEffectiveAvailability(
+      childSku,
+      productGraph.productsBySku,
+      productVendorAvailability,
+      productGraph.availabilityCache,
+      new Set(),
+      shopifyAvailabilityBySku,
+      buildToOrderLeadTimeBySku
+    );
+
+    if (childAvailability !== "Backorder") {
+      continue;
+    }
+
+    const childFollowUpInfo = followUpInfoBySku.get(childSku);
+
+    if (
+      childFollowUpInfo?.followUpDate &&
+      !childFollowUpInfo.followUpNoEta &&
+      childFollowUpInfo.followUpDate > latestFollowUpDate
+    ) {
+      latestFollowUpDate = childFollowUpInfo.followUpDate;
+    }
+
+    const childLatestFollowUpDate = getLatestBackorderFollowUpDateForKit(
+      childSku,
+      productGraph,
+      productVendorAvailability,
+      followUpInfoBySku,
+      shopifyAvailabilityBySku,
+      buildToOrderLeadTimeBySku,
+      visiting
+    );
+
+    if (childLatestFollowUpDate > latestFollowUpDate) {
+      latestFollowUpDate = childLatestFollowUpDate;
+    }
+  }
+
+  visiting.delete(safeSku);
+  return latestFollowUpDate;
+}
+
 function mapProductAvailabilityToShopifyStatus(product, savedAvailabilityStatus) {
   if (product.availability === "Available") {
     return "in_stock";
@@ -1705,26 +1869,43 @@ function mapProductAvailabilityToShopifyStatus(product, savedAvailabilityStatus)
 
 function getShopifyAvailabilityRecord({
   product,
+  productGraph,
   productVendorAvailability,
   followUpInfo,
+  followUpInfoBySku,
   shopifyAvailabilityStatus,
-  storedBuildToOrderLeadTime
+  shopifyAvailabilityBySku,
+  buildToOrderLeadTimeBySku
 }) {
   const availability = mapProductAvailabilityToShopifyStatus(
     product,
     shopifyAvailabilityStatus
   );
-  const vendorBuildTime = String(
-    productVendorAvailability.builtToOrderBuildTimeByProductId.get(product.id) || ""
-  ).trim();
   const buildToOrderLeadTime =
     availability === "built_to_order"
-      ? vendorBuildTime || String(storedBuildToOrderLeadTime || "").trim()
+      ? getEffectiveBuildToOrderLeadTime(
+          product.sku,
+          productGraph,
+          productVendorAvailability,
+          shopifyAvailabilityBySku,
+          buildToOrderLeadTimeBySku
+        )
       : undefined;
+  const kitBackorderFollowUpDate =
+    availability === "backordered"
+      ? getLatestBackorderFollowUpDateForKit(
+          product.sku,
+          productGraph,
+          productVendorAvailability,
+          followUpInfoBySku,
+          shopifyAvailabilityBySku,
+          buildToOrderLeadTimeBySku
+        )
+      : "";
   const followUpDate =
     availability === "backordered" && followUpInfo?.followUpNoEta
       ? ""
-      : followUpInfo?.followUpDate || "";
+      : followUpInfo?.followUpDate || kitBackorderFollowUpDate || "";
 
   return {
     sku: product.sku,
@@ -1749,9 +1930,7 @@ async function buildShopifyAvailabilityRecords(rows) {
     buildToOrderLeadTimeBySku
   ] = await Promise.all([
     getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
-    followUpsService.getFollowUpInfoForSkus(
-      rows.map((product) => product.sku).filter(Boolean)
-    ),
+    followUpsService.getFollowUpInfoForSkus(graphSkus),
     shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus),
     shopifyAvailabilityStateService.getBuildToOrderLeadTimesForSkus(graphSkus)
   ]);
@@ -1771,10 +1950,13 @@ async function buildShopifyAvailabilityRecords(rows) {
 
     return getShopifyAvailabilityRecord({
       product,
+      productGraph,
       productVendorAvailability,
       followUpInfo: followUpInfoBySku.get(product.sku),
+      followUpInfoBySku,
       shopifyAvailabilityStatus: shopifyAvailabilityBySku.get(product.sku) || "",
-      storedBuildToOrderLeadTime: buildToOrderLeadTimeBySku.get(product.sku) || ""
+      shopifyAvailabilityBySku,
+      buildToOrderLeadTimeBySku
     });
   });
 }
