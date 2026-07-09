@@ -156,6 +156,26 @@ async function getAllFollowUps() {
   );
 }
 
+async function getAllFollowUpInfo() {
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT sku, follow_up_date::text AS follow_up_date, no_eta
+    FROM product_follow_ups
+  `;
+
+  return new Map(
+    rows.map((row) => [
+      normalizeSku(row.sku),
+      {
+        followUpDate: formatDate(row.follow_up_date),
+        followUpNoEta: Boolean(row.no_eta)
+      }
+    ])
+  );
+}
+
 async function getFollowUpForSku(sku) {
   assertSku(sku);
 
@@ -217,6 +237,7 @@ async function setFollowUp({ sku, followUpDate, followUpNoEta = false }) {
 }
 
 module.exports = {
+  getAllFollowUpInfo,
   getAllFollowUps,
   getFollowUpInfoForSku,
   getFollowUpInfoForSkus,

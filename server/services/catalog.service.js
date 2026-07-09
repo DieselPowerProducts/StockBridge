@@ -1030,6 +1030,31 @@ async function queryProductsBySkus(skus) {
   );
 }
 
+async function queryExistingProductIds(productIds) {
+  const uniqueIds = Array.from(
+    new Set((productIds || []).map((value) => String(value || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return new Set();
+  }
+
+  const sql = getSql();
+  const idJson = JSON.stringify(uniqueIds);
+  const rows = await sql.query(
+    `
+      SELECT product_id
+      FROM catalog_products
+      WHERE product_id IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [idJson]
+  );
+
+  return new Set(rows.map((row) => String(row?.product_id || "").trim()).filter(Boolean));
+}
+
 async function queryProductsByIds(productIds) {
   const uniqueIds = Array.from(
     new Set((productIds || []).map((value) => String(value || "").trim()).filter(Boolean))
@@ -1391,7 +1416,8 @@ async function queryVendorAvailabilityRows(productIds) {
         vp.vendor_id,
         vp.quantity,
         v.status,
-        COALESCE(vs.built_to_order, FALSE) AS built_to_order
+        COALESCE(vs.built_to_order, FALSE) AS built_to_order,
+        COALESCE(vs.build_time, '') AS build_time
       FROM catalog_vendor_products vp
       JOIN catalog_vendors v
         ON v.vendor_id = vp.vendor_id
@@ -1417,7 +1443,8 @@ async function queryVendorAvailabilityRows(productIds) {
         vp.vendor_id,
         vp.quantity,
         v.status,
-        COALESCE(vs.built_to_order, FALSE) AS built_to_order
+        COALESCE(vs.built_to_order, FALSE) AS built_to_order,
+        COALESCE(vs.build_time, '') AS build_time
       FROM catalog_vendor_products vp
       JOIN catalog_vendors v
         ON v.vendor_id = vp.vendor_id
@@ -1545,6 +1572,7 @@ function getProductGraphSkus(productGraph) {
 function buildProductVendorAvailability(rows) {
   const productIdsWithActiveVendors = new Set();
   const productIdsWithBuiltToOrderVendors = new Set();
+  const builtToOrderBuildTimeByProductId = new Map();
   const vendorQuantityByProductId = new Map();
 
   for (const row of rows) {
@@ -1556,6 +1584,15 @@ function buildProductVendorAvailability(rows) {
 
     if (Boolean(row?.built_to_order)) {
       productIdsWithBuiltToOrderVendors.add(row.product_id);
+      if (
+        !builtToOrderBuildTimeByProductId.has(row.product_id) &&
+        String(row?.build_time || "").trim()
+      ) {
+        builtToOrderBuildTimeByProductId.set(
+          row.product_id,
+          String(row.build_time).trim()
+        );
+      }
       continue;
     }
 
@@ -1567,6 +1604,7 @@ function buildProductVendorAvailability(rows) {
   }
 
   return {
+    builtToOrderBuildTimeByProductId,
     productIdsWithActiveVendors,
     productIdsWithBuiltToOrderVendors,
     vendorQuantityByProductId
@@ -1639,6 +1677,142 @@ function mapProduct(
     followUpDate: followUpsBySku?.get(sku) || "",
     isKit
   };
+}
+
+function formatBuildToOrderMessage(leadTime) {
+  const safeLeadTime = String(leadTime || "").trim();
+
+  return safeLeadTime
+    ? `This product will ship in ${safeLeadTime} from the manufacturer`
+    : "";
+}
+
+function mapProductAvailabilityToShopifyStatus(product, savedAvailabilityStatus) {
+  if (product.availability === "Available") {
+    return "in_stock";
+  }
+
+  if (product.availability === "Built to Order") {
+    return "built_to_order";
+  }
+
+  if (String(savedAvailabilityStatus || "") === "out_of_stock") {
+    return "out_of_stock";
+  }
+
+  return "backordered";
+}
+
+function getShopifyAvailabilityRecord({
+  product,
+  productVendorAvailability,
+  followUpInfo,
+  shopifyAvailabilityStatus,
+  storedBuildToOrderLeadTime
+}) {
+  const availability = mapProductAvailabilityToShopifyStatus(
+    product,
+    shopifyAvailabilityStatus
+  );
+  const vendorBuildTime = String(
+    productVendorAvailability.builtToOrderBuildTimeByProductId.get(product.id) || ""
+  ).trim();
+  const buildToOrderLeadTime =
+    availability === "built_to_order"
+      ? vendorBuildTime || String(storedBuildToOrderLeadTime || "").trim()
+      : undefined;
+  const followUpDate =
+    availability === "backordered" && followUpInfo?.followUpNoEta
+      ? ""
+      : followUpInfo?.followUpDate || "";
+
+  return {
+    sku: product.sku,
+    productName: product.name,
+    availability,
+    buildToOrderLeadTime,
+    buildToOrderMessage:
+      availability === "built_to_order"
+        ? formatBuildToOrderMessage(buildToOrderLeadTime)
+        : "",
+    followUpDate
+  };
+}
+
+async function buildShopifyAvailabilityRecords(rows) {
+  const productGraph = await buildProductGraph(rows);
+  const graphSkus = getProductGraphSkus(productGraph);
+  const [
+    productVendorAvailability,
+    followUpInfoBySku,
+    shopifyAvailabilityBySku,
+    buildToOrderLeadTimeBySku
+  ] = await Promise.all([
+    getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
+    followUpsService.getFollowUpInfoForSkus(
+      rows.map((product) => product.sku).filter(Boolean)
+    ),
+    shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus),
+    shopifyAvailabilityStateService.getBuildToOrderLeadTimesForSkus(graphSkus)
+  ]);
+  const followUpsBySku = new Map(
+    Array.from(followUpInfoBySku.entries()).map(([sku, info]) => [
+      sku,
+      info.followUpDate
+    ])
+  );
+
+  return rows.map((row) => {
+    const product = mapProduct(row, productVendorAvailability, followUpsBySku, {
+      ...productGraph,
+      shopifyAvailabilityBySku,
+      buildToOrderLeadTimeBySku
+    });
+
+    return getShopifyAvailabilityRecord({
+      product,
+      productVendorAvailability,
+      followUpInfo: followUpInfoBySku.get(product.sku),
+      shopifyAvailabilityStatus: shopifyAvailabilityBySku.get(product.sku) || "",
+      storedBuildToOrderLeadTime: buildToOrderLeadTimeBySku.get(product.sku) || ""
+    });
+  });
+}
+
+async function getShopifyAvailabilityRecordsForSkus(skus) {
+  await ensureCatalogReady();
+  const rows = await queryProductsBySkus(skus);
+
+  return buildShopifyAvailabilityRecords(rows);
+}
+
+async function getAllShopifyAvailabilityRecords() {
+  await ensureCatalogReady();
+  const rows = await queryAllProducts();
+
+  return buildShopifyAvailabilityRecords(rows);
+}
+
+async function syncShopifyAvailabilityForSkus(skus, options = {}) {
+  const records = await getShopifyAvailabilityRecordsForSkus(skus);
+
+  if (records.length === 0) {
+    return {
+      failed: 0,
+      matched: 0,
+      requested: 0,
+      updated: 0,
+      unchanged: 0
+    };
+  }
+
+  const result = await require("./shopify.service").syncVariantAvailabilityMetafields(
+    records,
+    options
+  );
+  clearCaches();
+
+  return result;
 }
 
 function buildKitChildProducts(
@@ -2663,6 +2837,73 @@ async function syncKitQuickShipAfterWarehouseUpdate(reason) {
   }
 }
 
+async function syncShopifyAvailabilityForNewProducts(skus, reason) {
+  const uniqueSkus = Array.from(
+    new Set((skus || []).map((sku) => String(sku || "").trim()).filter(Boolean))
+  );
+
+  if (uniqueSkus.length === 0) {
+    return {
+      failed: 0,
+      matched: 0,
+      requested: 0,
+      skipped: true,
+      updated: 0,
+      unchanged: 0
+    };
+  }
+
+  try {
+    const result = await syncShopifyAvailabilityForSkus(uniqueSkus, {
+      source: reason
+    });
+    await setSyncState(
+      "catalog_last_new_product_shopify_availability_sync_at",
+      new Date().toISOString()
+    );
+    await setSyncState(
+      "catalog_last_new_product_shopify_availability_sync_reason",
+      reason
+    );
+    await setSyncState(
+      "catalog_last_new_product_shopify_availability_sync_error_at",
+      ""
+    );
+    await setSyncState(
+      "catalog_last_new_product_shopify_availability_sync_error",
+      ""
+    );
+
+    return result;
+  } catch (error) {
+    const errorMessage = String(
+      error?.message || error || "Shopify availability sync failed."
+    ).slice(0, 1000);
+
+    console.error(
+      "New product Shopify availability sync failed; continuing catalog sync.",
+      error
+    );
+    await setSyncState(
+      "catalog_last_new_product_shopify_availability_sync_error_at",
+      new Date().toISOString()
+    );
+    await setSyncState(
+      "catalog_last_new_product_shopify_availability_sync_error",
+      errorMessage
+    );
+
+    return {
+      error: errorMessage,
+      failed: uniqueSkus.length,
+      matched: 0,
+      requested: uniqueSkus.length,
+      updated: 0,
+      unchanged: 0
+    };
+  }
+}
+
 async function runFullSync({ reason = "manual" } = {}) {
   await initializeSchema();
 
@@ -2697,6 +2938,13 @@ async function runFullSync({ reason = "manual" } = {}) {
     const normalizedProducts = products
       .map(normalizeProductRow)
       .filter((row) => row.product_id && row.sku);
+    const existingProductIds = await queryExistingProductIds(
+      normalizedProducts.map((row) => row.product_id)
+    );
+    const newProductSkus = normalizedProducts
+      .filter((row) => !existingProductIds.has(row.product_id))
+      .map((row) => row.sku)
+      .filter(Boolean);
     const componentRows = flattenProductComponents(normalizedProducts);
 
     await upsertProducts(normalizedProducts, syncStamp);
@@ -2715,6 +2963,8 @@ async function runFullSync({ reason = "manual" } = {}) {
           skipped: true,
           updated: 0
         };
+    const newProductShopifyAvailability =
+      await syncShopifyAvailabilityForNewProducts(newProductSkus, reason);
     await setSyncState("catalog_last_full_sync_at", syncStamp);
     await setSyncState("catalog_last_full_sync_reason", reason);
     if (didSyncWarehouse) {
@@ -2729,7 +2979,8 @@ async function runFullSync({ reason = "manual" } = {}) {
       vendors: vendors.length,
       vendorProducts: vendorProducts.length,
       warehouseProducts: warehouseStockRows.length,
-      kitQuickShip
+      kitQuickShip,
+      newProductShopifyAvailability
     };
   })();
 
@@ -3430,12 +3681,14 @@ function clearCaches() {
 
 module.exports = {
   clearCaches,
+  getAllShopifyAvailabilityRecords,
   getCatalogProductBySku: queryProductBySku,
   getActiveCatalogVendorProductsByVendorId: queryActiveVendorProductsByVendorId,
   getCatalogVendorProductByVendorAndSku: queryVendorProductByVendorAndSku,
   getCatalogVendorProductById: queryVendorProductById,
   getCatalogSyncStatus,
   getProductDetails,
+  getShopifyAvailabilityRecordsForSkus,
   getVendorDetails,
   listProducts,
   listStockCheckProducts,
@@ -3447,5 +3700,6 @@ module.exports = {
   runScheduledWarehouseSync,
   runFullSync,
   runWarehouseSync,
+  syncShopifyAvailabilityForSkus,
   updateCatalogVendorProductQuantity
 };

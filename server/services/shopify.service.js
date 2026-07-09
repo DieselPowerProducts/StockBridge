@@ -8,6 +8,7 @@ loadLocalEnv();
 const DEFAULT_API_VERSION = "2025-10";
 const TOKEN_EXPIRY_SAFETY_MS = 60 * 1000;
 const DEFAULT_RESOLVE_CACHE_DAYS = 7;
+const MAX_SHOPIFY_GRAPHQL_RETRIES = 5;
 const metafieldNamespace = "custom";
 const availabilityMetafieldKey = "product_availability";
 const availabilityDateMetafieldKey = "product_availability_date";
@@ -432,6 +433,10 @@ async function fetchFromShopify(url, init, contextLabel) {
   }
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getAccessTokenCacheKey({ clientId, storeDomain }) {
   return `${storeDomain}:${clientId}`;
 }
@@ -492,7 +497,61 @@ async function fetchShopifyAccessToken(profile = shopifyOrdersProfile) {
   return nextCachedToken.token;
 }
 
-async function shopifyGraphQL(query, variables, profile = shopifyOrdersProfile) {
+function getShopifyErrorMessages(payload) {
+  if (!Array.isArray(payload?.errors)) {
+    return [];
+  }
+
+  return payload.errors.map((error) =>
+    typeof error === "string" ? error : String(error?.message || error?.extensions?.code || "")
+  );
+}
+
+function getShopifyRetryDelayMs(response, payload, attempt) {
+  const messages = getShopifyErrorMessages(payload);
+  const isThrottled =
+    response.status === 429 ||
+    messages.some((message) => /throttl|rate limit/i.test(message));
+
+  if (!isThrottled || attempt >= MAX_SHOPIFY_GRAPHQL_RETRIES) {
+    return 0;
+  }
+
+  const retryAfterSeconds = Number(response.headers.get("retry-after") || 0);
+
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    return retryAfterSeconds * 1000;
+  }
+
+  return Math.min(1000 * 2 ** attempt, 10000);
+}
+
+function getShopifyThrottlePauseMs(payload) {
+  const throttleStatus = payload?.extensions?.cost?.throttleStatus;
+  const currentlyAvailable = Number(throttleStatus?.currentlyAvailable);
+  const restoreRate = Number(throttleStatus?.restoreRate);
+
+  if (
+    !Number.isFinite(currentlyAvailable) ||
+    !Number.isFinite(restoreRate) ||
+    restoreRate <= 0 ||
+    currentlyAvailable >= 100
+  ) {
+    return 0;
+  }
+
+  return Math.min(
+    Math.ceil(((100 - currentlyAvailable) / restoreRate) * 1000),
+    5000
+  );
+}
+
+async function shopifyGraphQL(
+  query,
+  variables,
+  profile = shopifyOrdersProfile,
+  attempt = 0
+) {
   const { apiVersion, storeDomain } = getShopifyConfig(profile);
   const accessToken = await fetchShopifyAccessToken(profile);
   const response = await fetchFromShopify(
@@ -516,6 +575,13 @@ async function shopifyGraphQL(query, variables, profile = shopifyOrdersProfile) 
     payload = null;
   }
 
+  const retryDelayMs = getShopifyRetryDelayMs(response, payload, attempt);
+
+  if (retryDelayMs > 0) {
+    await delay(retryDelayMs);
+    return shopifyGraphQL(query, variables, profile, attempt + 1);
+  }
+
   if (!response.ok) {
     throw createHttpError(
       502,
@@ -525,6 +591,12 @@ async function shopifyGraphQL(query, variables, profile = shopifyOrdersProfile) 
 
   if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
     throw createHttpError(502, payload.errors[0].message || "Shopify request failed.");
+  }
+
+  const throttlePauseMs = getShopifyThrottlePauseMs(payload);
+
+  if (throttlePauseMs > 0) {
+    await delay(throttlePauseMs);
   }
 
   return payload?.data;
@@ -772,6 +844,192 @@ async function getQuickShipVariantTargets(records) {
   return targets;
 }
 
+function normalizeAvailabilitySyncRecord(record) {
+  const sku = String(record?.sku || "").trim();
+  const safeSku = normalizeSku(sku);
+
+  if (!safeSku) {
+    return null;
+  }
+
+  let availability = "";
+
+  try {
+    availability = normalizeAvailabilityStatus(record?.availability);
+  } catch (error) {
+    return null;
+  }
+
+  return {
+    availability,
+    buildToOrderLeadTime: String(record?.buildToOrderLeadTime || "").trim(),
+    buildToOrderMessage: normalizeBuildToOrderMessage(record?.buildToOrderMessage),
+    followUpDate: String(record?.followUpDate || "").trim(),
+    productName: String(record?.productName || "").trim(),
+    safeSku,
+    sku
+  };
+}
+
+function getVariantMetafieldByKey(variant, key) {
+  switch (key) {
+    case availabilityMetafieldKey:
+      return variant?.productAvailability || null;
+    case availabilityDateMetafieldKey:
+      return variant?.productAvailabilityDate || null;
+    case availabilityDateConfirmedMetafieldKey:
+      return variant?.availabilityDateConfirmed || null;
+    case buildToOrderMessageMetafieldKey:
+      return variant?.buildToOrderMessage || null;
+    default:
+      return null;
+  }
+}
+
+function metafieldValuesMatch(key, currentValue, expectedValue) {
+  const current = String(currentValue || "");
+  const expected = String(expectedValue || "");
+
+  if (key === availabilityDateMetafieldKey) {
+    return current === expected || current.startsWith(`${expected}+`);
+  }
+
+  return current === expected;
+}
+
+function getAvailabilityTargetChanges(target) {
+  const variantIds = target.variants.map((variant) => variant.id).filter(Boolean);
+  const { deleteKeys, metafields, status } = getMetafieldChanges({
+    ownerIds: variantIds,
+    availability: target.availability,
+    buildToOrderMessage: target.buildToOrderMessage,
+    followUpDate: target.followUpDate
+  });
+  const metafieldsToSet = metafields.filter((metafield) => {
+    const variant = target.variants.find((item) => item.id === metafield.ownerId);
+    const current = getVariantMetafieldByKey(variant, metafield.key);
+
+    return (
+      !current ||
+      !metafieldValuesMatch(metafield.key, current.value, metafield.value)
+    );
+  });
+  const deleteKeysByOwnerId = new Map();
+
+  for (const variant of target.variants) {
+    for (const key of deleteKeys) {
+      if (getVariantMetafieldByKey(variant, key)) {
+        const keys = deleteKeysByOwnerId.get(variant.id) || [];
+        keys.push(key);
+        deleteKeysByOwnerId.set(variant.id, keys);
+      }
+    }
+  }
+
+  const inventoryPolicy = getInventoryPolicyForAvailability(status);
+  const inventoryPolicyVariants = inventoryPolicy
+    ? target.variants.filter((variant) => variant.inventoryPolicy !== inventoryPolicy)
+    : [];
+
+  return {
+    deleteKeysByOwnerId,
+    inventoryPolicy,
+    inventoryPolicyVariants,
+    metafieldsToSet,
+    status
+  };
+}
+
+async function getAvailabilityVariantTargets(records) {
+  const targets = [];
+
+  for (const chunk of chunkItems(records, 20)) {
+    const variableDefinitions = chunk
+      .map((_, index) => `$query${index}: String!`)
+      .join(", ");
+    const fields = chunk
+      .map(
+        (_, index) => `
+          variant${index}: productVariants(first: 25, query: $query${index}) {
+            nodes {
+              id
+              sku
+              inventoryPolicy
+              productAvailability: metafield(namespace: "custom", key: "product_availability") {
+                value
+              }
+              productAvailabilityDate: metafield(namespace: "custom", key: "product_availability_date") {
+                value
+              }
+              availabilityDateConfirmed: metafield(namespace: "custom", key: "availability_date_confirmed") {
+                value
+              }
+              buildToOrderMessage: metafield(namespace: "custom", key: "build_to_order_message") {
+                value
+              }
+              product {
+                id
+                handle
+                status
+                title
+              }
+            }
+          }
+        `
+      )
+      .join("\n");
+    const variables = Object.fromEntries(
+      chunk.map((record, index) => [
+        `query${index}`,
+        getProductSearchQuery(record.safeSku)
+      ])
+    );
+    const data = await shopifyGraphQL(
+      `
+        query AvailabilityVariantTargets(${variableDefinitions}) {
+          ${fields}
+        }
+      `,
+      variables,
+      shopifyAvailabilityProfile
+    );
+
+    chunk.forEach((record, index) => {
+      const nodes = Array.isArray(data?.[`variant${index}`]?.nodes)
+        ? data[`variant${index}`].nodes
+        : [];
+      const exactVariants = nodes.filter(
+        (variant) => normalizeSku(variant?.sku) === record.safeSku
+      );
+
+      if (exactVariants.length === 0) {
+        targets.push({
+          ...record,
+          error: "No Shopify variants matched this SKU.",
+          ok: false
+        });
+        return;
+      }
+
+      const firstVariant = exactVariants[0] || {};
+      const product = firstVariant.product || {};
+
+      targets.push({
+        ...record,
+        duplicateSkuMatchCount: exactVariants.length,
+        handle: product.handle || "",
+        matchedSku: firstVariant.sku || record.sku,
+        productId: product.id || "",
+        productStatus: product.status || "",
+        productTitle: product.title || "",
+        variants: exactVariants
+      });
+    });
+  }
+
+  return targets;
+}
+
 async function getQuickShipMetafieldStates(records) {
   const safeRecords = (records || [])
     .map((record) => ({
@@ -941,6 +1199,44 @@ async function deleteMetafields(ownerIds, keys) {
     }))
   );
 
+  if (metafields.length === 0) {
+    return [];
+  }
+
+  const deletedMetafields = [];
+
+  for (const chunk of chunkItems(metafields, 25)) {
+    const data = await shopifyGraphQL(
+      `
+        mutation DeleteProductMetafields($metafields: [MetafieldIdentifierInput!]!) {
+          metafieldsDelete(metafields: $metafields) {
+            deletedMetafields {
+              ownerId
+              namespace
+              key
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `,
+      {
+        metafields: chunk
+      },
+      shopifyAvailabilityProfile
+    );
+    const payload = data?.metafieldsDelete || {};
+
+    assertNoUserErrors(payload.userErrors, "Shopify metafields could not be cleared.");
+    deletedMetafields.push(...(payload.deletedMetafields || []));
+  }
+
+  return deletedMetafields;
+}
+
+async function deleteMetafieldIdentifiers(metafields) {
   if (metafields.length === 0) {
     return [];
   }
@@ -1465,6 +1761,125 @@ function getInventoryPolicyForAvailability(status) {
   return "";
 }
 
+async function updateAvailabilityInventoryPolicies(targetChanges) {
+  const updatedVariants = [];
+  const groups = new Map();
+
+  for (const { changes, target } of targetChanges) {
+    if (!changes.inventoryPolicy || changes.inventoryPolicyVariants.length === 0) {
+      continue;
+    }
+
+    for (const variant of changes.inventoryPolicyVariants) {
+      const productId = variant?.product?.id || target.productId;
+      const groupKey = `${productId}:${changes.inventoryPolicy}`;
+      const group = groups.get(groupKey) || {
+        inventoryPolicy: changes.inventoryPolicy,
+        productId,
+        variants: []
+      };
+
+      group.variants.push(variant);
+      groups.set(groupKey, group);
+    }
+  }
+
+  for (const group of groups.values()) {
+    if (!group.productId) {
+      continue;
+    }
+
+    updatedVariants.push(
+      ...(await updateVariantInventoryPolicy(
+        group.productId,
+        group.variants,
+        group.inventoryPolicy
+      ))
+    );
+  }
+
+  return updatedVariants;
+}
+
+async function syncVariantAvailabilityMetafields(records, options = {}) {
+  const safeRecords = (records || [])
+    .map(normalizeAvailabilitySyncRecord)
+    .filter(Boolean);
+
+  if (safeRecords.length === 0) {
+    return {
+      failed: 0,
+      matched: 0,
+      requested: 0,
+      updated: 0,
+      unchanged: 0
+    };
+  }
+
+  const targets = await getAvailabilityVariantTargets(safeRecords);
+  const failedTargets = targets.filter((target) => target.ok === false);
+  const matchedTargets = targets.filter((target) => target.ok !== false);
+  const targetChanges = matchedTargets.map((target) => ({
+    target,
+    changes: getAvailabilityTargetChanges(target)
+  }));
+  const changedTargets = targetChanges.filter(
+    ({ changes }) =>
+      changes.metafieldsToSet.length > 0 ||
+      changes.deleteKeysByOwnerId.size > 0 ||
+      changes.inventoryPolicyVariants.length > 0
+  );
+
+  if (!options.dryRun && changedTargets.length > 0) {
+    const metafieldsToSet = changedTargets.flatMap(
+      ({ changes }) => changes.metafieldsToSet
+    );
+    const metafieldsToDelete = changedTargets.flatMap(({ changes }) =>
+      Array.from(changes.deleteKeysByOwnerId.entries()).flatMap(([ownerId, keys]) =>
+        keys.map((key) => ({
+          ownerId,
+          namespace: metafieldNamespace,
+          key
+        }))
+      )
+    );
+
+    await setMetafields(metafieldsToSet);
+    await deleteMetafieldIdentifiers(metafieldsToDelete);
+    await updateAvailabilityInventoryPolicies(changedTargets);
+  }
+
+  if (!options.dryRun && matchedTargets.length > 0) {
+    await shopifyAvailabilityStateService.setAvailabilityStatuses(
+      matchedTargets.map((target) => ({
+        sku: target.sku,
+        availability: target.availability,
+        buildToOrderLeadTime:
+          target.availability === "built_to_order"
+            ? target.buildToOrderLeadTime
+            : undefined
+      }))
+    );
+  }
+
+  return {
+    failed: failedTargets.length,
+    failures: failedTargets.map((target) => ({
+      error: target.error,
+      sku: target.sku
+    })),
+    failureSamples: failedTargets.slice(0, 25).map((target) => ({
+      error: target.error,
+      sku: target.sku
+    })),
+    matched: matchedTargets.length,
+    requested: safeRecords.length,
+    source: options.source || "",
+    updated: changedTargets.length,
+    unchanged: matchedTargets.length - changedTargets.length
+  };
+}
+
 async function updateProductAvailability({
   sku,
   availability,
@@ -1486,12 +1901,16 @@ async function updateProductAvailability({
     }
   }
 
-  const productMatch = await findProductBySku(sku, { productName });
+  const safeSku = normalizeSku(sku);
+  const productMatch = await findProductBySku(safeSku, { productName });
   const variants = await getProductVariants(productMatch.productId);
-  const variantIds = variants.map((variant) => variant.id).filter(Boolean);
+  const variantsToUpdate = variants.filter(
+    (variant) => normalizeSku(variant?.sku) === safeSku
+  );
+  const variantIds = variantsToUpdate.map((variant) => variant.id).filter(Boolean);
 
   if (variantIds.length === 0) {
-    throw createHttpError(404, "No Shopify variants matched this product.");
+    throw createHttpError(404, "No Shopify variants matched this SKU.");
   }
 
   const { deleteKeys, metafields, status } = getMetafieldChanges({
@@ -1516,7 +1935,7 @@ async function updateProductAvailability({
   const updatedVariants = inventoryPolicy
     ? await updateVariantInventoryPolicy(
         productMatch.productId,
-        variants,
+        variantsToUpdate,
         inventoryPolicy
       )
     : [];
@@ -1775,6 +2194,7 @@ module.exports = {
   getQuickShipMetafieldStates,
   resolveOrder,
   syncAvailabilityStateFromShopifyPage,
+  syncVariantAvailabilityMetafields,
   updateProductAvailability,
   updateQuickShipMetafields
 };
