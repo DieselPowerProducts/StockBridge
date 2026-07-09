@@ -22,6 +22,7 @@ const autoInventoryFailureRecipient =
 const vendorInventoryLabel =
   process.env.AUTO_INVENTORY_GMAIL_LABEL || "Vendor Inventory";
 const gmailInboxLabels = ["\\Inbox", "INBOX"];
+const syncTimezone = process.env.CATALOG_SYNC_TIMEZONE || "America/Los_Angeles";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -179,6 +180,19 @@ function getBooleanEnv(value, fallback) {
   }
 
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+}
+
+function getLocalDateText(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: syncTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const parts = formatter.formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${byType.year}-${byType.month}-${byType.day}`;
 }
 
 function getImapConfig() {
@@ -597,6 +611,7 @@ async function parseSheetRows(content, attachment) {
 async function importSheetAttachment({ settings, attachment, message }) {
   const content = attachment.content || Buffer.alloc(0);
   const attachmentHash = getAttachmentHash(content);
+  const stockRemovedDate = getLocalDateText();
 
   if (await importsService.hasProcessedAttachment(settings.vendorId, attachmentHash)) {
     await importsService.touchProcessedAttachment({
@@ -612,7 +627,8 @@ async function importSheetAttachment({ settings, attachment, message }) {
       imported: 0,
       skipped: 0,
       errors: 0,
-      duplicate: true
+      duplicate: true,
+      followUpsSet: 0
     };
   }
 
@@ -643,7 +659,8 @@ async function importSheetAttachment({ settings, attachment, message }) {
       imported: 0,
       skipped: 0,
       errors: 1,
-      duplicate: false
+      duplicate: false,
+      followUpsSet: 0
     };
   }
 
@@ -670,7 +687,8 @@ async function importSheetAttachment({ settings, attachment, message }) {
       imported: 0,
       skipped: 0,
       errors: 1,
-      duplicate: false
+      duplicate: false,
+      followUpsSet: 0
     };
   }
 
@@ -714,16 +732,19 @@ async function importSheetAttachment({ settings, attachment, message }) {
       imported: 0,
       skipped: rows.length,
       errors: 1,
-      duplicate: false
+      duplicate: false,
+      followUpsSet: 0
     };
   }
 
   let imported = 0;
   let skipped = 0;
   let errors = 0;
+  let followUpsSet = 0;
   const missingSkuSamples = [];
   const unmatchedInventorySamples = [];
   const updateErrorSamples = [];
+  const followUpErrorSamples = [];
   const sheetSkuKeys = new Set();
   const vendorProducts =
     await catalogService.getActiveCatalogVendorProductsByVendorId(
@@ -808,6 +829,7 @@ async function importSheetAttachment({ settings, attachment, message }) {
     try {
       const currentIsAvailable = Number(vendorProduct.quantity || 0) > 0;
       const nextIsAvailable = quantity > 0;
+      const stockWasRemoved = currentIsAvailable && !nextIsAvailable;
 
       if (currentIsAvailable === nextIsAvailable) {
         if (sheetManagedProductUpdate) {
@@ -821,7 +843,7 @@ async function importSheetAttachment({ settings, attachment, message }) {
         continue;
       }
 
-      await productsService.setVendorProductQuantity({
+      const updateResult = await productsService.setVendorProductQuantity({
         vendorId: settings.vendorId,
         vendorProductId: vendorProduct.id,
         quantity,
@@ -833,6 +855,32 @@ async function importSheetAttachment({ settings, attachment, message }) {
           vendorProduct.id,
           sheetManagedProductUpdate
         );
+      }
+
+      if (stockWasRemoved) {
+        try {
+          const followUpResult = await setBackorderFollowUpForStockRemoval({
+            followUpDate: stockRemovedDate,
+            sku:
+              updateResult.sku ||
+              vendorProduct.product_sku ||
+              getVendorProductDisplaySku(vendorProduct)
+          });
+
+          if (followUpResult.followUpSet) {
+            followUpsSet += 1;
+          }
+        } catch (error) {
+          errors += 1;
+          if (followUpErrorSamples.length < 5) {
+            followUpErrorSamples.push(`${sku}: ${error.message}`);
+          }
+          console.error("Auto inventory follow-up update failed.", {
+            vendorId: settings.vendorId,
+            sku,
+            error: error.message
+          });
+        }
       }
 
       imported += 1;
@@ -877,6 +925,12 @@ async function importSheetAttachment({ settings, attachment, message }) {
     failureDetails.push(`SKU Nexus update errors: ${updateErrorSamples.join(" | ")}`);
   }
 
+  if (followUpErrorSamples.length > 0) {
+    failureDetails.push(
+      `Backorder follow-up update errors: ${followUpErrorSamples.join(" | ")}`
+    );
+  }
+
   const missingVendorProducts = vendorProducts.filter(
     (vendorProduct) =>
       !isVendorProductExcepted(vendorProduct, skuExceptionKeys) &&
@@ -918,7 +972,42 @@ async function importSheetAttachment({ settings, attachment, message }) {
     imported,
     skipped,
     errors,
-    duplicate: false
+    duplicate: false,
+    followUpsSet
+  };
+}
+
+async function setBackorderFollowUpForStockRemoval({ sku, followUpDate }) {
+  const safeSku = normalizeText(sku);
+
+  if (!safeSku) {
+    return {
+      followUpSet: false,
+      reason: "missing_sku"
+    };
+  }
+
+  const details = await catalogService.getProductDetails(safeSku);
+
+  if (details.availability !== "Backorder") {
+    return {
+      availability: details.availability,
+      followUpSet: false,
+      reason: "not_backordered",
+      sku: safeSku
+    };
+  }
+
+  const result = await productsService.setProductFollowUp({
+    sku: details.sku || safeSku,
+    followUpDate,
+    followUpNoEta: false
+  });
+
+  return {
+    followUpDate: result.followUpDate,
+    followUpSet: true,
+    sku: result.sku || details.sku || safeSku
   };
 }
 
@@ -944,6 +1033,7 @@ async function processMessageForSettings({ uid, source }, settings) {
     skipped: 0,
     errors: 0,
     attachments: 0,
+    followUpsSet: 0,
     shouldLabel: sheetAttachments.length > 0
   };
 
@@ -961,6 +1051,7 @@ async function processMessageForSettings({ uid, source }, settings) {
     totals.imported += result.imported;
     totals.skipped += result.skipped;
     totals.errors += result.errors;
+    totals.followUpsSet += result.followUpsSet || 0;
   }
 
   return totals;
@@ -1046,6 +1137,7 @@ async function runAutoInventoryImport() {
       labeled: 0,
       imported: 0,
       skipped: 0,
+      followUpsSet: 0,
       errors: 0
     };
   }
@@ -1059,6 +1151,7 @@ async function runAutoInventoryImport() {
     labeled: 0,
     imported: 0,
     skipped: 0,
+    followUpsSet: 0,
     errors: 0
   };
   const labeledUids = new Set();
@@ -1156,6 +1249,7 @@ async function runAutoInventoryImport() {
       totals.attachments += result.attachments;
       totals.imported += result.imported;
       totals.skipped += result.skipped;
+      totals.followUpsSet += result.followUpsSet || 0;
       totals.errors += result.errors;
     }
   } finally {
