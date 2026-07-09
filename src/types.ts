@@ -185,6 +185,9 @@ export type ProductKitChild = {
   qtyRequired: number;
   qtyAvailable: number;
   availability: ProductAvailability;
+  builtToOrderLeadTime: string;
+  followUpDate: string;
+  followUpNoEta: boolean;
   isKit: boolean;
 };
 

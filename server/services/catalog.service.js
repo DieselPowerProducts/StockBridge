@@ -2002,7 +2002,8 @@ function buildKitChildProducts(
   productGraph,
   productVendorAvailability,
   shopifyAvailabilityBySku = new Map(),
-  buildToOrderLeadTimeBySku = new Map()
+  buildToOrderLeadTimeBySku = new Map(),
+  followUpInfoBySku = new Map()
 ) {
   if (!product?.is_kit) {
     return [];
@@ -2017,21 +2018,38 @@ function buildKitChildProducts(
       new Set(),
       productVendorAvailability
     );
+    const availability = getEffectiveAvailability(
+      child.sku,
+      productGraph.productsBySku,
+      productVendorAvailability,
+      productGraph.availabilityCache,
+      new Set(),
+      shopifyAvailabilityBySku,
+      buildToOrderLeadTimeBySku
+    );
+    const followUpInfo = followUpInfoBySku.get(child.sku);
 
     return {
       sku: child.sku,
       name: childProduct?.name || child.name || child.sku,
       qtyRequired: Math.max(Number(child.qty || 0), 1),
       qtyAvailable,
-      availability: getEffectiveAvailability(
-        child.sku,
-        productGraph.productsBySku,
-        productVendorAvailability,
-        productGraph.availabilityCache,
-        new Set(),
-        shopifyAvailabilityBySku,
-        buildToOrderLeadTimeBySku
-      ),
+      availability,
+      builtToOrderLeadTime:
+        availability === "Built to Order"
+          ? getEffectiveBuildToOrderLeadTime(
+              child.sku,
+              productGraph,
+              productVendorAvailability,
+              shopifyAvailabilityBySku,
+              buildToOrderLeadTimeBySku
+            )
+          : "",
+      followUpDate:
+        availability === "Backorder" && !followUpInfo?.followUpNoEta
+          ? followUpInfo?.followUpDate || ""
+          : "",
+      followUpNoEta: Boolean(followUpInfo?.followUpNoEta),
       isKit: Boolean(childProduct?.is_kit)
     };
   });
@@ -3405,11 +3423,13 @@ async function getProductDetails(sku) {
   const [
     productVendorAvailability,
     shopifyAvailabilityBySku,
-    buildToOrderLeadTimeBySku
+    buildToOrderLeadTimeBySku,
+    childFollowUpInfoBySku
   ] = await Promise.all([
     getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
     shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus),
-    shopifyAvailabilityStateService.getBuildToOrderLeadTimesForSkus(graphSkus)
+    shopifyAvailabilityStateService.getBuildToOrderLeadTimesForSkus(graphSkus),
+    followUpsService.getFollowUpInfoForSkus(graphSkus)
   ]);
   const builtToOrderLeadTime =
     buildToOrderLeadTimeBySku.get(productNode?.sku || product.sku || safeSku) ||
@@ -3441,7 +3461,8 @@ async function getProductDetails(sku) {
     productGraph,
     productVendorAvailability,
     shopifyAvailabilityBySku,
-    buildToOrderLeadTimeBySku
+    buildToOrderLeadTimeBySku,
+    childFollowUpInfoBySku
   );
   const vendorIds = Array.from(
     new Set(vendorProducts.map((row) => row.vendor_id).filter(Boolean))

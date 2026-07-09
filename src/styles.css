@@ -1641,6 +1641,76 @@ body:has(.notes-popup-page),
   white-space: nowrap;
 }
 
+.kit-child-products-panel {
+  border-top: 1px solid #444444;
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.kit-child-products-panel h4 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.kit-child-products-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kit-child-products-list-item {
+  background: #333333;
+  border: 1px solid #555555;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.kit-child-product-open {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.kit-child-product-open strong {
+  color: #72b8ff;
+}
+
+.kit-child-product-open:hover strong {
+  text-decoration: underline;
+}
+
+.kit-child-product-open:focus-visible {
+  outline: 2px solid #72b8ff;
+  outline-offset: 3px;
+}
+
+.kit-child-product-open strong,
+.kit-child-product-open span {
+  overflow-wrap: anywhere;
+}
+
+.kit-child-product-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kit-child-product-meta .availability-badge {
+  min-width: 0;
+}
+
 .follow-up-picker {
   align-items: center;
   display: flex;

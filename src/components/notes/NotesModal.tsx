@@ -332,6 +332,38 @@ function formatParentKitQuantityLabel(parentKit: ProductParentKit) {
     : `Uses ${parentKit.qtyRequired}`;
 }
 
+function getAvailabilityBadgeClass(availability: ProductAvailability) {
+  if (availability === "Available") {
+    return "availability-available";
+  }
+
+  if (availability === "Built to Order") {
+    return "availability-built-to-order";
+  }
+
+  return "availability-backorder";
+}
+
+function formatKitChildAvailabilityDetail(childProduct: ProductKitChild) {
+  if (childProduct.availability === "Available") {
+    return "";
+  }
+
+  if (childProduct.availability === "Built to Order") {
+    return childProduct.builtToOrderLeadTime
+      ? `BTO: ${childProduct.builtToOrderLeadTime}`
+      : "";
+  }
+
+  if (childProduct.followUpNoEta) {
+    return "No ETA";
+  }
+
+  return childProduct.followUpDate
+    ? `Follow up: ${formatFollowUpDate(childProduct.followUpDate)}`
+    : "";
+}
+
 function getVendorDrivenAvailability(vendors: ProductVendor[]) {
   const qtyAvailable = vendors.reduce(
     (total, vendor) => total + Math.max(Number(vendor.quantity || 0), 0),
@@ -564,7 +596,6 @@ export function NotesModal({
     Record<string, boolean>
   >({});
   const [isBulkVendorStockSaving, setIsBulkVendorStockSaving] = useState(false);
-  const [isKitModalOpen, setIsKitModalOpen] = useState(false);
   const [isParentKitsModalOpen, setIsParentKitsModalOpen] = useState(false);
   const [selectedChildSku, setSelectedChildSku] = useState("");
   const [activeMention, setActiveMention] = useState<ActiveMention | null>(null);
@@ -743,7 +774,6 @@ export function NotesModal({
   }, [activeMention, loadMentionUsers]);
 
   useEffect(() => {
-    setIsKitModalOpen(false);
     setIsParentKitsModalOpen(false);
     setSelectedChildSku("");
     setActiveMention(null);
@@ -1715,7 +1745,12 @@ export function NotesModal({
   const vendorSearchText = vendorSearchInput.trim();
   const childProducts = productDetails?.childProducts || [];
   const parentKits = productDetails?.parentKits || [];
-  const editableVendors = vendors.filter(canUpdateVendorStock);
+  const isKitParent = Boolean(productDetails?.isKit && childProducts.length > 0);
+  const warehouseVendors = vendors.filter(
+    (vendor) => vendor.stockSource === "warehouse"
+  );
+  const visibleAssignedVendors = isKitParent ? warehouseVendors : vendors;
+  const editableVendors = isKitParent ? [] : vendors.filter(canUpdateVendorStock);
   const builtToOrderVendor = getBuiltToOrderVendor(productDetails);
   const productStockQuantity = Math.max(
     Number(productDetails?.qtyAvailable || 0),
@@ -1731,7 +1766,6 @@ export function NotesModal({
     currentShopifyAvailability === "built_to_order" ||
     isBuiltToOrderLeadTimeOpen ||
     productDetails?.availability === "Built to Order";
-  const canShowKits = Boolean(productDetails?.isKit && childProducts.length > 0);
   const canShowParentKits = parentKits.length > 0;
   const isRouteMode = mode === "route";
   const mentionSuggestions = activeMention
@@ -1752,12 +1786,6 @@ export function NotesModal({
   function handleBackdropClick(event: MouseEvent<HTMLDivElement>) {
     if (!isRouteMode && event.target === event.currentTarget) {
       onClose();
-    }
-  }
-
-  function handleKitBackdropClick(event: MouseEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget) {
-      setIsKitModalOpen(false);
     }
   }
 
@@ -2012,7 +2040,9 @@ export function NotesModal({
         <div className="notes-modal-grid">
           <aside className="assigned-vendors-panel" aria-labelledby="assignedVendorsHeading">
             <div className="assigned-vendors-heading">
-              <h3 id="assignedVendorsHeading">Assigned vendors</h3>
+              <h3 id="assignedVendorsHeading">
+                {isKitParent ? "Kit inventory" : "Assigned vendors"}
+              </h3>
             </div>
 
             <div className="shopify-availability-panel">
@@ -2098,67 +2128,73 @@ export function NotesModal({
               )}
             </div>
 
-            <div className="vendor-add-control">
-              <input
-                type="search"
-                className="vendor-add-input"
-                value={vendorSearchInput}
-                placeholder="Add Vendor"
-                aria-label="Add Vendor"
-                aria-controls={vendorAddResultsId}
-                aria-expanded={isVendorSearchOpen}
-                disabled={!productDetails || isProductDetailsLoading || isVendorAssigning}
-                onChange={(event) => {
-                  setVendorSearchInput(event.target.value);
-                  setVendorAssignStatus("");
-                  setDetailsError("");
-                  setIsVendorSearchOpen(true);
-                }}
-                onFocus={() => setIsVendorSearchOpen(true)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    setIsVendorSearchOpen(false);
-                  }
-                }}
-              />
+            {!isKitParent && (
+              <div className="vendor-add-control">
+                <input
+                  type="search"
+                  className="vendor-add-input"
+                  value={vendorSearchInput}
+                  placeholder="Add Vendor"
+                  aria-label="Add Vendor"
+                  aria-controls={vendorAddResultsId}
+                  aria-expanded={isVendorSearchOpen}
+                  disabled={!productDetails || isProductDetailsLoading || isVendorAssigning}
+                  onChange={(event) => {
+                    setVendorSearchInput(event.target.value);
+                    setVendorAssignStatus("");
+                    setDetailsError("");
+                    setIsVendorSearchOpen(true);
+                  }}
+                  onFocus={() => setIsVendorSearchOpen(true)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setIsVendorSearchOpen(false);
+                    }
+                  }}
+                />
 
-              {isVendorSearchOpen && (
-                <div id={vendorAddResultsId} className="vendor-add-results">
-                  {isVendorSearchLoading ? (
-                    <p className="vendor-add-empty">Loading vendors...</p>
-                  ) : vendorSearchResults.length > 0 ? (
-                    <ul>
-                      {vendorSearchResults.map((vendor) => (
-                        <li key={vendor.id}>
-                          <button
-                            type="button"
-                            disabled={isVendorAssigning}
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => handleAssignVendor(vendor)}
-                          >
-                            {vendor.vendor}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : vendorSearchText ? (
-                    <p className="vendor-add-empty">No matching vendors.</p>
-                  ) : null}
-                </div>
-              )}
-            </div>
+                {isVendorSearchOpen && (
+                  <div id={vendorAddResultsId} className="vendor-add-results">
+                    {isVendorSearchLoading ? (
+                      <p className="vendor-add-empty">Loading vendors...</p>
+                    ) : vendorSearchResults.length > 0 ? (
+                      <ul>
+                        {vendorSearchResults.map((vendor) => (
+                          <li key={vendor.id}>
+                            <button
+                              type="button"
+                              disabled={isVendorAssigning}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => handleAssignVendor(vendor)}
+                            >
+                              {vendor.vendor}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : vendorSearchText ? (
+                      <p className="vendor-add-empty">No matching vendors.</p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            )}
 
-            {vendorAssignStatus && (
+            {!isKitParent && vendorAssignStatus && (
               <p className="vendor-add-status">{vendorAssignStatus}</p>
             )}
 
             {isProductDetailsLoading ? (
-              <p className="status-message">Loading vendors...</p>
-            ) : vendors.length === 0 ? (
-              <p className="status-message">No vendors assigned.</p>
+              <p className="status-message">
+                {isKitParent ? "Loading kit inventory..." : "Loading vendors..."}
+              </p>
+            ) : visibleAssignedVendors.length === 0 ? (
+              <p className="status-message">
+                {isKitParent ? "No DPP Warehouse inventory." : "No vendors assigned."}
+              </p>
             ) : (
               <ul className="assigned-vendors-list">
-                {vendors.map((vendor) => {
+                {visibleAssignedVendors.map((vendor) => {
                   const stockEnabled = vendor.quantity > 0;
                   const canEditStock = canUpdateVendorStock(vendor);
                   const displayQuantity =
@@ -2259,6 +2295,60 @@ export function NotesModal({
                 })}
               </ul>
             )}
+
+            {isKitParent && (
+              <div className="kit-child-products-panel">
+                <h4>Child parts</h4>
+                {childProducts.length === 0 ? (
+                  <p className="status-message">No child products found.</p>
+                ) : (
+                  <ul className="kit-child-products-list">
+                    {childProducts.map((childProduct) => {
+                      const childAvailabilityDetail =
+                        formatKitChildAvailabilityDetail(childProduct);
+
+                      return (
+                        <li
+                          className="kit-child-products-list-item"
+                          key={childProduct.sku}
+                        >
+                          <button
+                            type="button"
+                            className="kit-child-product-open"
+                            onClick={() => setSelectedChildSku(childProduct.sku)}
+                            aria-label={`Open notes for ${childProduct.sku}`}
+                          >
+                            <strong>{childProduct.sku}</strong>
+                            <span>{childProduct.name}</span>
+                          </button>
+
+                          <div className="kit-child-product-meta">
+                            <span className="kit-products-qty">
+                              {formatKitQuantityLabel(childProduct)}
+                            </span>
+                            <span
+                              className={`availability-badge ${getAvailabilityBadgeClass(
+                                childProduct.availability
+                              )}`}
+                              title={`Quantity available: ${formatStockQuantity(
+                                childProduct.qtyAvailable
+                              )}`}
+                            >
+                              {childProduct.availability}
+                            </span>
+                            {childAvailabilityDetail && (
+                              <span className="kit-products-qty">
+                                {childAvailabilityDetail}
+                              </span>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
           </aside>
 
           <section className="notes-panel" aria-label="Notes">
@@ -2273,15 +2363,6 @@ export function NotesModal({
               </div>
 
               <div className="notes-panel-actions">
-                {canShowKits && (
-                  <button
-                    type="button"
-                    className="follow-up-button"
-                    onClick={() => setIsKitModalOpen(true)}
-                  >
-                    Kits
-                  </button>
-                )}
                 {canShowParentKits && (
                   <button
                     type="button"
@@ -2747,61 +2828,6 @@ export function NotesModal({
           </section>
         )}
 
-        {isKitModalOpen && (
-          <div
-            className="notes-submodal-backdrop"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="kitModalTitle"
-            onClick={handleKitBackdropClick}
-          >
-            <div className="kit-products-modal">
-              <div className="kit-products-modal-header">
-                <h3 id="kitModalTitle">Kits</h3>
-                <button type="button" onClick={() => setIsKitModalOpen(false)}>
-                  Close
-                </button>
-              </div>
-
-              {childProducts.length === 0 ? (
-                <p className="status-message">No child products found.</p>
-              ) : (
-                <ul className="kit-products-list">
-                  {childProducts.map((childProduct) => (
-                    <li className="kit-products-list-item" key={childProduct.sku}>
-                      <button
-                        type="button"
-                        className="kit-products-copy kit-products-open"
-                        onClick={() => setSelectedChildSku(childProduct.sku)}
-                        aria-label={`Open notes for ${childProduct.sku}`}
-                      >
-                        <strong>{childProduct.sku}</strong>
-                        <span>{childProduct.name}</span>
-                      </button>
-
-                      <div className="kit-products-meta">
-                        <span className="kit-products-qty">
-                          {formatKitQuantityLabel(childProduct)}
-                        </span>
-                        <span
-                          className={`availability-badge ${
-                            childProduct.availability === "Available"
-                              ? "availability-available"
-                              : "availability-backorder"
-                          }`}
-                          title={`Quantity available: ${childProduct.qtyAvailable}`}
-                        >
-                          {childProduct.availability}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        )}
-
         {isParentKitsModalOpen && (
           <div
             className="notes-submodal-backdrop"
@@ -2850,11 +2876,9 @@ export function NotesModal({
                           </span>
                         )}
                         <span
-                          className={`availability-badge ${
-                            parentKit.availability === "Available"
-                              ? "availability-available"
-                              : "availability-backorder"
-                          }`}
+                          className={`availability-badge ${getAvailabilityBadgeClass(
+                            parentKit.availability
+                          )}`}
                           title={`Quantity available: ${parentKit.qtyAvailable}`}
                         >
                           {parentKit.availability}
