@@ -49,12 +49,6 @@ function getSkuMatchKeys(value) {
 
   addKey(safeValue);
 
-  const parts = safeValue.split(/[-_\s]+/).filter(Boolean);
-
-  if (parts.length > 1) {
-    addKey(parts.slice(1).join("-"));
-  }
-
   return Array.from(keys);
 }
 
@@ -849,6 +843,7 @@ async function importSheetAttachment({ settings, attachment, message }) {
         quantity,
         vendorProduct
       });
+      vendorProduct.quantity = quantity;
 
       if (sheetManagedProductUpdate) {
         sheetManagedProductUpdates.set(
@@ -1176,18 +1171,17 @@ async function runAutoInventoryImport() {
       for (const uid of uids) {
         const message = await client.fetchOne(
           String(uid),
-          { internalDate: true, source: true },
+          { internalDate: true },
           { uid: true }
         );
 
-        if (!message?.source) {
+        if (!message) {
           continue;
         }
 
         messages.push({
           uid,
-          internalDate: message.internalDate,
-          source: message.source
+          internalDate: message.internalDate
         });
       }
 
@@ -1197,6 +1191,53 @@ async function runAutoInventoryImport() {
         continue;
       }
 
+      console.log("Auto inventory vendor import started.", {
+        vendorId: settings.vendorId,
+        senderEmail: settings.senderEmail,
+        inboxMessages: messages.length,
+        latestUid: String(latestMessage.uid)
+      });
+
+      const latestMessageWithSource = await client.fetchOne(
+        String(latestMessage.uid),
+        { internalDate: true, source: true },
+        { uid: true }
+      );
+
+      if (!latestMessageWithSource?.source) {
+        console.warn("Auto inventory latest message had no source.", {
+          vendorId: settings.vendorId,
+          latestUid: String(latestMessage.uid)
+        });
+        continue;
+      }
+
+      totals.messages += 1;
+      const result = await processMessageForSettings(
+        {
+          uid: latestMessage.uid,
+          internalDate:
+            latestMessageWithSource.internalDate || latestMessage.internalDate,
+          source: latestMessageWithSource.source
+        },
+        settings
+      );
+
+      totals.attachments += result.attachments;
+      totals.imported += result.imported;
+      totals.skipped += result.skipped;
+      totals.followUpsSet += result.followUpsSet || 0;
+      totals.errors += result.errors;
+
+      console.log("Auto inventory vendor import completed.", {
+        vendorId: settings.vendorId,
+        imported: result.imported,
+        skipped: result.skipped,
+        errors: result.errors,
+        attachments: result.attachments,
+        followUpsSet: result.followUpsSet || 0
+      });
+
       for (const message of messages) {
         const labelKey = String(message.uid);
 
@@ -1204,10 +1245,30 @@ async function runAutoInventoryImport() {
           continue;
         }
 
+        const messageWithSource =
+          labelKey === String(latestMessage.uid)
+            ? latestMessageWithSource
+            : await client.fetchOne(
+                String(message.uid),
+                { internalDate: true, source: true },
+                { uid: true }
+              );
+
+        if (!messageWithSource?.source) {
+          continue;
+        }
+
         let shouldLabel = false;
 
         try {
-          shouldLabel = await shouldLabelMessageForSettings(message, settings);
+          shouldLabel = await shouldLabelMessageForSettings(
+            {
+              uid: message.uid,
+              internalDate: messageWithSource.internalDate || message.internalDate,
+              source: messageWithSource.source
+            },
+            settings
+          );
         } catch (error) {
           totals.errors += 1;
           console.error("Unable to inspect vendor inventory email for labeling.", {
@@ -1236,21 +1297,6 @@ async function runAutoInventoryImport() {
           });
         }
       }
-
-      totals.messages += 1;
-      const result = await processMessageForSettings(
-        {
-          uid: latestMessage.uid,
-          source: latestMessage.source
-        },
-        settings
-      );
-
-      totals.attachments += result.attachments;
-      totals.imported += result.imported;
-      totals.skipped += result.skipped;
-      totals.followUpsSet += result.followUpsSet || 0;
-      totals.errors += result.errors;
     }
   } finally {
     lock.release();

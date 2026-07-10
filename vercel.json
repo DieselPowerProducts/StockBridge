@@ -17,7 +17,7 @@
     },
     "api/cron/auto-inventory.js": {
       "includeFiles": "server/**",
-      "maxDuration": 60
+      "maxDuration": 180
     }
   },
   "crons": [
