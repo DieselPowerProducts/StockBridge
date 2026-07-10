@@ -49,6 +49,12 @@ function getSkuMatchKeys(value) {
 
   addKey(safeValue);
 
+  const parts = safeValue.split(/[-_\s]+/).filter(Boolean);
+
+  if (parts.length > 1 && /^[a-z]+$/.test(parts[0])) {
+    addKey(parts.slice(1).join("-"));
+  }
+
   return Array.from(keys);
 }
 
