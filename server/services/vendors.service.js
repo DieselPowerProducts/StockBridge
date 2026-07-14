@@ -1,6 +1,11 @@
 const catalogService = require("./catalog.service");
 const skunexus = require("./skunexus.service");
+const {
+  buildSkuExceptionKeys,
+  isVendorProductExcepted
+} = require("./autoInventorySkuMatcher");
 const vendorAutoInventoryImportsService = require("./vendorAutoInventoryImports.service");
+const vendorAutoInventoryProductUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorDefaultContactsService = require("./vendorDefaultContacts.service");
 const vendorSettingsService = require("./vendorSettings.service");
@@ -163,12 +168,52 @@ async function updateVendorSettings(vendorId, settings) {
   return catalogService.getVendorDetails(safeVendorId);
 }
 
+async function removeAutoInventoryUpdatesForSkuExceptions(vendorId, settings) {
+  if (!settings?.skuExceptions?.length) {
+    return 0;
+  }
+
+  const vendorProducts =
+    await catalogService.getActiveCatalogVendorProductsByVendorId(vendorId);
+  const vendorProductIds = vendorProducts.map((row) => row.id).filter(Boolean);
+
+  if (vendorProductIds.length === 0) {
+    return 0;
+  }
+
+  const [updatesByVendorProductId] = await Promise.all([
+    vendorAutoInventoryProductUpdatesService.getUpdatesForVendorProductIds(
+      vendorProductIds
+    )
+  ]);
+  const exceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const exceptedVendorProductIds = vendorProducts
+    .filter((vendorProduct) => {
+      const update = updatesByVendorProductId.get(vendorProduct.id);
+
+      return isVendorProductExcepted(vendorProduct, exceptionKeys, [
+        update?.sku,
+        update?.sheetSku
+      ]);
+    })
+    .map((vendorProduct) => vendorProduct.id)
+    .filter(Boolean);
+
+  return vendorAutoInventoryProductUpdatesService.deleteUpdatesForVendorProductIds(
+    exceptedVendorProductIds
+  );
+}
+
 async function updateVendorAutoInventorySettings(vendorId, settings) {
   const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
 
   await catalogService.getVendorDetails(safeVendorId);
-  const [savedSettings, lastImportedAt] = await Promise.all([
-    vendorAutoInventorySettingsService.saveSettings(safeVendorId, settings),
+  const savedSettings = await vendorAutoInventorySettingsService.saveSettings(
+    safeVendorId,
+    settings
+  );
+  const [, lastImportedAt] = await Promise.all([
+    removeAutoInventoryUpdatesForSkuExceptions(safeVendorId, savedSettings),
     vendorAutoInventoryImportsService.getLastSuccessfulImportForVendor(safeVendorId)
   ]);
 

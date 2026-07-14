@@ -209,7 +209,36 @@ async function getUpdatesForVendorProductIds(vendorProductIds) {
   );
 }
 
+async function deleteUpdatesForVendorProductIds(vendorProductIds) {
+  const safeVendorProductIds = Array.from(
+    new Set((vendorProductIds || []).map(normalizeText).filter(Boolean))
+  );
+
+  if (safeVendorProductIds.length === 0) {
+    return 0;
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const vendorProductIdJson = JSON.stringify(safeVendorProductIds);
+  const rows = await sql`
+    WITH deleted AS (
+      DELETE FROM vendor_auto_inventory_product_updates
+      WHERE vendor_product_id IN (
+        SELECT jsonb_array_elements_text(${vendorProductIdJson}::jsonb)
+      )
+      RETURNING vendor_product_id
+    )
+    SELECT COUNT(*)::integer AS deleted_count
+    FROM deleted
+  `;
+
+  return Number(rows[0]?.deleted_count || 0);
+}
+
 module.exports = {
+  deleteUpdatesForVendorProductIds,
   getUpdatesForVendorProductIds,
   initializeSchema,
   replaceVendorProductUpdatesForVendor

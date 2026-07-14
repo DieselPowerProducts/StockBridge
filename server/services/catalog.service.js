@@ -7,6 +7,10 @@ const stockCheckEmailsService = require("./stockCheckEmails.service");
 const autoInventoryProductUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorSettingsService = require("./vendorSettings.service");
+const {
+  buildSkuExceptionKeys,
+  isVendorProductExcepted
+} = require("./autoInventorySkuMatcher");
 
 const fullSyncPageSize = 1000;
 const productFetchConcurrency = 4;
@@ -54,63 +58,25 @@ function normalizeSearch(search) {
   return String(search || "").trim();
 }
 
-function normalizeAutoInventorySkuKey(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function getAutoInventorySkuMatchKeys(value) {
-  const safeValue = String(value || "").trim().toLowerCase();
-  const keys = new Set();
-  const addKey = (keyValue) => {
-    const key = normalizeAutoInventorySkuKey(keyValue);
-
-    if (key) {
-      keys.add(key);
-    }
-  };
-
-  addKey(safeValue);
-
-  const parts = safeValue.split(/[-_\s]+/).filter(Boolean);
-
-  if (parts.length > 1) {
-    addKey(parts.slice(1).join("-"));
-  }
-
-  return Array.from(keys);
-}
-
-function getVendorProductAutoInventorySkuValues(vendorProduct) {
-  return [
-    vendorProduct?.product_sku,
-    vendorProduct?.sku,
-    vendorProduct?.label
-  ].filter(Boolean);
-}
-
-function isVendorProductAutoInventoryExcepted(vendorProduct, settings) {
+function isVendorProductAutoInventoryExcepted(
+  vendorProduct,
+  settings,
+  autoInventoryUpdate
+) {
   if (!settings?.skuExceptions?.length) {
     return false;
   }
 
-  const exceptionKeys = new Set();
-
-  for (const sku of settings.skuExceptions) {
-    for (const key of getAutoInventorySkuMatchKeys(sku)) {
-      exceptionKeys.add(key);
-    }
-  }
+  const exceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
 
   if (exceptionKeys.size === 0) {
     return false;
   }
 
-  return getVendorProductAutoInventorySkuValues(vendorProduct).some((value) =>
-    getAutoInventorySkuMatchKeys(value).some((key) => exceptionKeys.has(key))
-  );
+  return isVendorProductExcepted(vendorProduct, exceptionKeys, [
+    autoInventoryUpdate?.sku,
+    autoInventoryUpdate?.sheetSku
+  ]);
 }
 
 function normalizeProductState(state) {
@@ -3492,9 +3458,12 @@ async function getProductDetails(sku) {
       const autoInventorySettings = autoInventorySettingsByVendorId.get(
         vendorProduct.vendor_id
       );
+      const candidateAutoInventoryUpdate =
+        autoInventoryUpdatesByVendorProductId.get(vendorProduct.id);
       const isAutoInventoryExcepted = isVendorProductAutoInventoryExcepted(
         vendorProduct,
-        autoInventorySettings
+        autoInventorySettings,
+        candidateAutoInventoryUpdate
       );
       const canUseAutoInventoryUpdate = Boolean(
         autoInventorySettings?.enabled &&
@@ -3502,7 +3471,7 @@ async function getProductDetails(sku) {
           !isAutoInventoryExcepted
       );
       const autoInventoryUpdate = canUseAutoInventoryUpdate
-        ? autoInventoryUpdatesByVendorProductId.get(vendorProduct.id)
+        ? candidateAutoInventoryUpdate
         : null;
 
       return {
