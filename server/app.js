@@ -57,8 +57,15 @@ app.use(usersRoutes);
 app.use(vendorsRoutes);
 
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.statusCode || 500).send({
+  const statusCode = err.statusCode || 500;
+
+  if (statusCode >= 500) {
+    console.error(err);
+  } else {
+    console.warn(err);
+  }
+
+  res.status(statusCode).send({
     message: err.statusCode ? err.message : "Something went wrong."
   });
 });
