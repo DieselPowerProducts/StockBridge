@@ -3,11 +3,17 @@ function normalizeText(value) {
 }
 
 function normalizeSkuKey(value) {
-  return normalizeText(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/&/g, "-")
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function getSkuMatchKeys(value) {
-  const safeValue = normalizeText(value).toLowerCase();
+  const safeValue = normalizeSkuKey(value);
   const keys = new Set();
   const addKey = (keyValue) => {
     const key = normalizeSkuKey(keyValue);
@@ -19,7 +25,7 @@ function getSkuMatchKeys(value) {
 
   addKey(safeValue);
 
-  const parts = safeValue.split(/[-_\s]+/).filter(Boolean);
+  const parts = safeValue.split("-").filter(Boolean);
 
   if (parts.length > 1 && /^[a-z]+$/.test(parts[0])) {
     addKey(parts.slice(1).join("-"));
