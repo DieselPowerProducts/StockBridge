@@ -299,7 +299,23 @@ export function VendorsPage({
 
       setSelectedVendorDetails(result);
       setBuildTimeDraft(result.buildTime || "");
-      setVendorSettingsStatus("Vendor settings saved.");
+      const reconciliation = result.btoReconciliation;
+
+      if (reconciliation?.converted) {
+        const shopifyWarning = reconciliation.shopifyFailed
+          ? ` ${reconciliation.shopifyFailed} Shopify update${
+              reconciliation.shopifyFailed === 1 ? "" : "s"
+            } could not be completed.`
+          : "";
+
+        setVendorSettingsStatus(
+          `Vendor settings saved. ${reconciliation.converted} backordered product${
+            reconciliation.converted === 1 ? "" : "s"
+          } updated to Built to Order.${shopifyWarning}`
+        );
+      } else {
+        setVendorSettingsStatus("Vendor settings saved.");
+      }
       setProductRefreshNonce((current) => current + 1);
     } catch (err) {
       setVendorSettingsStatus("");

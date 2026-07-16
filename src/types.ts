@@ -231,6 +231,13 @@ export type VendorDetails = {
   vendor: string;
   builtToOrder: boolean;
   buildTime: string;
+  btoReconciliation?: {
+    converted: number;
+    shopifyFailed: number;
+    shopifyMatched: number;
+    shopifyUpdated: number;
+    error?: string;
+  };
 };
 
 export type VendorAutoInventoryMode = "numerical" | "alphabetical";
