@@ -22,6 +22,7 @@ import {
   sendVendorStockCheckEmail,
   setVendorDefaultContact,
   updateProductBuiltToOrderLeadTime,
+  updateProductVendorDetails,
   updateShopifyProductAvailability,
   updateProductFollowUp,
   updateProductVendorStock,
@@ -68,6 +69,12 @@ type EmailComposerState = {
   isNewTemplate: boolean;
   subject: string;
   body: string;
+};
+
+type VendorProductDetailsDraft = {
+  vendorProductId: string;
+  vendorSku: string;
+  productCost: string;
 };
 
 const newTemplateValue = "__new_template__";
@@ -216,17 +223,6 @@ function formatStockQuantity(value: number) {
   return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 2
   }).format(Number.isFinite(quantity) ? Math.max(quantity, 0) : 0);
-}
-
-function formatVendorProductCost(value: number | null) {
-  if (value === null || !Number.isFinite(value)) {
-    return "Not provided";
-  }
-
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD"
-  }).format(value);
 }
 
 function getBuiltToOrderVendor(productDetails: ProductDetails | null) {
@@ -640,6 +636,10 @@ export function NotesModal({
   const [isVendorAssigning, setIsVendorAssigning] = useState(false);
   const [vendorAssignStatus, setVendorAssignStatus] = useState("");
   const [openVendorDetailsId, setOpenVendorDetailsId] = useState("");
+  const [vendorDetailsDraft, setVendorDetailsDraft] =
+    useState<VendorProductDetailsDraft | null>(null);
+  const [savingVendorDetailsId, setSavingVendorDetailsId] = useState("");
+  const [vendorDetailsStatus, setVendorDetailsStatus] = useState("");
   const [isShopifyAvailabilitySaving, setIsShopifyAvailabilitySaving] =
     useState(false);
   const [shopifyAvailabilityStatus, setShopifyAvailabilityStatus] =
@@ -815,6 +815,9 @@ export function NotesModal({
     setIsVendorAssigning(false);
     setVendorAssignStatus("");
     setOpenVendorDetailsId("");
+    setVendorDetailsDraft(null);
+    setSavingVendorDetailsId("");
+    setVendorDetailsStatus("");
     setFollowUpNoEta(false);
     cancelScheduledShopifyAvailabilitySync();
     setIsShopifyAvailabilitySaving(false);
@@ -1427,6 +1430,99 @@ export function NotesModal({
       );
     } finally {
       setIsProductRefreshing(false);
+    }
+  }
+
+  function handleToggleVendorProductDetails(vendor: ProductVendor) {
+    if (openVendorDetailsId === vendor.vendorProductId) {
+      setOpenVendorDetailsId("");
+      setVendorDetailsDraft(null);
+      setVendorDetailsStatus("");
+      return;
+    }
+
+    setOpenVendorDetailsId(vendor.vendorProductId);
+    setVendorDetailsDraft({
+      vendorProductId: vendor.vendorProductId,
+      vendorSku: vendor.vendorSku,
+      productCost:
+        vendor.productCost === null ? "" : String(vendor.productCost)
+    });
+    setVendorDetailsStatus("");
+    setDetailsError("");
+  }
+
+  async function handleSaveVendorProductDetails(vendor: ProductVendor) {
+    if (
+      !vendorDetailsDraft ||
+      vendorDetailsDraft.vendorProductId !== vendor.vendorProductId ||
+      savingVendorDetailsId
+    ) {
+      return;
+    }
+
+    const nextVendorSku = vendorDetailsDraft.vendorSku.trim();
+    const productCostText = vendorDetailsDraft.productCost.trim();
+    const nextProductCost = Number(productCostText);
+
+    if (!nextVendorSku) {
+      setDetailsError("Vendor SKU is required.");
+      return;
+    }
+
+    if (!productCostText) {
+      setDetailsError("Vendor product cost is required.");
+      return;
+    }
+
+    if (!Number.isFinite(nextProductCost) || nextProductCost < 0) {
+      setDetailsError("Vendor product cost must be zero or greater.");
+      return;
+    }
+
+    setDetailsError("");
+    setVendorDetailsStatus("");
+    setSavingVendorDetailsId(vendor.vendorProductId);
+
+    try {
+      const result = await updateProductVendorDetails({
+        sku,
+        vendorId: vendor.id,
+        vendorProductId: vendor.vendorProductId,
+        vendorSku: nextVendorSku,
+        productCost: nextProductCost
+      });
+
+      setProductDetails((current) =>
+        current
+          ? {
+              ...current,
+              vendors: current.vendors.map((currentVendor) =>
+                currentVendor.vendorProductId === result.vendorProductId
+                  ? {
+                      ...currentVendor,
+                      vendorSku: result.vendorSku,
+                      productCost: result.productCost
+                    }
+                  : currentVendor
+              )
+            }
+          : current
+      );
+      setVendorDetailsDraft({
+        vendorProductId: result.vendorProductId,
+        vendorSku: result.vendorSku,
+        productCost: String(result.productCost)
+      });
+      setVendorDetailsStatus("Saved to SKU Nexus.");
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? `Unable to update vendor details: ${err.message}`
+          : "Unable to update vendor details."
+      );
+    } finally {
+      setSavingVendorDetailsId("");
     }
   }
 
@@ -2355,22 +2451,18 @@ export function NotesModal({
                             onBlur={(event) => {
                               if (!event.currentTarget.contains(event.relatedTarget)) {
                                 setOpenVendorDetailsId("");
+                                setVendorDetailsDraft(null);
+                                setVendorDetailsStatus("");
                               }
                             }}
                           >
                             <button
                               type="button"
                               className="vendor-product-details-button"
-                              aria-label={`Show SKU and cost for ${vendor.name}`}
+                              aria-label={`Edit SKU and cost for ${vendor.name}`}
                               aria-expanded={openVendorDetailsId === vendor.vendorProductId}
                               title="Vendor product details"
-                              onClick={() =>
-                                setOpenVendorDetailsId((current) =>
-                                  current === vendor.vendorProductId
-                                    ? ""
-                                    : vendor.vendorProductId
-                                )
-                              }
+                              onClick={() => handleToggleVendorProductDetails(vendor)}
                               onKeyDown={(event) => {
                                 if (event.key === "Escape") {
                                   setOpenVendorDetailsId("");
@@ -2383,16 +2475,60 @@ export function NotesModal({
                             </button>
 
                             {openVendorDetailsId === vendor.vendorProductId && (
-                              <dl className="vendor-product-details-menu">
-                                <div>
-                                  <dt>Vendor SKU</dt>
-                                  <dd>{vendor.vendorSku || "Not provided"}</dd>
-                                </div>
-                                <div>
-                                  <dt>Product cost</dt>
-                                  <dd>{formatVendorProductCost(vendor.productCost)}</dd>
-                                </div>
-                              </dl>
+                              <form
+                                className="vendor-product-details-menu"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void handleSaveVendorProductDetails(vendor);
+                                }}
+                              >
+                                <label>
+                                  <span>Vendor SKU</span>
+                                  <input
+                                    type="text"
+                                    value={vendorDetailsDraft?.vendorSku || ""}
+                                    disabled={savingVendorDetailsId === vendor.vendorProductId}
+                                    onChange={(event) =>
+                                      setVendorDetailsDraft((current) =>
+                                        current
+                                          ? { ...current, vendorSku: event.target.value }
+                                          : current
+                                      )
+                                    }
+                                  />
+                                </label>
+                                <label>
+                                  <span>Product cost</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={vendorDetailsDraft?.productCost || ""}
+                                    disabled={savingVendorDetailsId === vendor.vendorProductId}
+                                    onChange={(event) =>
+                                      setVendorDetailsDraft((current) =>
+                                        current
+                                          ? { ...current, productCost: event.target.value }
+                                          : current
+                                      )
+                                    }
+                                  />
+                                </label>
+                                <button
+                                  type="submit"
+                                  className="vendor-product-details-save"
+                                  disabled={savingVendorDetailsId === vendor.vendorProductId}
+                                >
+                                  {savingVendorDetailsId === vendor.vendorProductId
+                                    ? "Saving..."
+                                    : "Save"}
+                                </button>
+                                {vendorDetailsStatus && (
+                                  <p className="vendor-product-details-status">
+                                    {vendorDetailsStatus}
+                                  </p>
+                                )}
+                              </form>
                             )}
                           </div>
                         )}

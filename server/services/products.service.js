@@ -45,6 +45,24 @@ function normalizeStockQuantity(value) {
     : disabledVendorStockQuantity;
 }
 
+function normalizeProductCost(value) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    const error = new Error("Vendor product cost is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const productCost = Number(value);
+
+  if (!Number.isFinite(productCost) || productCost < 0) {
+    const error = new Error("Vendor product cost must be zero or greater.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return productCost;
+}
+
 function formatCsvValue(value) {
   const normalized = String(value ?? "");
 
@@ -372,6 +390,91 @@ async function setProductVendorStock({
   };
 }
 
+async function setProductVendorDetails({
+  sku,
+  vendorId,
+  vendorProductId,
+  vendorSku,
+  productCost
+}) {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const safeVendorProductId = normalizeRequiredString(
+    vendorProductId,
+    "Vendor product ID is required."
+  );
+  const safeVendorSku = normalizeRequiredString(
+    vendorSku,
+    "Vendor SKU is required."
+  );
+  const safeProductCost = normalizeProductCost(productCost);
+  const [product, vendorProduct] = await Promise.all([
+    catalogService.getCatalogProductBySku(safeSku),
+    catalogService.getCatalogVendorProductById(safeVendorProductId)
+  ]);
+
+  if (!product) {
+    const error = new Error("Product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (!vendorProduct) {
+    const error = new Error("Vendor product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    vendorProduct.vendor_id !== safeVendorId ||
+    vendorProduct.product_id !== product.id
+  ) {
+    const error = new Error("Vendor product does not match this product.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const payload = cleanPayload({
+    product_id: vendorProduct.product_id,
+    sku: safeVendorSku,
+    label: vendorProduct.label || safeVendorSku,
+    quantity: optionalNumber(vendorProduct.quantity) ?? disabledVendorStockQuantity,
+    price: safeProductCost,
+    status: optionalNumber(vendorProduct.status)
+  });
+
+  await skunexus.rest(
+    `/vendors/${encodeURIComponent(safeVendorId)}/products/${encodeURIComponent(
+      safeVendorProductId
+    )}`,
+    {
+      method: "PUT",
+      body: payload
+    }
+  );
+
+  try {
+    await catalogService.updateCatalogVendorProductDetails(safeVendorProductId, {
+      vendorSku: safeVendorSku,
+      productCost: safeProductCost
+    });
+  } catch (error) {
+    console.error(
+      "Unable to update the local catalog after a successful SKU Nexus vendor details update.",
+      error
+    );
+  }
+  clearProductCaches();
+
+  return {
+    sku: product.sku || safeSku,
+    vendorId: safeVendorId,
+    vendorProductId: safeVendorProductId,
+    vendorSku: safeVendorSku,
+    productCost: safeProductCost
+  };
+}
+
 async function setVendorProductQuantity({
   vendorId,
   vendorProductId,
@@ -482,6 +585,7 @@ module.exports = {
   refreshProductDetails,
   setProductBuiltToOrderLeadTime,
   setProductFollowUp,
+  setProductVendorDetails,
   setProductVendorStock,
   setVendorProductQuantity
 };

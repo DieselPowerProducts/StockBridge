@@ -13,6 +13,7 @@ router.put(
   productsController.updateProductBuiltToOrderLeadTime
 );
 router.put("/products/follow-up", productsController.updateProductFollowUp);
+router.put("/products/vendor-details", productsController.updateProductVendorDetails);
 router.put("/products/vendor-stock", productsController.updateProductVendorStock);
 
 module.exports = router;

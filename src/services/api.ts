@@ -290,6 +290,40 @@ export function updateProductVendorStock({
   });
 }
 
+export function updateProductVendorDetails({
+  sku,
+  vendorId,
+  vendorProductId,
+  vendorSku,
+  productCost
+}: {
+  sku: string;
+  vendorId: string;
+  vendorProductId: string;
+  vendorSku: string;
+  productCost: number;
+}) {
+  return request<{
+    sku: string;
+    vendorId: string;
+    vendorProductId: string;
+    vendorSku: string;
+    productCost: number;
+  }>("/products/vendor-details", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      sku,
+      vendorId,
+      vendorProductId,
+      vendorSku,
+      productCost
+    })
+  });
+}
+
 export function assignProductVendor({
   sku,
   vendorId

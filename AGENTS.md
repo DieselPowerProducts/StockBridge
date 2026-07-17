@@ -260,8 +260,10 @@ It includes:
   modal stores the entered lead time per SKU and rehydrates it when reopened.
   The lead-time box stays visible while the product is in BTO state.
 - Vendor stock on/off controls.
-- Non-warehouse vendor rows include a pencil menu showing the SKU Nexus vendor
-  SKU and product cost cached in `catalog_vendor_products`.
+- Non-warehouse vendor rows include a pencil menu for viewing and editing the
+  SKU Nexus vendor SKU and product cost cached in `catalog_vendor_products`.
+  Saves update SKU Nexus first, then update the local cache without changing
+  inventory or vendor-product status.
 - Auto-inventory-managed vendor stock rows are read-only and show `Qty` plus a
   hover title with the latest sheet quantity/update time.
 - Kit/component modal. Kit parent products show child components; child products

@@ -1281,6 +1281,32 @@ async function updateCatalogVendorProductQuantity(vendorProductId, quantity) {
   return rows[0] || null;
 }
 
+async function updateCatalogVendorProductDetails(
+  vendorProductId,
+  { vendorSku, productCost }
+) {
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE catalog_vendor_products
+    SET
+      sku = ${vendorSku},
+      price = ${productCost},
+      last_synced_at = now()
+    WHERE vendor_product_id = ${vendorProductId}
+    RETURNING
+      vendor_product_id AS id,
+      vendor_id,
+      product_id,
+      sku,
+      label,
+      quantity,
+      status,
+      price
+  `;
+
+  return rows[0] || null;
+}
+
 async function queryVendorsByIds(vendorIds) {
   const uniqueIds = Array.from(
     new Set((vendorIds || []).map((value) => String(value || "").trim()).filter(Boolean))
@@ -3880,5 +3906,6 @@ module.exports = {
   runFullSync,
   runWarehouseSync,
   syncShopifyAvailabilityForSkus,
+  updateCatalogVendorProductDetails,
   updateCatalogVendorProductQuantity
 };
