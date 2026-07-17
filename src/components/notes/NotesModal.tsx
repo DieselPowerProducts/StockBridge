@@ -218,6 +218,17 @@ function formatStockQuantity(value: number) {
   }).format(Number.isFinite(quantity) ? Math.max(quantity, 0) : 0);
 }
 
+function formatVendorProductCost(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Not provided";
+  }
+
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD"
+  }).format(value);
+}
+
 function getBuiltToOrderVendor(productDetails: ProductDetails | null) {
   return (
     productDetails?.vendors.find(
@@ -233,6 +244,18 @@ function getProductDetailsBuiltToOrderLeadTime(
     getBuiltToOrderVendor(productDetails)?.buildTime ||
     productDetails?.builtToOrderLeadTime ||
     ""
+  );
+}
+
+function canPushBuiltToOrderAvailability(productDetails: ProductDetails) {
+  const assignedVendors = productDetails.vendors.filter(
+    (vendor) => vendor.stockSource === "vendor"
+  );
+
+  return (
+    assignedVendors.length > 0 &&
+    Number(productDetails.qtyAvailable || 0) <= 0 &&
+    productDetails.vendors.every((vendor) => Number(vendor.quantity || 0) <= 0)
   );
 }
 
@@ -616,6 +639,7 @@ export function NotesModal({
   const [isVendorSearchLoading, setIsVendorSearchLoading] = useState(false);
   const [isVendorAssigning, setIsVendorAssigning] = useState(false);
   const [vendorAssignStatus, setVendorAssignStatus] = useState("");
+  const [openVendorDetailsId, setOpenVendorDetailsId] = useState("");
   const [isShopifyAvailabilitySaving, setIsShopifyAvailabilitySaving] =
     useState(false);
   const [shopifyAvailabilityStatus, setShopifyAvailabilityStatus] =
@@ -790,6 +814,7 @@ export function NotesModal({
     setIsVendorSearchLoading(false);
     setIsVendorAssigning(false);
     setVendorAssignStatus("");
+    setOpenVendorDetailsId("");
     setFollowUpNoEta(false);
     cancelScheduledShopifyAvailabilitySync();
     setIsShopifyAvailabilitySaving(false);
@@ -1012,6 +1037,18 @@ export function NotesModal({
         currentShopifyAvailability || nextProductDetails.shopifyAvailabilityStatus || ""
       );
 
+    if (
+      availability === "built_to_order" &&
+      !canPushBuiltToOrderAvailability(nextProductDetails)
+    ) {
+      if (!options.quiet) {
+        setShopifyAvailabilityStatus(
+          "Built to Order will update Shopify once every assigned vendor is out of stock."
+        );
+      }
+      return;
+    }
+
     try {
       const result = await updateShopifyProductAvailability({
         sku: nextProductDetails.sku,
@@ -1091,6 +1128,13 @@ export function NotesModal({
       currentShopifyAvailability || nextProductDetails.shopifyAvailabilityStatus || ""
     );
 
+    if (
+      availability === "built_to_order" &&
+      !canPushBuiltToOrderAvailability(nextProductDetails)
+    ) {
+      return;
+    }
+
     pendingShopifySyncTokenRef.current = syncToken;
     pendingShopifySyncDetailsRef.current = nextProductDetails;
     pendingShopifySyncAvailabilityRef.current = availability;
@@ -1129,8 +1173,9 @@ export function NotesModal({
       builtToOrderLeadTime: value
     };
     const shouldSyncShopify =
-      currentShopifyAvailability === "built_to_order" ||
-      productDetails.shopifyAvailabilityStatus === "built_to_order";
+      canPushBuiltToOrderAvailability(nextProductDetails) &&
+      (currentShopifyAvailability === "built_to_order" ||
+        productDetails.shopifyAvailabilityStatus === "built_to_order");
 
     setProductDetails(nextProductDetails);
 
@@ -1171,7 +1216,8 @@ export function NotesModal({
 
       if (
         options.syncShopify !== false &&
-        currentShopifyAvailability === "built_to_order"
+        currentShopifyAvailability === "built_to_order" &&
+        canPushBuiltToOrderAvailability(nextProductDetails)
       ) {
         scheduleShopifyAvailabilitySync(nextProductDetails);
       }
@@ -1917,8 +1963,17 @@ export function NotesModal({
       (vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder
     );
 
-    if (isBuiltToOrder && !hasBuiltToOrderVendor) {
+    if (isBuiltToOrder) {
       setIsBuiltToOrderLeadTimeOpen(true);
+
+      if (!canPushBuiltToOrderAvailability(productDetails)) {
+        cancelScheduledShopifyAvailabilitySync();
+        setDetailsError("");
+        setShopifyAvailabilityStatus(
+          "Built to Order will update Shopify once every assigned vendor is out of stock."
+        );
+        return;
+      }
     }
 
     cancelScheduledShopifyAvailabilitySync();
@@ -1929,7 +1984,9 @@ export function NotesModal({
 
     try {
       const nextProductDetails =
-        availability === "in_stock"
+        isBuiltToOrder
+          ? productDetails
+          : availability === "in_stock"
           ? await handleAllVendorStockChange(true, { syncShopify: false })
           : await handleAllVendorStockChange(false, { syncShopify: false });
       let detailsForShopify = nextProductDetails || productDetails;
@@ -2235,61 +2292,111 @@ export function NotesModal({
                         )}
                       </div>
 
-                      {vendor.builtToOrder ? (
-                        <div
-                          className="vendor-build-time-display"
-                          aria-label={`${vendor.name} build time`}
-                          title={vendor.buildTime || "Build time not set"}
-                        >
-                          <span className="vendor-build-time-label">Build Time</span>
-                          <span className="vendor-build-time-value">
-                            {vendor.buildTime || "Not set"}
+                      <div className="assigned-vendor-controls">
+                        {vendor.builtToOrder ? (
+                          <div
+                            className="vendor-build-time-display"
+                            aria-label={`${vendor.name} build time`}
+                            title={vendor.buildTime || "Build time not set"}
+                          >
+                            <span className="vendor-build-time-label">Build Time</span>
+                            <span className="vendor-build-time-value">
+                              {vendor.buildTime || "Not set"}
+                            </span>
+                          </div>
+                        ) : canEditStock ? (
+                          <div
+                            className="vendor-stock-switch"
+                            role="group"
+                            aria-label={`${vendor.name} stock override`}
+                            title={stockTitle}
+                          >
+                            <button
+                              type="button"
+                              className={
+                                stockEnabled
+                                  ? "vendor-stock-switch-option active"
+                                  : "vendor-stock-switch-option"
+                              }
+                              aria-label={`Turn on stock for ${vendor.name}`}
+                              aria-pressed={stockEnabled}
+                              disabled={isPending}
+                              onClick={() => handleVendorStockChange(vendor, true)}
+                            >
+                              I
+                            </button>
+                            <button
+                              type="button"
+                              className={
+                                stockEnabled
+                                  ? "vendor-stock-switch-option"
+                                  : "vendor-stock-switch-option active off"
+                              }
+                              aria-label={`Turn off stock for ${vendor.name}`}
+                              aria-pressed={!stockEnabled}
+                              disabled={isPending}
+                              onClick={() => handleVendorStockChange(vendor, false)}
+                            >
+                              O
+                            </button>
+                          </div>
+                        ) : (
+                          <span
+                            className="vendor-stock-readonly"
+                            title={stockTitle}
+                          >
+                            Qty {formattedQuantity}
                           </span>
-                        </div>
-                      ) : canEditStock ? (
-                        <div
-                          className="vendor-stock-switch"
-                          role="group"
-                          aria-label={`${vendor.name} stock override`}
-                          title={stockTitle}
-                        >
-                          <button
-                            type="button"
-                            className={
-                              stockEnabled
-                                ? "vendor-stock-switch-option active"
-                                : "vendor-stock-switch-option"
-                            }
-                            aria-label={`Turn on stock for ${vendor.name}`}
-                            aria-pressed={stockEnabled}
-                            disabled={isPending}
-                            onClick={() => handleVendorStockChange(vendor, true)}
+                        )}
+
+                        {vendor.stockSource === "vendor" && (
+                          <div
+                            className="vendor-product-details-control"
+                            onBlur={(event) => {
+                              if (!event.currentTarget.contains(event.relatedTarget)) {
+                                setOpenVendorDetailsId("");
+                              }
+                            }}
                           >
-                            I
-                          </button>
-                          <button
-                            type="button"
-                            className={
-                              stockEnabled
-                                ? "vendor-stock-switch-option"
-                                : "vendor-stock-switch-option active off"
-                            }
-                            aria-label={`Turn off stock for ${vendor.name}`}
-                            aria-pressed={!stockEnabled}
-                            disabled={isPending}
-                            onClick={() => handleVendorStockChange(vendor, false)}
-                          >
-                            O
-                          </button>
-                        </div>
-                      ) : (
-                        <span
-                          className="vendor-stock-readonly"
-                          title={stockTitle}
-                        >
-                          Qty {formattedQuantity}
-                        </span>
-                      )}
+                            <button
+                              type="button"
+                              className="vendor-product-details-button"
+                              aria-label={`Show SKU and cost for ${vendor.name}`}
+                              aria-expanded={openVendorDetailsId === vendor.vendorProductId}
+                              title="Vendor product details"
+                              onClick={() =>
+                                setOpenVendorDetailsId((current) =>
+                                  current === vendor.vendorProductId
+                                    ? ""
+                                    : vendor.vendorProductId
+                                )
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  setOpenVendorDetailsId("");
+                                }
+                              }}
+                            >
+                              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                                <path d="M4 16.7V20h3.3L17.1 10.2l-3.3-3.3L4 16.7Zm15.7-9.1c.4-.4.4-1 0-1.4l-1.9-1.9c-.4-.4-1-.4-1.4 0l-1.5 1.5 3.3 3.3 1.5-1.5Z" />
+                              </svg>
+                            </button>
+
+                            {openVendorDetailsId === vendor.vendorProductId && (
+                              <dl className="vendor-product-details-menu">
+                                <div>
+                                  <dt>Vendor SKU</dt>
+                                  <dd>{vendor.vendorSku || "Not provided"}</dd>
+                                </div>
+                                <div>
+                                  <dt>Product cost</dt>
+                                  <dd>{formatVendorProductCost(vendor.productCost)}</dd>
+                                </div>
+                              </dl>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </li>
                   );
                 })}

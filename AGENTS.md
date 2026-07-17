@@ -9,14 +9,16 @@ It helps Diesel Power Products manage product availability, vendor stock checks,
 follow-up dates, product notes, and SKU Nexus catalog/vendor data.
 
 The GitHub repo is `DieselPowerProducts/StockBridge`. The main working branch is
-usually `main`.
+usually `main`. The Vercel project is `stock-bridge` under the
+`dieselpowerproducts-projects` team.
 
 ## Stack And Layout
 
 - Frontend: React 19, TypeScript, Vite.
 - Backend: Express 5 server under `server/`, exposed through Vercel functions.
 - API entrypoint: `api/index.js`.
-- Scheduled sync entrypoint: `api/cron/catalog-full-sync.js`.
+- Scheduled sync entrypoints: `api/cron/catalog-full-sync.js`,
+  `api/cron/catalog-warehouse-sync.js`, and `api/cron/auto-inventory.js`.
 - Database: Neon Postgres via `@neondatabase/serverless`.
 - External systems: SKU Nexus, Shopify, Gmail SMTP.
 - Active browsers poll `/status/version` once per minute and force a page reload
@@ -58,8 +60,13 @@ Important env vars:
 
 - `DATABASE_URL`: Neon database connection string.
 - `SKU_NEXUS_BASE_URL`, `SKU_NEXUS_EMAIL`, `SKU_NEXUS_PASSWORD`: SKU Nexus API.
-- `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`,
-  `SHOPIFY_API_VERSION`: Shopify order resolve integration.
+- `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_API_VERSION`: shared Shopify config. The
+  store domain must be the `.myshopify.com` domain, not the admin URL.
+- `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`: Shopify order resolve
+  integration.
+- `SHOPIFY_CLIENT_ID2`, `SHOPIFY_CLIENT_SECRET2`: Shopify product availability
+  and quick-ship metafield reads/writes.
+- `CRON_SECRET`: bearer token required by Vercel cron endpoints.
 - `GMAIL_USER`, `GMAIL_APP_PASSWORD`: Gmail SMTP auth. Use a Gmail app password,
   not the normal account password.
 - `GMAIL_FROM_EMAIL`: should be the StockBridge mailbox, currently expected to be
@@ -91,9 +98,12 @@ Catalog data is cached in Neon tables:
 - `catalog_warehouse_stock`
 - `catalog_sync_state`
 
-Vercel cron runs `/api/cron/catalog-full-sync` hourly. The catalog service decides
-whether to run a full sync or warehouse sync based on local time in
-`CATALOG_SYNC_TIMEZONE` or `America/Los_Angeles`.
+Vercel cron runs `/api/cron/catalog-warehouse-sync` hourly during the active
+warehouse window and `/api/cron/catalog-full-sync` daily. The catalog service
+uses `CATALOG_SYNC_TIMEZONE` or `America/Los_Angeles` when deciding sync timing.
+Cron handlers require `Authorization: Bearer ${CRON_SECRET}`. Warehouse and full
+catalog cron functions have `maxDuration: 180` because warehouse sync can also
+verify kit quick-ship state in Shopify.
 
 Do not scrape all of SKU Nexus for a one-off fix unless the user explicitly asks.
 Prefer code changes that allow the scheduled cron to correct data later, or use a
@@ -101,6 +111,21 @@ targeted product refresh path for a single SKU.
 
 Inactive SKU Nexus products should not show on the site. Product queries filter
 `state` to active locally; sync code stores `state`.
+
+Kit quick-ship automation runs after successful warehouse data refreshes:
+
+- Code lives in `server/services/kitQuickShip.service.js`.
+- Kit parents are quick ship only when every active child/component SKU has
+  enough DPP warehouse stock to build one full kit.
+- Duplicate child SKUs inside the same kit are summed before comparing required
+  quantity to warehouse stock.
+- The sync writes variant metafield `custom.quick_ship` as `number_integer` `1`
+  or `0` through Shopify, using the `SHOPIFY_CLIENT_ID2` credential profile.
+- Each run reads Shopify's current quick-ship metafields first and only writes
+  mismatches. This catches external overwrites instead of trusting only local
+  `kit_quick_ship_state.last_pushed_quick_ship`.
+- Shopify SKU matching intentionally preserves punctuation such as `+`, `(`, and
+  `)`; do not strip SKU punctuation when matching variants.
 
 ## Product Availability Rules
 
@@ -112,7 +137,17 @@ Key logic lives in `server/services/catalog.service.js`.
 - A product with no active vendor can still map to `Available` when quantity is
   zero. This is intentional for products without vendor assignments.
 - Built-to-order vendors make unavailable products show `Built to Order`.
-- Stock Check excludes `Built to Order` products.
+- A saved Shopify availability state from `product_shopify_availability_state`
+  can mark unavailable products as `Backorder`, `Built to Order`, or
+  `Out of Stock`; stale saved `in_stock` is ignored when StockBridge does not
+  show real stock.
+- Products with saved built-to-order lead times automatically become
+  `Built to Order` when they lose stock, even without a built-to-order vendor.
+- A built-to-order vendor can be manually overridden to `Backorder` for products
+  that are delayed beyond the normal build time.
+- Stock Check excludes `Built to Order` products only when they have a
+  built-to-order vendor. Button-only/manual BTO products can still appear when
+  their follow-up state qualifies.
 - Stock Check excludes kit parent products; child/component products can still
   show when their own availability or follow-up state qualifies.
 - Stock Check has date filters for yesterday/today/tomorrow plus a "No follow up"
@@ -147,13 +182,58 @@ When changing availability behavior, check:
 - `listStockCheckProducts`
 - `src/components/notes/NotesModal.tsx`
 - `src/components/products/productStockUpdates.ts`
+- `server/services/shopify.service.js`
+- `server/services/shopifyAvailabilityState.service.js`
+
+## Shopify Availability Metafields
+
+StockBridge writes Shopify availability data to variant metafields through
+GraphQL:
+
+- `custom.product_availability` (`single_line_text_field`) uses these exact
+  values: `In Stock`, `Out of Stock`, `Backorder`, and `Built to Order`.
+- `custom.product_availability_date` (`date_time`) is set from the product
+  follow-up date when relevant.
+- `custom.availability_date_confirmed` (`boolean`) is `true` for backorder dates
+  and `false` for out-of-stock dates.
+- `custom.build_to_order_message` (`single_line_text_field`) uses
+  `This product will ship in {lead time} from the manufacturer`.
+- `custom.quick_ship` (`number_integer`) is managed for kit parents as part of
+  warehouse sync.
+
+Availability button rules:
+
+- `In Stock` enables vendor stock and clears availability date, confirmed, and
+  BTO message metafields.
+- `Backordered` removes vendor stock, pushes the follow-up date if the product
+  is not marked No ETA, sets date confirmed to `true`, and is blocked if DPP
+  warehouse stock exists.
+- `Out of Stock` removes vendor stock, pushes the follow-up date when present,
+  sets date confirmed to `false`, removes the BTO message, and sets Shopify
+  variant inventory policy to `DENY`.
+- `Built to Order` opens the lead-time field without changing vendor stock. It
+  can update Shopify only when the product has at least one assigned vendor and
+  every assigned vendor and warehouse source is out of stock; qualifying writes
+  clear availability date and date confirmed and write the BTO message when a
+  lead time exists.
+- Shopify pushes from follow-up, inventory, and BTO lead-time edits are debounced
+  by 30 seconds. Button clicks update the local UI state immediately and perform
+  their explicit Shopify push.
+
+There is a utility page at `#/shopify-availability-sync` for pulling current
+Shopify availability metafields back into StockBridge local state. It scans
+Shopify variants in pages of up to 250 and records skipped/conflicting SKUs.
 
 ## Stock Check Behavior
 
 Stock Check is backed by `GET /products/stock-check`.
 
 - It shows backordered products and products with follow-up dates.
-- It hides built-to-order products.
+- It hides kit parent products.
+- It hides built-to-order products only when the product has a built-to-order
+  vendor.
+- Date-filter pagination must be based on the filtered result set for
+  yesterday/today/tomorrow, not the unfiltered all-results count.
 - It can show an email icon next to SKUs that have had a vendor stock-check email
   sent.
 - The email icon is cleared when the product follow-up date is updated.
@@ -172,13 +252,25 @@ It includes:
 
 - Notes and mentions.
 - Follow-up date controls.
+- A No ETA checkbox. When checked for a backordered product, Shopify availability
+  still gets `Backorder`, but no availability date is pushed.
+- Shopify availability buttons for `In Stock`, `Out of Stock`, `Backordered`,
+  and `Built to Order`, with the active state shown by button color.
+- Built-to-order lead time storage. If no BTO vendor supplies a build time, the
+  modal stores the entered lead time per SKU and rehydrates it when reopened.
+  The lead-time box stays visible while the product is in BTO state.
 - Vendor stock on/off controls.
+- Non-warehouse vendor rows include a pencil menu showing the SKU Nexus vendor
+  SKU and product cost cached in `catalog_vendor_products`.
+- Auto-inventory-managed vendor stock rows are read-only and show `Qty` plus a
+  hover title with the latest sheet quantity/update time.
 - Kit/component modal. Kit parent products show child components; child products
   that belong to kits show a "Kit Component" button with parent kits.
 - Vendor stock-check email composer.
 
 The modal exists both as an in-app modal and as a route/popup view. Make sure
-changes work in both uses.
+changes work in both uses. The notes route is `#/notes/:sku`, and the Vendors
+tab opens the same modal from product SKU links.
 
 ## Vendor Email Feature
 
@@ -237,6 +329,11 @@ unrecognized alphabetical stock phrases, rows with missing SKUs, and SKU Nexus
 update errors.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
+Numerical auto-inventory updates are stored in
+`vendor_auto_inventory_product_updates` and surfaced in product details only for
+vendor products actively represented by the latest sheet and not listed in SKU
+exceptions. Alphabetical-mode vendors and exception SKUs keep normal manual
+stock controls.
 The importer adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL` to
 all matching vendor emails with inventory sheet attachments found during the
 cron run, then archives them from Inbox by moving them to Gmail's All Mail
@@ -287,3 +384,8 @@ Keep the app operational and dense rather than marketing-like. It is a work tool
   over time.
 - Vendor stock changes in Notes should refresh the single SKU before updating the
   table to avoid stale availability.
+- Warehouse sync also verifies Shopify quick-ship for active kit parents, so a
+  Shopify `quick_ship=1` parent that can no longer be fulfilled from DPP
+  warehouse stock should be changed back to `0`.
+- Do not normalize Shopify SKUs by removing punctuation; exact SKU punctuation is
+  required for variants such as `BDS-55371+98224016(x2)`.

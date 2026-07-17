@@ -1,4 +1,37 @@
 const shopifyService = require("../services/shopify.service");
+const productsService = require("../services/products.service");
+
+async function assertBuiltToOrderAvailabilityAllowed(sku, availability) {
+  const normalizedAvailability = String(availability || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (
+    normalizedAvailability !== "built_to_order" &&
+    normalizedAvailability !== "builttoorder"
+  ) {
+    return;
+  }
+
+  const productDetails = await productsService.getProductDetails(sku);
+  const assignedVendors = (productDetails.vendors || []).filter(
+    (vendor) => vendor.stockSource === "vendor"
+  );
+  const hasStock =
+    Number(productDetails.qtyAvailable || 0) > 0 ||
+    (productDetails.vendors || []).some(
+      (vendor) => Number(vendor.quantity || 0) > 0
+    );
+
+  if (assignedVendors.length === 0 || hasStock) {
+    const error = new Error(
+      "Built to Order requires at least one assigned vendor and all inventory sources to be out of stock."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+}
 
 async function resolveOrder(req, res, next) {
   try {
@@ -17,6 +50,10 @@ async function resolveOrder(req, res, next) {
 
 async function updateProductAvailability(req, res, next) {
   try {
+    await assertBuiltToOrderAvailabilityAllowed(
+      req.body.sku,
+      req.body.availability
+    );
     const result = await shopifyService.updateProductAvailability({
       sku: req.body.sku,
       availability: req.body.availability,

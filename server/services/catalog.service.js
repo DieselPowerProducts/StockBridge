@@ -3477,6 +3477,11 @@ async function getProductDetails(sku) {
       return {
         id: vendorProduct.vendor_id,
         vendorProductId: vendorProduct.id,
+        vendorSku: String(vendorProduct.sku || ""),
+        productCost:
+          vendorProduct.price === null || vendorProduct.price === undefined
+            ? null
+            : Number(vendorProduct.price),
         name: vendor?.name || vendor?.label || vendorProduct.vendor_id,
         quantity: Number(vendorProduct.quantity || 0),
         stockSource: "vendor",
@@ -3499,6 +3504,8 @@ async function getProductDetails(sku) {
           {
             id: warehouseStock.stock_id || dppWarehouseLabel,
             vendorProductId: `warehouse:${warehouseStock.stock_id || dppWarehouseLabel}`,
+            vendorSku: "",
+            productCost: null,
             name: warehouseStock.warehouse_label || dppWarehouseLabel,
             quantity: Number(warehouseStock.qty_available || 0),
             stockSource: "warehouse",

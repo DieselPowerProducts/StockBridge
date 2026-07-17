@@ -1063,6 +1063,13 @@ body:has(.notes-popup-page),
   min-width: 0;
 }
 
+.assigned-vendor-controls {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
 .vendor-add-control {
   display: grid;
   gap: 6px;
@@ -1155,6 +1162,69 @@ body:has(.notes-popup-page),
   fill: currentColor;
   height: 18px;
   width: 18px;
+}
+
+.vendor-product-details-control {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.vendor-product-details-button {
+  align-items: center;
+  background: #242f3d;
+  border: 1px solid #5d7188;
+  border-radius: 6px;
+  color: #dcecff;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.vendor-product-details-button:hover,
+.vendor-product-details-button[aria-expanded="true"] {
+  background: #2e4259;
+  color: white;
+}
+
+.vendor-product-details-button svg {
+  fill: currentColor;
+  height: 17px;
+  width: 17px;
+}
+
+.vendor-product-details-menu {
+  background: #202020;
+  border: 1px solid #666666;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 45%);
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 0;
+  min-width: 210px;
+  padding: 10px;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 6;
+}
+
+.vendor-product-details-menu div {
+  display: grid;
+  gap: 2px;
+}
+
+.vendor-product-details-menu dt {
+  color: #aaaaaa;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.vendor-product-details-menu dd {
+  color: white;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .vendor-build-time-display {
@@ -2325,6 +2395,11 @@ body:has(.notes-popup-page),
   }
 
   .assigned-vendor-main {
+    width: 100%;
+  }
+
+  .assigned-vendor-controls {
+    justify-content: flex-end;
     width: 100%;
   }
 

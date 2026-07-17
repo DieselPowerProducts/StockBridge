@@ -149,6 +149,8 @@ export type Note = {
 export type ProductVendor = {
   id: string;
   vendorProductId: string;
+  vendorSku: string;
+  productCost: number | null;
   name: string;
   quantity: number;
   stockSource: "vendor" | "warehouse";
