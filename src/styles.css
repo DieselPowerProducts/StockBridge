@@ -621,6 +621,114 @@ button:disabled {
   color: #ffb4a8;
 }
 
+.success-message {
+  color: #9be7bc;
+}
+
+.price-audit-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.price-audit-header {
+  align-items: center;
+  border-bottom: 1px solid #444444;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding-bottom: 14px;
+}
+
+.price-audit-header h1 {
+  margin: 0 0 4px;
+}
+
+.price-audit-header span,
+.price-audit-vendor {
+  color: #cccccc;
+}
+
+.price-audit-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.price-audit-search {
+  margin: 0;
+  min-width: 280px;
+}
+
+.price-audit-refresh,
+.price-audit-confirm {
+  background: #26384c;
+  border: 1px solid #5d7897;
+  color: #f0f6ff;
+  padding: 8px 12px;
+}
+
+.price-audit-refresh:not(:disabled):hover,
+.price-audit-confirm:not(:disabled):hover {
+  background: #314760;
+}
+
+.price-audit-table-wrap {
+  overflow-x: auto;
+}
+
+.price-audit-table {
+  min-width: 860px;
+}
+
+.price-audit-table th:nth-child(1) {
+  width: 25%;
+}
+
+.price-audit-table th:nth-child(2),
+.price-audit-table th:nth-child(3) {
+  width: 13%;
+}
+
+.price-audit-table th:nth-child(4) {
+  width: 39%;
+}
+
+.price-audit-table th:nth-child(5) {
+  width: 10%;
+}
+
+.price-audit-vendor {
+  display: block;
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.price-audit-new-price {
+  color: #9be7bc;
+  font-weight: 700;
+}
+
+.price-audit-source-link {
+  color: #72b8ff;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price-audit-source-link:hover {
+  text-decoration: underline;
+}
+
+.price-audit-action-cell {
+  text-align: right;
+}
+
+.price-audit-confirm {
+  min-width: 88px;
+}
+
 .shopify-sync-page {
   display: flex;
   flex-direction: column;
@@ -2383,6 +2491,17 @@ body:has(.notes-popup-page),
   }
 
   .stock-check-sort-control select {
+    width: 100%;
+  }
+
+  .price-audit-header,
+  .price-audit-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .price-audit-search {
+    min-width: 0;
     width: 100%;
   }
 

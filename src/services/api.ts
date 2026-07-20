@@ -7,6 +7,8 @@ import type {
   EmailTemplate,
   Note,
   NotesBootstrapResponse,
+  PriceAuditConfirmation,
+  PriceAuditResponse,
   ProductDetails,
   ProductsResponse,
   ShopifyAvailabilityResponse,
@@ -338,6 +340,31 @@ export function assignProductVendor({
     },
     body: JSON.stringify({ sku, vendorId })
   });
+}
+
+export function getPriceAudits({
+  page,
+  limit,
+  search
+}: {
+  page: number;
+  limit: number;
+  search: string;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search
+  });
+
+  return request<PriceAuditResponse>(`/price-audit?${params.toString()}`);
+}
+
+export function confirmPriceAudit(vendorProductId: string) {
+  return request<PriceAuditConfirmation>(
+    `/price-audit/${encodeURIComponent(vendorProductId)}/confirm`,
+    { method: "POST" }
+  );
 }
 
 export function updateShopifyProductAvailability({

@@ -1,4 +1,9 @@
-export type PageName = "products" | "stock-check" | "vendors" | "notifications";
+export type PageName =
+  | "products"
+  | "stock-check"
+  | "vendors"
+  | "price-audit"
+  | "notifications";
 export type RoutePageName = PageName | "notes" | "shopify-availability-sync";
 
 export type AppRoute = {
@@ -116,6 +121,31 @@ export type ProductsResponse = {
   total: number;
   totalPages: number;
   isLastPage: boolean;
+};
+
+export type PriceAuditItem = {
+  vendorProductId: string;
+  sku: string;
+  vendorSku: string;
+  vendorId: string;
+  vendorName: string;
+  currentPrice: number | null;
+  newProductCost: number;
+  priceSourceUrl: string;
+  updatedAt: string;
+};
+
+export type PriceAuditResponse = {
+  data: PriceAuditItem[];
+  total: number;
+  totalPages: number;
+  isLastPage: boolean;
+};
+
+export type PriceAuditConfirmation = {
+  vendorProductId: string;
+  sku: string;
+  currentPrice: number;
 };
 
 export type ShopifyAvailabilityResponse = {

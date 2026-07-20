@@ -769,6 +769,19 @@ async function initializeSchema() {
         ADD COLUMN IF NOT EXISTS pending_price_source_url TEXT NOT NULL DEFAULT ''
       `;
       await sql`
+        UPDATE catalog_vendor_products
+        SET pending_price_source_url = ''
+        WHERE pending_price_source_url IS NULL
+      `;
+      await sql`
+        ALTER TABLE catalog_vendor_products
+        ALTER COLUMN pending_price_source_url SET DEFAULT ''
+      `;
+      await sql`
+        ALTER TABLE catalog_vendor_products
+        ALTER COLUMN pending_price_source_url SET NOT NULL
+      `;
+      await sql`
         ALTER TABLE catalog_vendor_products
         ADD COLUMN IF NOT EXISTS pending_price_updated_at TIMESTAMPTZ
       `;
@@ -783,6 +796,11 @@ async function initializeSchema() {
       await sql`
         CREATE INDEX IF NOT EXISTS catalog_vendor_products_sku_idx
         ON catalog_vendor_products (sku)
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS catalog_vendor_products_pending_price_idx
+        ON catalog_vendor_products (pending_price_updated_at DESC)
+        WHERE pending_price IS NOT NULL
       `;
       await sql`
         CREATE TABLE IF NOT EXISTS catalog_warehouse_stock (
@@ -3958,6 +3976,7 @@ module.exports = {
   getProductDetails,
   getShopifyAvailabilityRecordsForSkus,
   getVendorDetails,
+  initializeCatalogSchema: initializeSchema,
   listProducts,
   listStockCheckProducts,
   listVendorProducts,
