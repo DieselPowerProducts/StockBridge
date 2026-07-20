@@ -715,6 +715,62 @@ button:disabled {
   margin-top: 5px;
 }
 
+.price-audit-group-row td {
+  background: #292929;
+  padding: 7px 8px;
+}
+
+.price-audit-group-summary {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+}
+
+.price-audit-group-summary > span {
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.price-audit-group-toggle {
+  align-items: center;
+  background: #26384c;
+  border: 1px solid #5d7897;
+  color: #f0f6ff;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+
+.price-audit-group-toggle:hover {
+  background: #314760;
+}
+
+.price-audit-group-toggle svg {
+  fill: currentColor;
+  height: 18px;
+  transition: transform 0.15s ease;
+  width: 18px;
+}
+
+.price-audit-group-toggle.expanded svg {
+  transform: rotate(180deg);
+}
+
+.price-audit-vendor-row td {
+  background: #363636;
+}
+
+.price-audit-vendor-row td:first-child {
+  border-left: 3px solid #5d7897;
+  padding-left: 42px;
+}
+
+.price-audit-child-vendor {
+  display: block;
+}
+
 .price-audit-price-input-wrap {
   align-items: center;
   display: flex;

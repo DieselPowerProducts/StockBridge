@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   confirmPriceAudit,
   denyPriceAudit,
@@ -13,6 +13,28 @@ type PriceAuditPageProps = {
 
 const pageSize = 50;
 type PriceAuditAction = "confirm" | "deny";
+type PriceAuditGroup = {
+  sku: string;
+  items: PriceAuditItem[];
+};
+
+function groupPriceAudits(items: PriceAuditItem[]) {
+  const groups = new Map<string, PriceAuditGroup>();
+
+  for (const item of items) {
+    const key = item.sku.trim().toUpperCase();
+    const group = groups.get(key);
+
+    if (group) {
+      group.items.push(item);
+      continue;
+    }
+
+    groups.set(key, { sku: item.sku, items: [item] });
+  }
+
+  return Array.from(groups.values());
+}
 
 function formatPrice(value: number | null) {
   if (value === null || !Number.isFinite(value)) {
@@ -41,14 +63,17 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [totalItems, setTotalItems] = useState(0);
+  const [totalAudits, setTotalAudits] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [actionsById, setActionsById] = useState<
     Record<string, PriceAuditAction>
   >({});
+  const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const groupedItems = useMemo(() => groupPriceAudits(items), [items]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -81,6 +106,7 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
 
           setItems(result.data);
           setTotalItems(result.total);
+          setTotalAudits(result.totalAudits);
           setPriceDrafts(
             Object.fromEntries(
               result.data.map((item) => [
@@ -130,6 +156,11 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
   }
 
   function removeAudit(item: PriceAuditItem) {
+    const matchingSkuCount = items.filter(
+      (currentItem) =>
+        currentItem.sku.trim().toUpperCase() === item.sku.trim().toUpperCase()
+    ).length;
+
     setItems((current) =>
       current.filter(
         (currentItem) => currentItem.vendorProductId !== item.vendorProductId
@@ -140,8 +171,27 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
       delete next[item.vendorProductId];
       return next;
     });
-    setTotalItems((current) => Math.max(0, current - 1));
+    if (matchingSkuCount <= 1) {
+      setTotalItems((current) => Math.max(0, current - 1));
+    }
+    setTotalAudits((current) => Math.max(0, current - 1));
     setRefreshNonce((current) => current + 1);
+  }
+
+  function toggleSku(sku: string) {
+    const key = sku.trim().toUpperCase();
+
+    setExpandedSkus((current) => {
+      const next = new Set(current);
+
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+
+      return next;
+    });
   }
 
   async function handleConfirm(item: PriceAuditItem) {
@@ -191,12 +241,117 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
     }
   }
 
+  function renderAuditRow(item: PriceAuditItem, showProductSku: boolean) {
+    const safeSourceUrl = getSafeSourceUrl(item.priceSourceUrl);
+    const activeAction = actionsById[item.vendorProductId];
+    const isProcessing = Boolean(activeAction);
+
+    return (
+      <tr
+        key={item.vendorProductId}
+        className={showProductSku ? undefined : "price-audit-vendor-row"}
+      >
+        <td>
+          {showProductSku ? (
+            <>
+              <button
+                type="button"
+                className="sku-link"
+                onClick={() => onOpenNotes(item.sku)}
+              >
+                {item.sku}
+              </button>
+              <small className="price-audit-vendor">
+                {item.vendorName}
+                {item.vendorSku && item.vendorSku !== item.sku
+                  ? ` | ${item.vendorSku}`
+                  : ""}
+              </small>
+            </>
+          ) : (
+            <>
+              <strong className="price-audit-child-vendor">
+                {item.vendorName}
+              </strong>
+              {item.vendorSku && (
+                <small className="price-audit-vendor">{item.vendorSku}</small>
+              )}
+            </>
+          )}
+        </td>
+        <td>{formatPrice(item.currentPrice)}</td>
+        <td>
+          <div className="price-audit-price-input-wrap">
+            <span aria-hidden="true">$</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              className="price-audit-price-input"
+              value={priceDrafts[item.vendorProductId] ?? ""}
+              aria-label={`New price for ${item.sku} from ${item.vendorName}`}
+              disabled={isProcessing}
+              onChange={(event) =>
+                setPriceDrafts((current) => ({
+                  ...current,
+                  [item.vendorProductId]: event.target.value
+                }))
+              }
+            />
+          </div>
+        </td>
+        <td>
+          {safeSourceUrl ? (
+            <a
+              className="price-audit-source-link"
+              href={safeSourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={item.priceSourceUrl}
+            >
+              {item.priceSourceUrl}
+            </a>
+          ) : (
+            <span>{item.priceSourceUrl || "No source provided"}</span>
+          )}
+        </td>
+        <td className="price-audit-action-cell">
+          <div className="price-audit-row-actions">
+            <button
+              type="button"
+              className="price-audit-confirm"
+              disabled={isProcessing}
+              onClick={() => void handleConfirm(item)}
+            >
+              {activeAction === "confirm" ? "Updating..." : "Confirm"}
+            </button>
+            <button
+              type="button"
+              className="price-audit-deny"
+              disabled={isProcessing}
+              onClick={() => void handleDeny(item)}
+            >
+              {activeAction === "deny" ? "Denying..." : "Deny"}
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <section className="page price-audit-page" aria-labelledby="priceAuditHeading">
       <div className="price-audit-header">
         <div>
           <h1 id="priceAuditHeading">Price Audit</h1>
-          <span>{totalItems} pending</span>
+          <span>
+            {totalAudits === totalItems
+              ? `${totalAudits} pending`
+              : `${totalAudits} pending across ${totalItems} ${
+                  totalItems === 1 ? "SKU" : "SKUs"
+                }`}
+          </span>
         </div>
 
         <div className="price-audit-toolbar">
@@ -240,86 +395,50 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
                 <td colSpan={5}>No pending price audits.</td>
               </tr>
             ) : (
-              items.map((item) => {
-                const safeSourceUrl = getSafeSourceUrl(item.priceSourceUrl);
-                const activeAction = actionsById[item.vendorProductId];
-                const isProcessing = Boolean(activeAction);
+              groupedItems.map((group) => {
+                if (group.items.length === 1) {
+                  return renderAuditRow(group.items[0], true);
+                }
+
+                const groupKey = group.sku.trim().toUpperCase();
+                const isExpanded = expandedSkus.has(groupKey);
 
                 return (
-                  <tr key={item.vendorProductId}>
-                    <td>
-                      <button
-                        type="button"
-                        className="sku-link"
-                        onClick={() => onOpenNotes(item.sku)}
-                      >
-                        {item.sku}
-                      </button>
-                      <small className="price-audit-vendor">
-                        {item.vendorName}
-                        {item.vendorSku && item.vendorSku !== item.sku
-                          ? ` | ${item.vendorSku}`
-                          : ""}
-                      </small>
-                    </td>
-                    <td>{formatPrice(item.currentPrice)}</td>
-                    <td>
-                      <div className="price-audit-price-input-wrap">
-                        <span aria-hidden="true">$</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          inputMode="decimal"
-                          className="price-audit-price-input"
-                          value={priceDrafts[item.vendorProductId] ?? ""}
-                          aria-label={`New price for ${item.sku}`}
-                          disabled={isProcessing}
-                          onChange={(event) =>
-                            setPriceDrafts((current) => ({
-                              ...current,
-                              [item.vendorProductId]: event.target.value
-                            }))
-                          }
-                        />
-                      </div>
-                    </td>
-                    <td>
-                      {safeSourceUrl ? (
-                        <a
-                          className="price-audit-source-link"
-                          href={safeSourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={item.priceSourceUrl}
-                        >
-                          {item.priceSourceUrl}
-                        </a>
-                      ) : (
-                        <span>{item.priceSourceUrl || "No source provided"}</span>
-                      )}
-                    </td>
-                    <td className="price-audit-action-cell">
-                      <div className="price-audit-row-actions">
-                        <button
-                          type="button"
-                          className="price-audit-confirm"
-                          disabled={isProcessing}
-                          onClick={() => void handleConfirm(item)}
-                        >
-                          {activeAction === "confirm" ? "Updating..." : "Confirm"}
-                        </button>
-                        <button
-                          type="button"
-                          className="price-audit-deny"
-                          disabled={isProcessing}
-                          onClick={() => void handleDeny(item)}
-                        >
-                          {activeAction === "deny" ? "Denying..." : "Deny"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                  <Fragment key={groupKey}>
+                    <tr className="price-audit-group-row">
+                      <td colSpan={5}>
+                        <div className="price-audit-group-summary">
+                          <button
+                            type="button"
+                            className={`price-audit-group-toggle${
+                              isExpanded ? " expanded" : ""
+                            }`}
+                            aria-label={`${isExpanded ? "Hide" : "Show"} vendor price audits for ${group.sku}`}
+                            aria-expanded={isExpanded}
+                            onClick={() => toggleSku(group.sku)}
+                          >
+                            <svg
+                              aria-hidden="true"
+                              viewBox="0 0 24 24"
+                              focusable="false"
+                            >
+                              <path d="m8.6 9.2 3.4 3.4 3.4-3.4 1.4 1.4-4.8 4.8-4.8-4.8 1.4-1.4Z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            className="sku-link"
+                            onClick={() => onOpenNotes(group.sku)}
+                          >
+                            {group.sku}
+                          </button>
+                          <span>{group.items.length} vendors</span>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded &&
+                      group.items.map((item) => renderAuditRow(item, false))}
+                  </Fragment>
                 );
               })
             )}

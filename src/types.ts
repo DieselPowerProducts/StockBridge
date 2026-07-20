@@ -138,6 +138,7 @@ export type PriceAuditItem = {
 export type PriceAuditResponse = {
   data: PriceAuditItem[];
   total: number;
+  totalAudits: number;
   totalPages: number;
   isLastPage: boolean;
 };

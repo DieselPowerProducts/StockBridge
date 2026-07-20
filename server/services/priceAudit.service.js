@@ -72,6 +72,27 @@ async function listPriceAudits({ page, limit, search } = {}) {
   const offset = (safePage - 1) * safeLimit;
   const [rows, countRows] = await Promise.all([
     sql`
+      WITH pending_skus AS (
+        SELECT
+          p.sku AS product_sku,
+          MAX(vp.pending_price_updated_at) AS latest_pending_at
+        FROM catalog_vendor_products vp
+        JOIN catalog_products p ON p.product_id = vp.product_id
+        LEFT JOIN catalog_vendors v ON v.vendor_id = vp.vendor_id
+        WHERE vp.pending_price IS NOT NULL
+          AND (
+            ${safeSearch} = ''
+            OR p.sku ILIKE ${searchPattern}
+            OR vp.sku ILIKE ${searchPattern}
+            OR vp.label ILIKE ${searchPattern}
+            OR v.name ILIKE ${searchPattern}
+            OR v.label ILIKE ${searchPattern}
+          )
+        GROUP BY p.sku
+        ORDER BY latest_pending_at DESC NULLS LAST, p.sku ASC
+        LIMIT ${safeLimit}
+        OFFSET ${offset}
+      )
       SELECT
         vp.vendor_product_id,
         vp.vendor_id,
@@ -82,24 +103,21 @@ async function listPriceAudits({ page, limit, search } = {}) {
         vp.pending_price_updated_at,
         p.sku AS product_sku,
         COALESCE(NULLIF(v.name, ''), NULLIF(v.label, ''), vp.vendor_id) AS vendor_name
-      FROM catalog_vendor_products vp
-      JOIN catalog_products p ON p.product_id = vp.product_id
+      FROM pending_skus ps
+      JOIN catalog_products p ON p.sku = ps.product_sku
+      JOIN catalog_vendor_products vp ON vp.product_id = p.product_id
       LEFT JOIN catalog_vendors v ON v.vendor_id = vp.vendor_id
       WHERE vp.pending_price IS NOT NULL
-        AND (
-          ${safeSearch} = ''
-          OR p.sku ILIKE ${searchPattern}
-          OR vp.sku ILIKE ${searchPattern}
-          OR vp.label ILIKE ${searchPattern}
-          OR v.name ILIKE ${searchPattern}
-          OR v.label ILIKE ${searchPattern}
-        )
-      ORDER BY vp.pending_price_updated_at DESC NULLS LAST, p.sku ASC, vp.vendor_product_id ASC
-      LIMIT ${safeLimit}
-      OFFSET ${offset}
+      ORDER BY
+        ps.latest_pending_at DESC NULLS LAST,
+        p.sku ASC,
+        COALESCE(NULLIF(v.name, ''), NULLIF(v.label, ''), vp.vendor_id) ASC,
+        vp.vendor_product_id ASC
     `,
     sql`
-      SELECT COUNT(*)::int AS total
+      SELECT
+        COUNT(DISTINCT p.sku)::int AS total,
+        COUNT(*)::int AS total_audits
       FROM catalog_vendor_products vp
       JOIN catalog_products p ON p.product_id = vp.product_id
       LEFT JOIN catalog_vendors v ON v.vendor_id = vp.vendor_id
@@ -115,11 +133,13 @@ async function listPriceAudits({ page, limit, search } = {}) {
     `
   ]);
   const total = Number(countRows[0]?.total || 0);
+  const totalAudits = Number(countRows[0]?.total_audits || 0);
   const totalPages = Math.max(1, Math.ceil(total / safeLimit));
 
   return {
     data: rows.map(mapAuditRow),
     total,
+    totalAudits,
     totalPages,
     isLastPage: safePage >= totalPages
   };
