@@ -4,6 +4,7 @@ const authRoutes = require("./routes/auth.routes");
 const backordersRoutes = require("./routes/backorders.routes");
 const emailRoutes = require("./routes/email.routes");
 const importRoutes = require("./routes/import.routes");
+const integrationsRoutes = require("./routes/integrations.routes");
 const notesRoutes = require("./routes/notes.routes");
 const notificationsRoutes = require("./routes/notifications.routes");
 const productsRoutes = require("./routes/products.routes");
@@ -44,6 +45,7 @@ app.use(
 
 app.use(authRoutes);
 app.get("/status/version", statusController.getVersion);
+app.use(integrationsRoutes);
 app.use(requireAuth);
 app.use(backordersRoutes);
 app.use(emailRoutes);
