@@ -163,7 +163,7 @@ async function confirmPriceAudit(vendorProductId) {
     UPDATE catalog_vendor_products
     SET
       pending_price = NULL,
-      pending_price_source_url = NULL,
+      pending_price_source_url = '',
       pending_price_updated_at = NULL
     WHERE vendor_product_id = ${safeVendorProductId}
     RETURNING vendor_product_id

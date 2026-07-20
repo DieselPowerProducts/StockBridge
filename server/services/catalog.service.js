@@ -755,7 +755,7 @@ async function initializeSchema() {
           status DOUBLE PRECISION,
           price DOUBLE PRECISION,
           pending_price DOUBLE PRECISION,
-          pending_price_source_url TEXT,
+          pending_price_source_url TEXT NOT NULL DEFAULT '',
           pending_price_updated_at TIMESTAMPTZ,
           last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
@@ -766,7 +766,20 @@ async function initializeSchema() {
       `;
       await sql`
         ALTER TABLE catalog_vendor_products
-        ADD COLUMN IF NOT EXISTS pending_price_source_url TEXT
+        ADD COLUMN IF NOT EXISTS pending_price_source_url TEXT NOT NULL DEFAULT ''
+      `;
+      await sql`
+        UPDATE catalog_vendor_products
+        SET pending_price_source_url = ''
+        WHERE pending_price_source_url IS NULL
+      `;
+      await sql`
+        ALTER TABLE catalog_vendor_products
+        ALTER COLUMN pending_price_source_url SET DEFAULT ''
+      `;
+      await sql`
+        ALTER TABLE catalog_vendor_products
+        ALTER COLUMN pending_price_source_url SET NOT NULL
       `;
       await sql`
         ALTER TABLE catalog_vendor_products
