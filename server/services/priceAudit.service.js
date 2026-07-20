@@ -121,7 +121,6 @@ async function confirmPriceAudit(vendorProductId) {
       vp.sku AS vendor_sku,
       vp.label AS vendor_label,
       vp.pending_price,
-      vp.pending_price_updated_at,
       p.sku AS product_sku
     FROM catalog_vendor_products vp
     JOIN catalog_products p ON p.product_id = vp.product_id
@@ -167,16 +166,21 @@ async function confirmPriceAudit(vendorProductId) {
       pending_price_source_url = NULL,
       pending_price_updated_at = NULL
     WHERE vendor_product_id = ${safeVendorProductId}
-      AND pending_price IS NOT DISTINCT FROM ${newPrice}
-      AND pending_price_updated_at IS NOT DISTINCT FROM ${pending.pending_price_updated_at}
     RETURNING vendor_product_id
   `;
+
+  if (clearedRows.length === 0) {
+    const error = new Error(
+      "The vendor cost was updated, but the price audit could not be removed."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
 
   return {
     vendorProductId: safeVendorProductId,
     sku: productSku,
-    currentPrice: newPrice,
-    hasNewerProposal: clearedRows.length === 0
+    currentPrice: newPrice
   };
 }
 

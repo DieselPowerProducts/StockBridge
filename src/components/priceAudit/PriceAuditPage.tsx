@@ -103,11 +103,13 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
 
     try {
       const result = await confirmPriceAudit(item.vendorProductId);
-      setStatus(
-        result.hasNewerProposal
-          ? `${item.sku} was updated, and a newer proposal is ready for review.`
-          : `${item.sku} was updated to ${formatPrice(result.currentPrice)}.`
+      setItems((current) =>
+        current.filter(
+          (currentItem) => currentItem.vendorProductId !== item.vendorProductId
+        )
       );
+      setTotalItems((current) => Math.max(0, current - 1));
+      setStatus(`${item.sku} was updated to ${formatPrice(result.currentPrice)}.`);
       setRefreshNonce((current) => current + 1);
     } catch (confirmError) {
       setError(

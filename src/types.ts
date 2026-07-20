@@ -146,7 +146,6 @@ export type PriceAuditConfirmation = {
   vendorProductId: string;
   sku: string;
   currentPrice: number;
-  hasNewerProposal: boolean;
 };
 
 export type ShopifyAvailabilityResponse = {
