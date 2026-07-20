@@ -1344,6 +1344,28 @@ body:has(.notes-popup-page),
   outline: none;
 }
 
+.vendor-product-details-source {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.vendor-product-details-source > span {
+  color: #aaaaaa;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.vendor-product-details-source a {
+  color: #8fc1ff;
+  overflow-wrap: anywhere;
+}
+
+.vendor-product-details-source small {
+  color: #aaaaaa;
+  font-size: 11px;
+}
+
 .vendor-product-details-save {
   background: #2f6f4e;
   border: 1px solid #57906f;

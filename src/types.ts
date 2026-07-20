@@ -181,6 +181,9 @@ export type ProductVendor = {
   vendorProductId: string;
   vendorSku: string;
   productCost: number | null;
+  newProductCost: number | null;
+  priceSourceUrl: string;
+  priceReceivedAt: string | null;
   name: string;
   quantity: number;
   stockSource: "vendor" | "warehouse";

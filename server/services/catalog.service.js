@@ -1195,7 +1195,10 @@ async function queryVendorProductsByProductId(productId) {
       label,
       quantity,
       status,
-      price
+      price,
+      pending_price,
+      pending_price_source_url,
+      pending_price_updated_at
     FROM catalog_vendor_products
     WHERE product_id = ${productId}
     ORDER BY COALESCE(NULLIF(sku, ''), label, vendor_product_id) ASC
@@ -1214,6 +1217,9 @@ async function queryActiveVendorProductsByVendorId(vendorId) {
       vp.quantity,
       vp.status,
       vp.price,
+      vp.pending_price,
+      vp.pending_price_source_url,
+      vp.pending_price_updated_at,
       p.sku AS product_sku,
       p.name AS product_name
     FROM catalog_vendor_products vp
@@ -1237,6 +1243,9 @@ async function queryVendorProductById(vendorProductId) {
       vp.quantity,
       vp.status,
       vp.price,
+      vp.pending_price,
+      vp.pending_price_source_url,
+      vp.pending_price_updated_at,
       p.sku AS product_sku,
       p.name AS product_name
     FROM catalog_vendor_products vp
@@ -1268,6 +1277,9 @@ async function queryVendorProductByVendorAndSku(vendorId, sku) {
       vp.quantity,
       vp.status,
       vp.price,
+      vp.pending_price,
+      vp.pending_price_source_url,
+      vp.pending_price_updated_at,
       p.sku AS product_sku,
       p.name AS product_name
     FROM catalog_vendor_products vp
@@ -1335,6 +1347,33 @@ async function updateCatalogVendorProductDetails(
       quantity,
       status,
       price
+  `;
+
+  return rows[0] || null;
+}
+
+async function stageCatalogVendorProductPrice(
+  vendorProductId,
+  { pendingPrice, sourceUrl }
+) {
+  await initializeSchema();
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE catalog_vendor_products
+    SET
+      pending_price = ${pendingPrice},
+      pending_price_source_url = ${sourceUrl},
+      pending_price_updated_at = now()
+    WHERE vendor_product_id = ${vendorProductId}
+    RETURNING
+      vendor_product_id AS id,
+      vendor_id,
+      product_id,
+      sku,
+      price,
+      pending_price,
+      pending_price_source_url,
+      pending_price_updated_at
   `;
 
   return rows[0] || null;
@@ -3541,6 +3580,12 @@ async function getProductDetails(sku) {
           vendorProduct.price === null || vendorProduct.price === undefined
             ? null
             : Number(vendorProduct.price),
+        newProductCost:
+          vendorProduct.pending_price === null || vendorProduct.pending_price === undefined
+            ? null
+            : Number(vendorProduct.pending_price),
+        priceSourceUrl: String(vendorProduct.pending_price_source_url || ""),
+        priceReceivedAt: vendorProduct.pending_price_updated_at || null,
         name: vendor?.name || vendor?.label || vendorProduct.vendor_id,
         quantity: Number(vendorProduct.quantity || 0),
         stockSource: "vendor",
@@ -3565,6 +3610,9 @@ async function getProductDetails(sku) {
             vendorProductId: `warehouse:${warehouseStock.stock_id || dppWarehouseLabel}`,
             vendorSku: "",
             productCost: null,
+            newProductCost: null,
+            priceSourceUrl: "",
+            priceReceivedAt: null,
             name: warehouseStock.warehouse_label || dppWarehouseLabel,
             quantity: Number(warehouseStock.qty_available || 0),
             stockSource: "warehouse",
@@ -3939,6 +3987,7 @@ module.exports = {
   runScheduledWarehouseSync,
   runFullSync,
   runWarehouseSync,
+  stageCatalogVendorProductPrice,
   syncShopifyAvailabilityForSkus,
   updateCatalogVendorProductDetails,
   updateCatalogVendorProductQuantity
