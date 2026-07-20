@@ -8,6 +8,7 @@ import type {
   Note,
   NotesBootstrapResponse,
   PriceAuditConfirmation,
+  PriceAuditDenial,
   PriceAuditResponse,
   ProductDetails,
   ProductsResponse,
@@ -360,9 +361,25 @@ export function getPriceAudits({
   return request<PriceAuditResponse>(`/price-audit?${params.toString()}`);
 }
 
-export function confirmPriceAudit(vendorProductId: string) {
+export function confirmPriceAudit(
+  vendorProductId: string,
+  newProductCost: number
+) {
   return request<PriceAuditConfirmation>(
     `/price-audit/${encodeURIComponent(vendorProductId)}/confirm`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ newProductCost })
+    }
+  );
+}
+
+export function denyPriceAudit(vendorProductId: string) {
+  return request<PriceAuditDenial>(
+    `/price-audit/${encodeURIComponent(vendorProductId)}/deny`,
     { method: "POST" }
   );
 }

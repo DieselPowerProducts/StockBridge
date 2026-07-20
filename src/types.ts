@@ -148,6 +148,11 @@ export type PriceAuditConfirmation = {
   currentPrice: number;
 };
 
+export type PriceAuditDenial = {
+  vendorProductId: string;
+  sku: string;
+};
+
 export type ShopifyAvailabilityResponse = {
   availability: ShopifyAvailabilityStatus;
   availabilityText: string;

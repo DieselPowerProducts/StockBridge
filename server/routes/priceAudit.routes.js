@@ -8,5 +8,9 @@ router.post(
   "/price-audit/:vendorProductId/confirm",
   priceAuditController.confirmPriceAudit
 );
+router.post(
+  "/price-audit/:vendorProductId/deny",
+  priceAuditController.denyPriceAudit
+);
 
 module.exports = router;

@@ -668,9 +668,20 @@ button:disabled {
   padding: 8px 12px;
 }
 
+.price-audit-deny {
+  background: #5d242a;
+  border: 1px solid #a8414d;
+  color: #ffecee;
+  padding: 8px 12px;
+}
+
 .price-audit-refresh:not(:disabled):hover,
 .price-audit-confirm:not(:disabled):hover {
   background: #314760;
+}
+
+.price-audit-deny:not(:disabled):hover {
+  background: #733039;
 }
 
 .price-audit-table-wrap {
@@ -682,7 +693,7 @@ button:disabled {
 }
 
 .price-audit-table th:nth-child(1) {
-  width: 25%;
+  width: 23%;
 }
 
 .price-audit-table th:nth-child(2),
@@ -691,11 +702,11 @@ button:disabled {
 }
 
 .price-audit-table th:nth-child(4) {
-  width: 39%;
+  width: 35%;
 }
 
 .price-audit-table th:nth-child(5) {
-  width: 10%;
+  width: 16%;
 }
 
 .price-audit-vendor {
@@ -704,9 +715,26 @@ button:disabled {
   margin-top: 5px;
 }
 
-.price-audit-new-price {
+.price-audit-price-input-wrap {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.price-audit-price-input-wrap span {
   color: #9be7bc;
   font-weight: 700;
+}
+
+.price-audit-price-input {
+  background: #242424;
+  border: 1px solid #5d7897;
+  border-radius: 4px;
+  color: #9be7bc;
+  font-weight: 700;
+  min-width: 0;
+  padding: 7px 8px;
+  width: 100%;
 }
 
 .price-audit-source-link {
@@ -725,8 +753,15 @@ button:disabled {
   text-align: right;
 }
 
-.price-audit-confirm {
-  min-width: 88px;
+.price-audit-row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.price-audit-confirm,
+.price-audit-deny {
+  min-width: 76px;
 }
 
 .shopify-sync-page {

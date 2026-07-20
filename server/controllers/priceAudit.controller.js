@@ -12,6 +12,18 @@ async function listPriceAudits(req, res, next) {
 async function confirmPriceAudit(req, res, next) {
   try {
     const result = await priceAuditService.confirmPriceAudit(
+      req.params.vendorProductId,
+      req.body?.newProductCost
+    );
+    res.send(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function denyPriceAudit(req, res, next) {
+  try {
+    const result = await priceAuditService.denyPriceAudit(
       req.params.vendorProductId
     );
     res.send(result);
@@ -22,5 +34,6 @@ async function confirmPriceAudit(req, res, next) {
 
 module.exports = {
   confirmPriceAudit,
+  denyPriceAudit,
   listPriceAudits
 };

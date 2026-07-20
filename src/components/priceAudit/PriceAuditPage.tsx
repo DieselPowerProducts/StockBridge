@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { confirmPriceAudit, getPriceAudits } from "../../services/api";
+import {
+  confirmPriceAudit,
+  denyPriceAudit,
+  getPriceAudits
+} from "../../services/api";
 import type { PriceAuditItem } from "../../types";
 import { Pagination } from "../products/Pagination";
 
@@ -8,6 +12,7 @@ type PriceAuditPageProps = {
 };
 
 const pageSize = 50;
+type PriceAuditAction = "confirm" | "deny";
 
 function formatPrice(value: number | null) {
   if (value === null || !Number.isFinite(value)) {
@@ -38,7 +43,10 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
   const [totalItems, setTotalItems] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [confirmingIds, setConfirmingIds] = useState<Set<string>>(new Set());
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
+  const [actionsById, setActionsById] = useState<
+    Record<string, PriceAuditAction>
+  >({});
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
 
@@ -73,6 +81,14 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
 
           setItems(result.data);
           setTotalItems(result.total);
+          setPriceDrafts(
+            Object.fromEntries(
+              result.data.map((item) => [
+                item.vendorProductId,
+                String(item.newProductCost)
+              ])
+            )
+          );
         }
       } catch (loadError) {
         if (!ignore) {
@@ -96,21 +112,56 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
     };
   }, [currentPage, refreshNonce, searchQuery]);
 
-  async function handleConfirm(item: PriceAuditItem) {
-    setConfirmingIds((current) => new Set(current).add(item.vendorProductId));
+  function startAction(vendorProductId: string, action: PriceAuditAction) {
+    setActionsById((current) => ({
+      ...current,
+      [vendorProductId]: action
+    }));
     setError("");
     setStatus("");
+  }
+
+  function finishAction(vendorProductId: string) {
+    setActionsById((current) => {
+      const next = { ...current };
+      delete next[vendorProductId];
+      return next;
+    });
+  }
+
+  function removeAudit(item: PriceAuditItem) {
+    setItems((current) =>
+      current.filter(
+        (currentItem) => currentItem.vendorProductId !== item.vendorProductId
+      )
+    );
+    setPriceDrafts((current) => {
+      const next = { ...current };
+      delete next[item.vendorProductId];
+      return next;
+    });
+    setTotalItems((current) => Math.max(0, current - 1));
+    setRefreshNonce((current) => current + 1);
+  }
+
+  async function handleConfirm(item: PriceAuditItem) {
+    const draft = String(priceDrafts[item.vendorProductId] ?? "").trim();
+    const newProductCost = Number(draft);
+
+    if (!draft || !Number.isFinite(newProductCost) || newProductCost < 0) {
+      setError("Enter a new price of zero or greater before confirming.");
+      return;
+    }
+
+    startAction(item.vendorProductId, "confirm");
 
     try {
-      const result = await confirmPriceAudit(item.vendorProductId);
-      setItems((current) =>
-        current.filter(
-          (currentItem) => currentItem.vendorProductId !== item.vendorProductId
-        )
+      const result = await confirmPriceAudit(
+        item.vendorProductId,
+        newProductCost
       );
-      setTotalItems((current) => Math.max(0, current - 1));
+      removeAudit(item);
       setStatus(`${item.sku} was updated to ${formatPrice(result.currentPrice)}.`);
-      setRefreshNonce((current) => current + 1);
     } catch (confirmError) {
       setError(
         confirmError instanceof Error
@@ -118,11 +169,25 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
           : "Unable to confirm this price."
       );
     } finally {
-      setConfirmingIds((current) => {
-        const next = new Set(current);
-        next.delete(item.vendorProductId);
-        return next;
-      });
+      finishAction(item.vendorProductId);
+    }
+  }
+
+  async function handleDeny(item: PriceAuditItem) {
+    startAction(item.vendorProductId, "deny");
+
+    try {
+      await denyPriceAudit(item.vendorProductId);
+      removeAudit(item);
+      setStatus(`${item.sku} price proposal was denied.`);
+    } catch (denyError) {
+      setError(
+        denyError instanceof Error
+          ? denyError.message
+          : "Unable to deny this price."
+      );
+    } finally {
+      finishAction(item.vendorProductId);
     }
   }
 
@@ -177,7 +242,8 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
             ) : (
               items.map((item) => {
                 const safeSourceUrl = getSafeSourceUrl(item.priceSourceUrl);
-                const isConfirming = confirmingIds.has(item.vendorProductId);
+                const activeAction = actionsById[item.vendorProductId];
+                const isProcessing = Boolean(activeAction);
 
                 return (
                   <tr key={item.vendorProductId}>
@@ -197,8 +263,26 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
                       </small>
                     </td>
                     <td>{formatPrice(item.currentPrice)}</td>
-                    <td className="price-audit-new-price">
-                      {formatPrice(item.newProductCost)}
+                    <td>
+                      <div className="price-audit-price-input-wrap">
+                        <span aria-hidden="true">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          className="price-audit-price-input"
+                          value={priceDrafts[item.vendorProductId] ?? ""}
+                          aria-label={`New price for ${item.sku}`}
+                          disabled={isProcessing}
+                          onChange={(event) =>
+                            setPriceDrafts((current) => ({
+                              ...current,
+                              [item.vendorProductId]: event.target.value
+                            }))
+                          }
+                        />
+                      </div>
                     </td>
                     <td>
                       {safeSourceUrl ? (
@@ -216,14 +300,24 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
                       )}
                     </td>
                     <td className="price-audit-action-cell">
-                      <button
-                        type="button"
-                        className="price-audit-confirm"
-                        disabled={isConfirming}
-                        onClick={() => void handleConfirm(item)}
-                      >
-                        {isConfirming ? "Updating..." : "Confirm"}
-                      </button>
+                      <div className="price-audit-row-actions">
+                        <button
+                          type="button"
+                          className="price-audit-confirm"
+                          disabled={isProcessing}
+                          onClick={() => void handleConfirm(item)}
+                        >
+                          {activeAction === "confirm" ? "Updating..." : "Confirm"}
+                        </button>
+                        <button
+                          type="button"
+                          className="price-audit-deny"
+                          disabled={isProcessing}
+                          onClick={() => void handleDeny(item)}
+                        >
+                          {activeAction === "deny" ? "Denying..." : "Deny"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

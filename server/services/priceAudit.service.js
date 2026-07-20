@@ -27,6 +27,24 @@ function normalizeRequiredString(value, message) {
   return normalized;
 }
 
+function normalizeProductCost(value) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    const error = new Error("New price is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const productCost = Number(value);
+
+  if (!Number.isFinite(productCost) || productCost < 0) {
+    const error = new Error("New price must be zero or greater.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return productCost;
+}
+
 function mapAuditRow(row) {
   return {
     vendorProductId: String(row.vendor_product_id || ""),
@@ -107,13 +125,7 @@ async function listPriceAudits({ page, limit, search } = {}) {
   };
 }
 
-async function confirmPriceAudit(vendorProductId) {
-  await catalogService.initializeCatalogSchema();
-  const safeVendorProductId = normalizeRequiredString(
-    vendorProductId,
-    "Vendor product ID is required."
-  );
-  const sql = getSql();
+async function getPendingPriceAudit(sql, vendorProductId) {
   const rows = await sql`
     SELECT
       vp.vendor_product_id,
@@ -124,7 +136,7 @@ async function confirmPriceAudit(vendorProductId) {
       p.sku AS product_sku
     FROM catalog_vendor_products vp
     JOIN catalog_products p ON p.product_id = vp.product_id
-    WHERE vp.vendor_product_id = ${safeVendorProductId}
+    WHERE vp.vendor_product_id = ${vendorProductId}
     LIMIT 1
   `;
   const pending = rows[0];
@@ -141,6 +153,38 @@ async function confirmPriceAudit(vendorProductId) {
     throw error;
   }
 
+  return pending;
+}
+
+async function clearPendingPriceAudit(sql, vendorProductId) {
+  const clearedRows = await sql`
+    UPDATE catalog_vendor_products
+    SET
+      pending_price = NULL,
+      pending_price_source_url = '',
+      pending_price_updated_at = NULL
+    WHERE vendor_product_id = ${vendorProductId}
+      AND pending_price IS NOT NULL
+    RETURNING vendor_product_id
+  `;
+
+  if (clearedRows.length === 0) {
+    const error = new Error("The price audit could not be removed.");
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
+async function confirmPriceAudit(vendorProductId, newProductCost) {
+  await catalogService.initializeCatalogSchema();
+  const safeVendorProductId = normalizeRequiredString(
+    vendorProductId,
+    "Vendor product ID is required."
+  );
+  const newPrice = normalizeProductCost(newProductCost);
+  const sql = getSql();
+  const pending = await getPendingPriceAudit(sql, safeVendorProductId);
+
   const productSku = normalizeRequiredString(
     pending.product_sku,
     "The price audit item does not have a product SKU."
@@ -149,8 +193,6 @@ async function confirmPriceAudit(vendorProductId) {
     pending.vendor_sku || pending.vendor_label || productSku,
     "The price audit item does not have a vendor SKU."
   );
-  const newPrice = Number(pending.pending_price);
-
   await productsService.setProductVendorDetails({
     sku: productSku,
     vendorId: pending.vendor_id,
@@ -159,23 +201,7 @@ async function confirmPriceAudit(vendorProductId) {
     productCost: newPrice
   });
 
-  const clearedRows = await sql`
-    UPDATE catalog_vendor_products
-    SET
-      pending_price = NULL,
-      pending_price_source_url = '',
-      pending_price_updated_at = NULL
-    WHERE vendor_product_id = ${safeVendorProductId}
-    RETURNING vendor_product_id
-  `;
-
-  if (clearedRows.length === 0) {
-    const error = new Error(
-      "The vendor cost was updated, but the price audit could not be removed."
-    );
-    error.statusCode = 409;
-    throw error;
-  }
+  await clearPendingPriceAudit(sql, safeVendorProductId);
 
   return {
     vendorProductId: safeVendorProductId,
@@ -184,7 +210,29 @@ async function confirmPriceAudit(vendorProductId) {
   };
 }
 
+async function denyPriceAudit(vendorProductId) {
+  await catalogService.initializeCatalogSchema();
+  const safeVendorProductId = normalizeRequiredString(
+    vendorProductId,
+    "Vendor product ID is required."
+  );
+  const sql = getSql();
+  const pending = await getPendingPriceAudit(sql, safeVendorProductId);
+  const productSku = normalizeRequiredString(
+    pending.product_sku,
+    "The price audit item does not have a product SKU."
+  );
+
+  await clearPendingPriceAudit(sql, safeVendorProductId);
+
+  return {
+    vendorProductId: safeVendorProductId,
+    sku: productSku
+  };
+}
+
 module.exports = {
   confirmPriceAudit,
+  denyPriceAudit,
   listPriceAudits
 };
