@@ -7,6 +7,22 @@ function safeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function readBearerToken(value) {
+  const authorization = String(value || "").trim();
+  const separatorIndex = authorization.indexOf(" ");
+
+  if (separatorIndex < 1) {
+    return "";
+  }
+
+  const scheme = authorization.slice(0, separatorIndex);
+  if (scheme.toLowerCase() !== "bearer") {
+    return "";
+  }
+
+  return authorization.slice(separatorIndex + 1).trim();
+}
+
 function requireProductProspectorApiKey(req, res, next) {
   const configuredKey = String(process.env.PRODUCT_PROSPECTOR_API_KEY || "").trim();
   if (!configuredKey) {
@@ -15,8 +31,7 @@ function requireProductProspectorApiKey(req, res, next) {
   }
 
   const authorization = String(req.get("authorization") || "");
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  const providedKey = String(match?.[1] || "").trim();
+  const providedKey = readBearerToken(authorization);
   if (!providedKey || !safeEqual(configuredKey, providedKey)) {
     res.status(401).send({ message: "Invalid Product Prospector API key." });
     return;
@@ -25,4 +40,4 @@ function requireProductProspectorApiKey(req, res, next) {
   next();
 }
 
-module.exports = { requireProductProspectorApiKey, safeEqual };
+module.exports = { readBearerToken, requireProductProspectorApiKey, safeEqual };
