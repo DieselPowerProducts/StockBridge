@@ -4,6 +4,7 @@ import { NotificationsMenu } from "./components/layout/NotificationsMenu";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
+import { PriceAuditPage } from "./components/priceAudit/PriceAuditPage";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { ShopifyAvailabilitySyncPage } from "./components/shopify/ShopifyAvailabilitySyncPage";
@@ -37,6 +38,7 @@ function parseRoute(): AppRoute {
     page === "vendors" ||
     page === "products" ||
     page === "stock-check" ||
+    page === "price-audit" ||
     page === "notifications" ||
     page === "shopify-availability-sync"
   ) {
@@ -257,6 +259,7 @@ export function App() {
   const sidebarPage: PageName =
     route.page === "stock-check" ||
     route.page === "vendors" ||
+    route.page === "price-audit" ||
     route.page === "notifications"
       ? route.page
       : "products";
@@ -306,6 +309,10 @@ export function App() {
 
           {route.page === "notifications" && (
             <NotificationsPage onOpenSku={setSelectedSku} />
+          )}
+
+          {route.page === "price-audit" && (
+            <PriceAuditPage onOpenNotes={setSelectedSku} />
           )}
 
           {route.page === "shopify-availability-sync" && (
