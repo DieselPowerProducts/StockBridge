@@ -2514,30 +2514,6 @@ export function NotesModal({
                                     }
                                   />
                                 </label>
-                                <label>
-                                  <span>New product cost</span>
-                                  <input
-                                    type="text"
-                                    value={
-                                      vendor.newProductCost === null || vendor.newProductCost === undefined
-                                        ? "Not staged"
-                                        : `$${vendor.newProductCost.toFixed(2)}`
-                                    }
-                                    readOnly
-                                    aria-readonly="true"
-                                  />
-                                </label>
-                                {vendor.priceSourceUrl && (
-                                  <div className="vendor-product-details-source">
-                                    <span>Price source</span>
-                                    <a href={vendor.priceSourceUrl} target="_blank" rel="noreferrer noopener">
-                                      Verify source price
-                                    </a>
-                                    {vendor.priceReceivedAt && (
-                                      <small>Received {new Date(vendor.priceReceivedAt).toLocaleString()}</small>
-                                    )}
-                                  </div>
-                                )}
                                 <button
                                   type="submit"
                                   className="vendor-product-details-save"
