@@ -430,6 +430,23 @@ function parseInventoryResult(value, settings, subtractiveValue = "") {
   );
 }
 
+function getTrackedSheetQuantity(inventoryResult, inventoryMode) {
+  if (!inventoryResult) {
+    return null;
+  }
+
+  if (inventoryMode === "alphabetical") {
+    return Number(inventoryResult.quantity || 0) > 0
+      ? enabledVendorStockQuantity
+      : disabledVendorStockQuantity;
+  }
+
+  return inventoryResult.sheetQuantity === null ||
+    inventoryResult.sheetQuantity === undefined
+    ? null
+    : Number(inventoryResult.sheetQuantity);
+}
+
 function parseInventoryQuantity(value, settings, subtractiveValue = "") {
   const result = parseInventoryResult(value, settings, subtractiveValue);
 
@@ -701,7 +718,6 @@ async function importSheetAttachment({ settings, attachment, message }) {
   const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
   const skuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
   const sheetManagedProductUpdates = new Map();
-  const shouldTrackSheetUpdates = settings.inventoryMode !== "alphabetical";
 
   for (const row of rows) {
     const sku = findHeaderValue(row, settings.skuHeader);
@@ -758,15 +774,19 @@ async function importSheetAttachment({ settings, attachment, message }) {
     }
 
     const quantity = inventoryResult.quantity;
+    const trackedSheetQuantity = getTrackedSheetQuantity(
+      inventoryResult,
+      settings.inventoryMode
+    );
     const sheetManagedProductUpdate =
-      shouldTrackSheetUpdates && inventoryResult.sheetQuantity !== null
+      trackedSheetQuantity !== null
         ? {
             vendorId: settings.vendorId,
             vendorProductId: vendorProduct.id,
             productId: vendorProduct.product_id || "",
             sku: getVendorProductDisplaySku(vendorProduct),
             sheetSku: sku,
-            quantity: inventoryResult.sheetQuantity,
+            quantity: trackedSheetQuantity,
             inventoryValue,
             subtractiveValue,
             attachmentFilename: attachment.filename,
@@ -1261,5 +1281,9 @@ async function runAutoInventoryImport() {
 }
 
 module.exports = {
-  runAutoInventoryImport
+  runAutoInventoryImport,
+  _test: {
+    getTrackedSheetQuantity,
+    parseInventoryResult
+  }
 };

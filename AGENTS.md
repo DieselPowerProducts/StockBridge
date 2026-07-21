@@ -264,8 +264,9 @@ It includes:
   SKU Nexus vendor SKU and product cost cached in `catalog_vendor_products`.
   Saves update SKU Nexus first, then update the local cache without changing
   inventory or vendor-product status.
-- Auto-inventory-managed vendor stock rows are read-only and show `Qty` plus a
-  hover title with the latest sheet quantity/update time.
+- Auto-inventory-managed vendor stock rows are read-only. Numerical rows show
+  `Qty`; alphabetical rows show `In Stock` or `Out of Stock`. Both include the
+  latest sheet update time in their hover title.
 - Kit/component modal. Kit parent products show child components; child products
   that belong to kits show a "Kit Component" button with parent kits.
 - Vendor stock-check email composer.
@@ -331,11 +332,10 @@ unrecognized alphabetical stock phrases, rows with missing SKUs, and SKU Nexus
 update errors.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
-Numerical auto-inventory updates are stored in
+Numerical and alphabetical auto-inventory updates are stored in
 `vendor_auto_inventory_product_updates` and surfaced in product details only for
 vendor products actively represented by the latest sheet and not listed in SKU
-exceptions. Alphabetical-mode vendors and exception SKUs keep normal manual
-stock controls.
+exceptions. SKU exceptions keep normal manual stock controls.
 The importer adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL` to
 all matching vendor emails with inventory sheet attachments found during the
 cron run, then archives them from Inbox by moving them to Gmail's All Mail

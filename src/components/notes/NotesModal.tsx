@@ -2357,9 +2357,17 @@ export function NotesModal({
                       ? vendor.autoInventoryQuantity
                       : vendor.quantity;
                   const formattedQuantity = formatStockQuantity(displayQuantity);
-                  const stockTitle = vendor.autoInventoryManaged
-                    ? `Current sheet quantity: ${formattedQuantity}. ${formatAutoInventoryUpdateTitle(vendor)}`
-                    : `Current quantity: ${formattedQuantity}`;
+                  const isAlphabeticalAutoInventory = Boolean(
+                    vendor.autoInventoryManaged &&
+                      vendor.autoInventoryMode === "alphabetical"
+                  );
+                  const autoInventoryStockLabel =
+                    Number(displayQuantity || 0) > 0 ? "In Stock" : "Out of Stock";
+                  const stockTitle = isAlphabeticalAutoInventory
+                    ? `Current sheet status: ${autoInventoryStockLabel}. ${formatAutoInventoryUpdateTitle(vendor)}`
+                    : vendor.autoInventoryManaged
+                      ? `Current sheet quantity: ${formattedQuantity}. ${formatAutoInventoryUpdateTitle(vendor)}`
+                      : `Current quantity: ${formattedQuantity}`;
                   const isPending = Boolean(
                     pendingVendorStock[vendor.vendorProductId]
                   );
@@ -2438,10 +2446,16 @@ export function NotesModal({
                           </div>
                         ) : (
                           <span
-                            className="vendor-stock-readonly"
+                            className={
+                              isAlphabeticalAutoInventory
+                                ? "vendor-stock-readonly vendor-stock-readonly-status"
+                                : "vendor-stock-readonly"
+                            }
                             title={stockTitle}
                           >
-                            Qty {formattedQuantity}
+                            {isAlphabeticalAutoInventory
+                              ? autoInventoryStockLabel
+                              : `Qty ${formattedQuantity}`}
                           </span>
                         )}
 

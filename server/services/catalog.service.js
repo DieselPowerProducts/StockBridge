@@ -3565,7 +3565,6 @@ async function getProductDetails(sku) {
       );
       const canUseAutoInventoryUpdate = Boolean(
         autoInventorySettings?.enabled &&
-          autoInventorySettings.inventoryMode !== "alphabetical" &&
           !isAutoInventoryExcepted
       );
       const autoInventoryUpdate = canUseAutoInventoryUpdate
@@ -3598,7 +3597,10 @@ async function getProductDetails(sku) {
           ? Number(autoInventoryUpdate.quantity || 0)
           : null,
         autoInventoryUpdatedAt: autoInventoryUpdate?.updatedAt || "",
-        autoInventorySheetSku: autoInventoryUpdate?.sheetSku || ""
+        autoInventorySheetSku: autoInventoryUpdate?.sheetSku || "",
+        autoInventoryMode: autoInventoryUpdate
+          ? autoInventorySettings.inventoryMode
+          : ""
       };
     });
   const assignedStockSources = [

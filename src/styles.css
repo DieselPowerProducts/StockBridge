@@ -1534,6 +1534,10 @@ body:has(.notes-popup-page),
   white-space: nowrap;
 }
 
+.vendor-stock-readonly-status {
+  flex-basis: 96px;
+}
+
 .notes-panel {
   display: flex;
   flex-direction: column;

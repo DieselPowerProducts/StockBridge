@@ -201,6 +201,7 @@ export type ProductVendor = {
   autoInventoryQuantity?: number | null;
   autoInventoryUpdatedAt?: string;
   autoInventorySheetSku?: string;
+  autoInventoryMode?: VendorAutoInventoryMode;
 };
 
 export type VendorContact = {
