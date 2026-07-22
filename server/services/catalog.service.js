@@ -2,6 +2,7 @@ const { getSql } = require("../db/neon");
 const followUpsService = require("./followUps.service");
 const kitQuickShipService = require("./kitQuickShip.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
+const shopifyCollectiveInventoryService = require("./shopifyCollectiveInventory.service");
 const skunexus = require("./skunexus.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
 const autoInventoryProductUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
@@ -320,6 +321,21 @@ function getEffectiveQtyAvailable(
     return 0;
   }
 
+  if (
+    product?.id &&
+    productVendorAvailability?.collectiveQuantityByProductId?.has(product.id)
+  ) {
+    const collectiveQuantity = Math.max(
+      Number(
+        productVendorAvailability.collectiveQuantityByProductId.get(product.id) || 0
+      ),
+      0
+    );
+
+    qtyCache.set(safeSku, collectiveQuantity);
+    return collectiveQuantity;
+  }
+
   const vendorQtyAvailable = getVendorQtyAvailable(product, productVendorAvailability);
 
   if (vendorQtyAvailable > 0) {
@@ -377,7 +393,18 @@ function hasBuiltToOrderVendor(product, productVendorAvailability) {
 }
 
 function getVendorQtyAvailable(product, productVendorAvailability) {
-  if (!product?.id || !productVendorAvailability?.vendorQuantityByProductId) {
+  if (!product?.id) {
+    return 0;
+  }
+
+  if (productVendorAvailability?.collectiveQuantityByProductId?.has(product.id)) {
+    return Math.max(
+      Number(productVendorAvailability.collectiveQuantityByProductId.get(product.id) || 0),
+      0
+    );
+  }
+
+  if (!productVendorAvailability?.vendorQuantityByProductId) {
     return 0;
   }
 
@@ -414,18 +441,13 @@ function getEffectiveAvailability(
   }
 
   const productHasActiveVendor = hasActiveVendor(product, productVendorAvailability);
-  const qtyAvailable = product.is_kit
-    ? getEffectiveQtyAvailable(
-        safeSku,
-        productsBySku,
-        new Map(),
-        new Set(),
-        productVendorAvailability
-      )
-    : Math.max(
-        product.qty_available,
-        getVendorQtyAvailable(product, productVendorAvailability)
-      );
+  const qtyAvailable = getEffectiveQtyAvailable(
+    safeSku,
+    productsBySku,
+    new Map(),
+    new Set(),
+    productVendorAvailability
+  );
   const isKitWithComponents = Boolean(product.is_kit && product.relatedProduct.length > 0);
   const availabilityOverride = getProductAvailabilityOverride(
     safeSku,
@@ -1636,10 +1658,11 @@ function getProductGraphSkus(productGraph) {
     .filter(Boolean);
 }
 
-function buildProductVendorAvailability(rows) {
+function buildProductVendorAvailability(rows, collectiveRows = []) {
   const productIdsWithActiveVendors = new Set();
   const productIdsWithBuiltToOrderVendors = new Set();
   const builtToOrderBuildTimeByProductId = new Map();
+  const collectiveQuantityByProductId = new Map();
   const vendorQuantityByProductId = new Map();
 
   for (const row of rows) {
@@ -1670,8 +1693,23 @@ function buildProductVendorAvailability(rows) {
     );
   }
 
+  for (const row of collectiveRows) {
+    const productId = String(row?.product_id || "").trim();
+
+    if (!productId) {
+      continue;
+    }
+
+    productIdsWithActiveVendors.add(productId);
+    collectiveQuantityByProductId.set(
+      productId,
+      Math.max(Number(row?.inventory_quantity || 0), 0)
+    );
+  }
+
   return {
     builtToOrderBuildTimeByProductId,
+    collectiveQuantityByProductId,
     productIdsWithActiveVendors,
     productIdsWithBuiltToOrderVendors,
     vendorQuantityByProductId
@@ -1679,8 +1717,12 @@ function buildProductVendorAvailability(rows) {
 }
 
 async function getProductVendorAvailabilityInfo(productIds) {
-  const rows = await queryVendorAvailabilityRows(productIds);
-  return buildProductVendorAvailability(rows);
+  const [rows, collectiveRows] = await Promise.all([
+    queryVendorAvailabilityRows(productIds),
+    shopifyCollectiveInventoryService.getStatesForProductIds(productIds)
+  ]);
+
+  return buildProductVendorAvailability(rows, collectiveRows);
 }
 
 function mapProduct(
@@ -1704,18 +1746,13 @@ function mapProduct(
   const hasActiveVendor = productVendorAvailability.productIdsWithActiveVendors.has(row.id);
   const hasBuiltToOrderVendor =
     productVendorAvailability.productIdsWithBuiltToOrderVendors.has(row.id);
-  const qtyAvailable = isKit
-    ? getEffectiveQtyAvailable(
-        sku,
-        productsBySku,
-        qtyCache,
-        new Set(),
-        productVendorAvailability
-      )
-    : Math.max(
-        Number(product?.qty_available || 0),
-        getVendorQtyAvailable(product || { id: row.id }, productVendorAvailability)
-      );
+  const qtyAvailable = getEffectiveQtyAvailable(
+    sku,
+    productsBySku,
+    qtyCache,
+    new Set(),
+    productVendorAvailability
+  );
   const availability = isKit
     ? getEffectiveAvailability(
         sku,
@@ -3168,6 +3205,56 @@ async function syncShopifyAvailabilityForNewProducts(skus, reason) {
   }
 }
 
+async function syncShopifyCollectiveInventoryAfterFullSync(reason) {
+  try {
+    const result = await shopifyCollectiveInventoryService.syncCollectiveInventory({
+      reason
+    });
+
+    if (Number(result?.vendorProducts?.failed || 0) > 0) {
+      throw new Error(
+        `${result.vendorProducts.failed} Shopify Collective vendor stock update(s) failed.`
+      );
+    }
+
+    await setSyncState(
+      "catalog_last_shopify_collective_inventory_sync_at",
+      result.syncedAt
+    );
+    await setSyncState(
+      "catalog_last_shopify_collective_inventory_sync_reason",
+      reason
+    );
+    await setSyncState("catalog_last_shopify_collective_inventory_sync_error_at", "");
+    await setSyncState("catalog_last_shopify_collective_inventory_sync_error", "");
+
+    return result;
+  } catch (error) {
+    const errorMessage = String(
+      error?.message || error || "Shopify Collective inventory sync failed."
+    ).slice(0, 1000);
+
+    console.error(
+      "Shopify Collective inventory sync failed; continuing catalog sync.",
+      error
+    );
+    await setSyncState(
+      "catalog_last_shopify_collective_inventory_sync_error_at",
+      new Date().toISOString()
+    );
+    await setSyncState(
+      "catalog_last_shopify_collective_inventory_sync_error",
+      errorMessage
+    );
+
+    return {
+      error: errorMessage,
+      failed: true,
+      reason
+    };
+  }
+}
+
 async function runFullSync({ reason = "manual" } = {}) {
   await initializeSchema();
 
@@ -3227,6 +3314,8 @@ async function runFullSync({ reason = "manual" } = {}) {
           skipped: true,
           updated: 0
         };
+    const shopifyCollectiveInventory =
+      await syncShopifyCollectiveInventoryAfterFullSync(reason);
     const newProductShopifyAvailability =
       await syncShopifyAvailabilityForNewProducts(newProductSkus, reason);
     await setSyncState("catalog_last_full_sync_at", syncStamp);
@@ -3244,7 +3333,8 @@ async function runFullSync({ reason = "manual" } = {}) {
       vendorProducts: vendorProducts.length,
       warehouseProducts: warehouseStockRows.length,
       kitQuickShip,
-      newProductShopifyAvailability
+      newProductShopifyAvailability,
+      shopifyCollectiveInventory
     };
   })();
 

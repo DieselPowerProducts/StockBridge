@@ -127,6 +127,26 @@ Kit quick-ship automation runs after successful warehouse data refreshes:
 - Shopify SKU matching intentionally preserves punctuation such as `+`, `(`, and
   `)`; do not strip SKU punctuation when matching variants.
 
+Shopify Collective inventory is pulled during the nightly full catalog sync:
+
+- Code lives in `server/services/shopifyCollectiveInventory.service.js` and the
+  Shopify reader lives in `server/services/shopify.service.js`.
+- Active products must have the exact `Shopify Collective` Shopify tag and
+  tracked variant inventory to be managed by this sync.
+- Shopify inventory is authoritative for managed SKUs. Positive inventory maps
+  to `In Stock`; zero inventory with `CONTINUE` maps to `Backorder`; zero
+  inventory with `DENY` maps to `Out of Stock`.
+- The sync stores the managed SKU state in
+  `shopify_collective_inventory_state`, updates existing assigned vendor stock
+  in SKU Nexus only when its binary state differs, and supports Collective SKUs
+  that have no assigned StockBridge vendor.
+- The nightly pass also verifies only the Shopify
+  `custom.product_availability` metafield against the inventory-derived state;
+  it does not alter follow-up dates or other availability metafields.
+- If duplicate Shopify variants share a SKU, quantities are combined. Any
+  positive total is in stock, and a zero total is out of stock only when every
+  matching variant uses `DENY`.
+
 ## Product Availability Rules
 
 Key logic lives in `server/services/catalog.service.js`.

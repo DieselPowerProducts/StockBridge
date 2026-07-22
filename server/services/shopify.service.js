@@ -15,6 +15,7 @@ const availabilityDateMetafieldKey = "product_availability_date";
 const availabilityDateConfirmedMetafieldKey = "availability_date_confirmed";
 const buildToOrderMessageMetafieldKey = "build_to_order_message";
 const quickShipMetafieldKey = "quick_ship";
+const shopifyCollectiveTag = "Shopify Collective";
 const availabilityValues = {
   in_stock: "In Stock",
   out_of_stock: "Out of Stock",
@@ -729,6 +730,166 @@ async function getProductVariants(productId) {
   }
 
   return variants;
+}
+
+function aggregateTrackedCollectiveInventoryVariants(variants) {
+  const recordsBySku = new Map();
+
+  for (const variant of variants || []) {
+    const sku = String(variant?.sku || "").trim();
+    const tags = Array.isArray(variant?.product?.tags) ? variant.product.tags : [];
+    const isCollectiveProduct = tags.some(
+      (tag) => String(tag || "").trim().toLowerCase() === shopifyCollectiveTag.toLowerCase()
+    );
+
+    if (
+      !sku ||
+      !isCollectiveProduct ||
+      variant?.product?.status !== "ACTIVE" ||
+      variant?.inventoryItem?.tracked !== true
+    ) {
+      continue;
+    }
+
+    const normalizedSku = normalizeSku(sku);
+    const current = recordsBySku.get(normalizedSku) || {
+      sku,
+      inventoryQuantity: 0,
+      inventoryPolicies: new Set(),
+      productAvailabilityByVariantId: new Map(),
+      productIds: new Set(),
+      variantIds: new Set()
+    };
+    const inventoryQuantity = Number(variant?.inventoryQuantity || 0);
+
+    current.inventoryQuantity += Number.isFinite(inventoryQuantity)
+      ? inventoryQuantity
+      : 0;
+    current.inventoryPolicies.add(String(variant?.inventoryPolicy || "DENY"));
+
+    if (variant?.product?.id) {
+      current.productIds.add(variant.product.id);
+    }
+
+    if (variant?.id) {
+      current.variantIds.add(variant.id);
+      current.productAvailabilityByVariantId.set(
+        variant.id,
+        String(variant?.productAvailability?.value || "").trim()
+      );
+    }
+
+    recordsBySku.set(normalizedSku, current);
+  }
+
+  return Array.from(recordsBySku.values()).map((record) => {
+    const inventoryPolicies = Array.from(record.inventoryPolicies);
+    const inventoryPolicy = inventoryPolicies.every((policy) => policy === "DENY")
+      ? "DENY"
+      : "CONTINUE";
+    const availability =
+      record.inventoryQuantity > 0
+        ? "in_stock"
+        : inventoryPolicy === "DENY"
+          ? "out_of_stock"
+          : "backordered";
+    const availabilityValue = availabilityValues[availability];
+    const variantIds = Array.from(record.variantIds);
+
+    return {
+      sku: record.sku,
+      inventoryQuantity: record.inventoryQuantity,
+      inventoryPolicy,
+      availability,
+      productIds: Array.from(record.productIds),
+      variantIds,
+      availabilityMetafieldMismatch: variantIds.some(
+        (variantId) =>
+          record.productAvailabilityByVariantId.get(variantId) !== availabilityValue
+      )
+    };
+  });
+}
+
+async function getTrackedCollectiveInventory() {
+  const variants = [];
+  let after = null;
+
+  while (true) {
+    const data = await shopifyGraphQL(
+      `
+        query CollectiveInventory($after: String, $query: String!) {
+          productVariants(first: 250, after: $after, query: $query) {
+            nodes {
+              id
+              sku
+              inventoryQuantity
+              inventoryPolicy
+              inventoryItem {
+                tracked
+              }
+              productAvailability: metafield(
+                namespace: "custom"
+                key: "product_availability"
+              ) {
+                value
+              }
+              product {
+                id
+                status
+                tags
+              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+      `,
+      {
+        after,
+        query: `tag:"${shopifyCollectiveTag}" status:active`
+      },
+      shopifyAvailabilityProfile
+    );
+    const connection = data?.productVariants;
+
+    variants.push(...(connection?.nodes || []));
+
+    if (!connection?.pageInfo?.hasNextPage) {
+      break;
+    }
+
+    after = connection.pageInfo.endCursor;
+  }
+
+  return aggregateTrackedCollectiveInventoryVariants(variants);
+}
+
+async function syncCollectiveAvailabilityMetafields(records, options = {}) {
+  const changedRecords = (records || []).filter(
+    (record) => record?.availabilityMetafieldMismatch
+  );
+  const metafields = changedRecords.flatMap((record) =>
+    (record.variantIds || []).map((ownerId) => ({
+      key: availabilityMetafieldKey,
+      namespace: metafieldNamespace,
+      ownerId,
+      type: "single_line_text_field",
+      value: availabilityValues[record.availability]
+    }))
+  );
+
+  if (!options.dryRun && metafields.length > 0) {
+    await setMetafields(metafields);
+  }
+
+  return {
+    requested: changedRecords.length,
+    updated: options.dryRun ? 0 : changedRecords.length,
+    variantMetafields: metafields.length
+  };
 }
 
 function normalizeQuickShipValue(value) {
@@ -2191,9 +2352,12 @@ async function resolveOrder({ orderNumber, customerEmail, createdAt, skus }) {
 }
 
 module.exports = {
+  aggregateTrackedCollectiveInventoryVariants,
+  getTrackedCollectiveInventory,
   getQuickShipMetafieldStates,
   resolveOrder,
   syncAvailabilityStateFromShopifyPage,
+  syncCollectiveAvailabilityMetafields,
   syncVariantAvailabilityMetafields,
   updateProductAvailability,
   updateQuickShipMetafields
