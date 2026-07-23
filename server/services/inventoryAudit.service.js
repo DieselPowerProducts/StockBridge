@@ -70,38 +70,224 @@ function collectMessageIds(parsed) {
   return Array.from(messageIds);
 }
 
-function stripQuotedReply(value) {
-  const normalized = String(value || "")
+function normalizeReplyText(value) {
+  return String(value || "")
     .replace(/\r\n?/g, "\n")
     .replace(/\u0000/g, "")
-    .replace(/\[cid:[^\]]+\]/gi, "")
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\[(?:cid|signature)[:_][^\]]+\](?:\s*<[^>]+>)?/gi, "")
+    .replace(/\[image:[^\]]+\](?:\s*<[^>]+>)?/gi, "")
+    .replace(
+      /-{3,}\s*[^ \n]*\s*warning:\s*this email is from an external sender\.[^\n]*-{3,}/gi,
+      ""
+    )
+    .replace(/[ \t]{3,}/g, "\n\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
 
-  if (!normalized) {
-    return "";
-  }
+function findFirstMarker(text, markers) {
+  let cutoff = text.length;
 
-  const quoteMarkers = [
-    /^On .+wrote:\s*$/im,
-    /^-{2,}\s*Original Message\s*-{2,}\s*$/im,
-    /^From:\s.+\nSent:\s.+\nTo:\s.+(?:\nCc:\s.+)?\nSubject:\s.+$/im,
-    /^_{5,}\s*$/im
-  ];
-  let cutoff = normalized.length;
-
-  for (const marker of quoteMarkers) {
-    const match = marker.exec(normalized);
+  for (const marker of markers) {
+    const match = marker.exec(text);
 
     if (match?.index !== undefined) {
       cutoff = Math.min(cutoff, match.index);
     }
   }
 
-  return normalized
+  return cutoff;
+}
+
+function stripQuotedContent(value) {
+  const quoteMarkers = [
+    /^\s*On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[\s\S]{0,320}?\bwrote:\s*$/im,
+    /^\s*On\s+.{0,320}\bwrote:\s*$/im,
+    /^\s*-{2,}\s*on\s+[\s\S]{0,320}?\bwrote\s*-{2,}\s*$/im,
+    /^-{2,}\s*Original Message\s*-{2,}\s*$/im,
+    /^Begin forwarded message:\s*$/im,
+    /^From:\s.+$/im,
+    /^_{5,}\s*$/im
+  ];
+  const cutoff = findFirstMarker(value, quoteMarkers);
+
+  return value
     .slice(0, cutoff)
     .split("\n")
     .filter((line) => !/^\s*>/.test(line))
     .join("\n")
+    .trim();
+}
+
+function stripTurn14Template(value, senderEmail) {
+  if (normalizeEmail(senderEmail) !== "support@turn14.com") {
+    return value;
+  }
+
+  let text = value.replace(/^\s*\d{5,}:\d{5,}\s*/i, "");
+  const signatureMarkers = [
+    /\b(?:Thank you|Best),?\s+(?:\d{5,}:\d{5,}\s+)?[A-Z][A-Za-z' -]{1,60}\s+Customer Support Representative\b/i,
+    /\b(?:Thank you|Best),?\s+\d{5,}:\d{5,}\b/i,
+    /\b\d{5,}:\d{5,}\s+[A-Z][A-Za-z' -]{1,60}\s+Customer Support Representative\b/i,
+    /\b[A-Z][A-Za-z' -]{1,60}\s+Customer Support Representative\b/i
+  ];
+  const cutoff = findFirstMarker(text, signatureMarkers);
+
+  text = text
+    .slice(0, cutoff)
+    .replace(/^Thank you for reaching out!\s*/i, "")
+    .replace(
+      /\s+If you have any questions(?: or concerns)?(?: in the meantime| during this time)?,?\s+please let me know[!.]?\s*$/i,
+      ""
+    )
+    .replace(
+      /\s+Please let me know if you have any questions[!.]?\s*$/i,
+      ""
+    );
+
+  return text.trim();
+}
+
+function stripAutomatedAcknowledgement(value) {
+  const updatedRequest = value.match(
+    /Your request \((\d+)\) has been updated\.[^\n]*\n-{5,}\n+([\s\S]+)$/i
+  );
+
+  if (updatedRequest) {
+    const blocks = updatedRequest[2]
+      .split(/\n{2,}/)
+      .map(normalizeText)
+      .filter(Boolean);
+
+    if (
+      blocks.length > 1 &&
+      /,\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(
+        blocks[0]
+      )
+    ) {
+      blocks.shift();
+    }
+
+    return blocks
+      .join("\n\n")
+      .replace(
+        /\n*We appreciate doing business with you!?[\s\S]*$/i,
+        ""
+      )
+      .trim();
+  }
+
+  const acknowledgement = value.match(
+    /Your request \((\d+)\) has been received and is being reviewed by our support staff\./i
+  );
+
+  if (!acknowledgement) {
+    return value;
+  }
+
+  return `Request ${acknowledgement[1]} has been received and is being reviewed.`;
+}
+
+function looksLikePersonName(value) {
+  const text = normalizeText(value);
+
+  return (
+    /^[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){1,3}$/.test(text) &&
+    !/[.!?]$/.test(text)
+  );
+}
+
+function stripSignature(value) {
+  const lines = value.split("\n");
+  const closingMarker =
+    /^(?:thank(?:s| you)|respectfully|regards|best|sincerely|thanx)[\s,!.…-]*$/i;
+  const signatureSeparator = /^--\s*$/;
+  const signatureMarker =
+    /^(?:wholesale sales rep|customer support representative|territory account manager|data entry specialist|technical sales representative|customer service\/sales manager|inside sales|warehouse lead|dealer sales|sales department|wholesale orders|toll free:|office:|direct:|phone\s*:|phone#|fax\s*:|business hours:|mahle internal restricted|get outlook for)/i;
+  let cutoff = lines.length;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = normalizeText(lines[index]);
+
+    if (!line) {
+      continue;
+    }
+
+    if (closingMarker.test(line) || signatureSeparator.test(line)) {
+      cutoff = index;
+      break;
+    }
+
+    if (signatureMarker.test(line)) {
+      cutoff = index;
+      let previousIndex = index - 1;
+
+      while (previousIndex >= 0 && !normalizeText(lines[previousIndex])) {
+        previousIndex -= 1;
+      }
+
+      if (
+        previousIndex >= 0 &&
+        looksLikePersonName(lines[previousIndex])
+      ) {
+        cutoff = previousIndex;
+      }
+      break;
+    }
+  }
+
+  const withoutSignature = lines.slice(0, cutoff).join("\n");
+  const disclaimerMarkers = [
+    /This e-mail message is being sent solely for use by the intended recipient/i,
+    /This email and any files transmitted with it are confidential/i,
+    /The content of this email is confidential/i,
+    /Confidentiality Warning:/i,
+    /WARNING: Documents that can be viewed, printed or retrieved from this E-Mail/i,
+    /NOTE: The information contained in this message may contain/i,
+    /\*{3}This e-mail message is intended only for individual/i,
+    /We value your opinion! Please take a moment to rate your experience/i,
+    /REMARK: Please send your purchase order/i
+  ];
+  const disclaimerCutoff = findFirstMarker(
+    withoutSignature,
+    disclaimerMarkers
+  );
+
+  return withoutSignature.slice(0, disclaimerCutoff).trim();
+}
+
+function stripOpeningGreeting(value) {
+  return value
+    .replace(
+      /^(?:hello(?: diesel power products)?|hi|hey team|good (?:morning|afternoon|day)(?: team)?)[\s,!.:-]+/i,
+      ""
+    )
+    .replace(/^Thank you for reaching out!\s*/i, "")
+    .replace(/(\S[.!?])\s+(?:Thank you|Thanks)[!.]?\s*$/i, "$1")
+    .trim();
+}
+
+function stripQuotedReply(value, { senderEmail = "" } = {}) {
+  const normalized = normalizeReplyText(value);
+
+  if (!normalized) {
+    return "";
+  }
+
+  return stripOpeningGreeting(
+    stripSignature(
+      stripAutomatedAcknowledgement(
+        stripTurn14Template(stripQuotedContent(normalized), senderEmail)
+      )
+    )
+  )
+    .replace(/^\s*##-\s*Please type your reply above this line\s*-##\s*/i, "")
+    .replace(/^\s*\d{5,}:\d{5,}\s*/i, "")
+    .replace(/^\s*\[[A-Z0-9-]{6,}\]\s*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, maxResponseLength);
@@ -117,6 +303,10 @@ function getFirstAddress(addressObject) {
 }
 
 function mapAuditRow(row) {
+  const responseText = stripQuotedReply(row?.response_text, {
+    senderEmail: row?.sender_email
+  });
+
   return {
     id: String(row?.id || ""),
     sku: String(row?.sku || ""),
@@ -125,7 +315,8 @@ function mapAuditRow(row) {
     senderEmail: String(row?.sender_email || ""),
     senderName: String(row?.sender_name || ""),
     subject: String(row?.subject || ""),
-    responseText: String(row?.response_text || ""),
+    responseText:
+      responseText || "No relevant stock information was included.",
     receivedAt: row?.received_at
       ? new Date(row.received_at).toISOString()
       : ""
@@ -194,7 +385,9 @@ async function processStockCheckReplySource({ messageUid, source }) {
   const parsed = await simpleParser(source);
   const sender = getFirstAddress(parsed.from);
   const subject = normalizeText(parsed.subject);
-  const responseText = stripQuotedReply(parsed.text);
+  const responseText = stripQuotedReply(parsed.text, {
+    senderEmail: sender.email
+  });
   const messageIds = collectMessageIds(parsed);
   const looksLikeReply =
     messageIds.length > 0 || /^(?:re|fw|fwd)\s*:/i.test(subject);

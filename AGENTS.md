@@ -330,6 +330,13 @@ Default vendor contacts are stored in `vendor_default_contacts`. The contacts
 endpoint annotates contacts with `isDefault`; the email composer auto-selects
 the default contact and shows a "Default contact" badge.
 
+Vendor stock-check replies are reduced to their operational content before
+appearing in Inventory Audit. The parser removes quoted threads, greetings,
+signatures, contact details, legal disclaimers, inline-image placeholders, and
+known support-ticket boilerplate. Keep the cleanup deterministic and covered by
+realistic vendor-format tests; do not add an external AI dependency for reply
+parsing.
+
 Sent stock-check emails store the SMTP message ID in
 `stock_check_vendor_emails`. Gmail replies are matched to that message ID first,
 with a normalized subject/SKU fallback for older sent records. Matched replies
@@ -416,8 +423,9 @@ Keep the app operational and dense rather than marketing-like. It is a work tool
 
 - Check `git status --short --branch` before edits and before commits.
 - Do not revert unrelated user changes.
-- The user often wants changes pushed to `main` for Vercel testing. If they ask
-  to push, commit intentionally and push `origin main`.
+- Push completed updates to `main` immediately unless the user explicitly asks
+  to hold them for review or not push. Commit intentionally and push
+  `origin main`.
 - Good commit messages are short and specific, for example:
   - `Add default vendor contact selection`
   - `Refresh product after vendor stock changes`
