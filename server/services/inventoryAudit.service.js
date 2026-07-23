@@ -162,6 +162,22 @@ async function initializeSchema() {
         CREATE INDEX IF NOT EXISTS inventory_audits_received_at_idx
         ON inventory_audits (received_at DESC)
       `;
+      await sql`
+        DELETE FROM inventory_audits AS older
+        USING inventory_audits AS newer
+        WHERE older.stock_check_email_id = newer.stock_check_email_id
+          AND (
+            older.received_at < newer.received_at
+            OR (
+              older.received_at = newer.received_at
+              AND older.id < newer.id
+            )
+          )
+      `;
+      await sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS inventory_audits_stock_check_email_idx
+        ON inventory_audits (stock_check_email_id)
+      `;
     })();
   }
 
@@ -204,6 +220,25 @@ async function processStockCheckReplySource({ messageUid, source }) {
     parsed.date instanceof Date && !Number.isNaN(parsed.date.getTime())
       ? parsed.date
       : new Date();
+  const existingRows = await sql`
+    SELECT id::text, gmail_message_id, stock_check_email_id::text
+    FROM inventory_audits
+    WHERE gmail_message_id = ${safeMessageUid}
+       OR stock_check_email_id = ${sentEmail.id}
+    ORDER BY received_at DESC, id DESC
+    LIMIT 1
+  `;
+  const existing = existingRows[0] || null;
+
+  if (existing?.gmail_message_id === safeMessageUid) {
+    return {
+      imported: 0,
+      matched: true,
+      sku: normalizeSku(sentEmail.sku),
+      updated: 0
+    };
+  }
+
   const rows = await sql`
     INSERT INTO inventory_audits (
       gmail_message_id,
@@ -231,14 +266,27 @@ async function processStockCheckReplySource({ messageUid, source }) {
       ${responseText},
       ${receivedAt}
     )
-    ON CONFLICT (gmail_message_id) DO NOTHING
+    ON CONFLICT (stock_check_email_id) DO UPDATE
+    SET gmail_message_id = EXCLUDED.gmail_message_id,
+        sku = EXCLUDED.sku,
+        vendor_id = EXCLUDED.vendor_id,
+        vendor_name = EXCLUDED.vendor_name,
+        recipient_email = EXCLUDED.recipient_email,
+        sender_email = EXCLUDED.sender_email,
+        sender_name = EXCLUDED.sender_name,
+        subject = EXCLUDED.subject,
+        response_text = EXCLUDED.response_text,
+        received_at = EXCLUDED.received_at
+    WHERE EXCLUDED.received_at >= inventory_audits.received_at
     RETURNING id::text
   `;
+  const updated = Boolean(existing) && rows.length > 0;
 
   return {
-    imported: rows.length,
+    imported: existing ? 0 : rows.length,
     matched: true,
-    sku: normalizeSku(sentEmail.sku)
+    sku: normalizeSku(sentEmail.sku),
+    updated: updated ? 1 : 0
   };
 }
 

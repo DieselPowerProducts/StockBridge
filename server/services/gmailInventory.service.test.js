@@ -46,3 +46,38 @@ test("encrypts Gmail refresh tokens with authenticated encryption", () => {
     }
   }
 });
+
+test("selects Gmail labels for inventory replies and inventory sheets", () => {
+  const previousStockCheckLabel = process.env.STOCK_CHECK_GMAIL_LABEL;
+  const previousInventoryLabel = process.env.AUTO_INVENTORY_GMAIL_LABEL;
+  process.env.STOCK_CHECK_GMAIL_LABEL = "Stock Check Replies";
+  process.env.AUTO_INVENTORY_GMAIL_LABEL = "Vendor Sheets";
+
+  try {
+    assert.deepEqual(
+      _test.getMessageLabelNames({
+        inventoryAuditMatched: true,
+        shouldLabelInventory: true
+      }),
+      ["Stock Check Replies", "Vendor Sheets"]
+    );
+    assert.deepEqual(
+      _test.getMessageLabelNames({
+        inventoryAuditMatched: true
+      }),
+      ["Stock Check Replies"]
+    );
+  } finally {
+    if (previousStockCheckLabel === undefined) {
+      delete process.env.STOCK_CHECK_GMAIL_LABEL;
+    } else {
+      process.env.STOCK_CHECK_GMAIL_LABEL = previousStockCheckLabel;
+    }
+
+    if (previousInventoryLabel === undefined) {
+      delete process.env.AUTO_INVENTORY_GMAIL_LABEL;
+    } else {
+      process.env.AUTO_INVENTORY_GMAIL_LABEL = previousInventoryLabel;
+    }
+  }
+});

@@ -13,7 +13,7 @@ const oauthStateLifetimeSeconds = 10 * 60;
 const defaultLookbackDays = 14;
 
 let schemaReady;
-let inventoryLabelId = "";
+let gmailLabelIds;
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -21,6 +21,28 @@ function normalizeText(value) {
 
 function normalizeEmail(value) {
   return normalizeText(value).toLowerCase();
+}
+
+function getMessageLabelNames({
+  inventoryAuditMatched = false,
+  shouldLabelInventory = false
+} = {}) {
+  const labelNames = [];
+
+  if (inventoryAuditMatched) {
+    labelNames.push(
+      normalizeText(process.env.STOCK_CHECK_GMAIL_LABEL) || "Stock Check"
+    );
+  }
+
+  if (shouldLabelInventory) {
+    labelNames.push(
+      normalizeText(process.env.AUTO_INVENTORY_GMAIL_LABEL) ||
+        "Vendor Inventory"
+    );
+  }
+
+  return Array.from(new Set(labelNames));
 }
 
 function createHttpError(statusCode, message) {
@@ -581,37 +603,65 @@ async function getRawMessage(oauthClient, messageId) {
   );
 }
 
-async function getInventoryLabelId(oauthClient) {
-  if (inventoryLabelId) {
-    return inventoryLabelId;
+async function getGmailLabelId(oauthClient, labelName) {
+  const safeLabelName = normalizeText(labelName);
+
+  if (!safeLabelName) {
+    return "";
   }
 
-  const labelName =
-    normalizeText(process.env.AUTO_INVENTORY_GMAIL_LABEL) || "Vendor Inventory";
-  const labels = await gmailRequest(oauthClient, "/users/me/labels");
-  const existing = (labels?.labels || []).find(
-    (label) => normalizeText(label?.name).toLowerCase() === labelName.toLowerCase()
-  );
+  if (!gmailLabelIds) {
+    const labels = await gmailRequest(oauthClient, "/users/me/labels");
+    gmailLabelIds = new Map(
+      (labels?.labels || [])
+        .map((label) => [
+          normalizeText(label?.name).toLowerCase(),
+          normalizeText(label?.id)
+        ])
+        .filter(([name, id]) => name && id)
+    );
+  }
 
-  if (existing?.id) {
-    inventoryLabelId = existing.id;
-    return inventoryLabelId;
+  const labelKey = safeLabelName.toLowerCase();
+  const existingLabelId = gmailLabelIds.get(labelKey);
+
+  if (existingLabelId) {
+    return existingLabelId;
   }
 
   const created = await gmailRequest(oauthClient, "/users/me/labels", {
     method: "POST",
     body: {
-      name: labelName,
+      name: safeLabelName,
       labelListVisibility: "labelShow",
       messageListVisibility: "show"
     }
   });
-  inventoryLabelId = normalizeText(created?.id);
-  return inventoryLabelId;
+  const createdLabelId = normalizeText(created?.id);
+
+  if (createdLabelId) {
+    gmailLabelIds.set(labelKey, createdLabelId);
+  }
+
+  return createdLabelId;
 }
 
-async function labelAndArchiveMessage(oauthClient, messageId) {
-  const labelId = await getInventoryLabelId(oauthClient);
+async function labelAndArchiveMessage(oauthClient, messageId, labelNames) {
+  const safeLabelNames = Array.from(
+    new Set((labelNames || []).map(normalizeText).filter(Boolean))
+  );
+
+  if (safeLabelNames.length === 0) {
+    return;
+  }
+
+  const labelIds = (
+    await Promise.all(
+      safeLabelNames.map((labelName) =>
+        getGmailLabelId(oauthClient, labelName)
+      )
+    )
+  ).filter(Boolean);
 
   await gmailRequest(
     oauthClient,
@@ -619,7 +669,7 @@ async function labelAndArchiveMessage(oauthClient, messageId) {
     {
       method: "POST",
       body: {
-        addLabelIds: labelId ? [labelId] : [],
+        addLabelIds: labelIds,
         removeLabelIds: ["INBOX"]
       }
     }
@@ -642,14 +692,19 @@ async function processGmailMessage(oauthClient, messageId) {
     messageUid: messageId,
     source
   });
+  const labelNames = getMessageLabelNames({
+    inventoryAuditMatched: inventoryAudit.matched,
+    shouldLabelInventory: result.shouldLabel
+  });
 
-  if (result.shouldLabel) {
-    await labelAndArchiveMessage(oauthClient, messageId);
+  if (labelNames.length > 0) {
+    await labelAndArchiveMessage(oauthClient, messageId, labelNames);
   }
 
   return {
     ...result,
-    inventoryAudits: inventoryAudit.imported || 0
+    inventoryAudits:
+      (inventoryAudit.imported || 0) + (inventoryAudit.updated || 0)
   };
 }
 
@@ -786,14 +841,19 @@ async function runInboxRecovery(oauthClient) {
       messageUid: message.id,
       source
     });
+    const labelNames = getMessageLabelNames({
+      inventoryAuditMatched: inventoryAudit.matched,
+      shouldLabelInventory: result.shouldLabel
+    });
 
-    if (result.shouldLabel) {
-      await labelAndArchiveMessage(oauthClient, message.id);
+    if (labelNames.length > 0) {
+      await labelAndArchiveMessage(oauthClient, message.id, labelNames);
     }
 
     addImportResult(totals, {
       ...result,
-      inventoryAudits: inventoryAudit.imported || 0
+      inventoryAudits:
+        (inventoryAudit.imported || 0) + (inventoryAudit.updated || 0)
     });
   }
 
@@ -901,6 +961,7 @@ module.exports = {
     decodePushMessage,
     decryptRefreshToken,
     encryptRefreshToken,
+    getMessageLabelNames,
     verifyOAuthState
   }
 };
