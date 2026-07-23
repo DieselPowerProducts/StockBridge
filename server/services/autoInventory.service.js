@@ -980,8 +980,7 @@ async function setBackorderFollowUpForStockRemoval({ sku, followUpDate }) {
   };
 }
 
-async function processMessageForSettings({ uid, source }, settings) {
-  const parsed = await simpleParser(source);
+async function processParsedMessageForSettings({ uid, parsed }, settings) {
   const senderEmails = getSenderEmails(parsed);
 
   if (!senderEmails.includes(settings.senderEmail)) {
@@ -1021,6 +1020,44 @@ async function processMessageForSettings({ uid, source }, settings) {
     totals.skipped += result.skipped;
     totals.errors += result.errors;
     totals.followUpsSet += result.followUpsSet || 0;
+  }
+
+  return totals;
+}
+
+async function processMessageForSettings({ uid, source }, settings) {
+  const parsed = await simpleParser(source);
+
+  return processParsedMessageForSettings({ uid, parsed }, settings);
+}
+
+async function processInventoryMessageSource({ messageUid, source }) {
+  const settingsList = await settingsService.getEnabledSettings();
+  const parsed = await simpleParser(source);
+  const totals = {
+    imported: 0,
+    skipped: 0,
+    errors: 0,
+    attachments: 0,
+    followUpsSet: 0,
+    shouldLabel: false
+  };
+
+  for (const settings of settingsList) {
+    const result = await processParsedMessageForSettings(
+      {
+        uid: messageUid,
+        parsed
+      },
+      settings
+    );
+
+    totals.imported += result.imported;
+    totals.skipped += result.skipped;
+    totals.errors += result.errors;
+    totals.attachments += result.attachments;
+    totals.followUpsSet += result.followUpsSet || 0;
+    totals.shouldLabel = totals.shouldLabel || result.shouldLabel;
   }
 
   return totals;
@@ -1281,6 +1318,7 @@ async function runAutoInventoryImport() {
 }
 
 module.exports = {
+  processInventoryMessageSource,
   runAutoInventoryImport,
   _test: {
     getTrackedSheetQuantity,

@@ -5,7 +5,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
-      "includeFiles": "server/**"
+      "includeFiles": "server/**",
+      "maxDuration": 180
     },
     "api/cron/catalog-full-sync.js": {
       "includeFiles": "server/**",
@@ -18,6 +19,10 @@
     "api/cron/auto-inventory.js": {
       "includeFiles": "server/**",
       "maxDuration": 180
+    },
+    "api/cron/gmail-watch.js": {
+      "includeFiles": "server/**",
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -32,6 +37,10 @@
     {
       "path": "/api/cron/auto-inventory",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/gmail-watch",
+      "schedule": "30 9 * * *"
     }
   ],
   "routes": [
