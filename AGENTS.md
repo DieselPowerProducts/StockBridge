@@ -345,7 +345,9 @@ and quoted email history are not stored. Each original stock-check email has one
 pending audit; a newer reply in the same thread replaces the displayed response.
 Matched replies receive the `Stock Check` Gmail label and are archived from
 Inbox. Updating a product follow-up date or No ETA state clears its pending
-inventory audits.
+inventory audits. Inventory Audit also removes the matching SKU from its local
+queue immediately after the follow-up save succeeds; do not require a manual
+refresh to reflect that deletion.
 
 The sidebar Audit page at `#/audit` has a selector for Price Audit and Inventory
 Audit. Price Audit retains the existing confirm/deny workflow. Inventory Audit

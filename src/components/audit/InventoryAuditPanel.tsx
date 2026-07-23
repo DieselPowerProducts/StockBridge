@@ -1,16 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getInventoryAudits } from "../../services/api";
-import type { InventoryAuditItem } from "../../types";
+import type {
+  InventoryAuditItem,
+  ProductStockUpdate
+} from "../../types";
 import { Pagination } from "../products/Pagination";
 
 type InventoryAuditPanelProps = {
   onOpenNotes: (sku: string) => void;
+  productStockUpdate: ProductStockUpdate | null;
 };
 
 const pageSize = 50;
 
 export function InventoryAuditPanel({
-  onOpenNotes
+  onOpenNotes,
+  productStockUpdate
 }: InventoryAuditPanelProps) {
   const [items, setItems] = useState<InventoryAuditItem[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -20,6 +25,33 @@ export function InventoryAuditPanel({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const itemsRef = useRef<InventoryAuditItem[]>([]);
+  const resolvedSkusRef = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    if (!productStockUpdate?.followUpSaved) {
+      return;
+    }
+
+    const resolvedSku = productStockUpdate.sku.trim().toUpperCase();
+
+    if (!resolvedSku) {
+      return;
+    }
+
+    resolvedSkusRef.current.set(resolvedSku, Date.now());
+    const nextItems = itemsRef.current.filter(
+      (item) => item.sku.trim().toUpperCase() !== resolvedSku
+    );
+    const removedCount = itemsRef.current.length - nextItems.length;
+
+    itemsRef.current = nextItems;
+    setItems(nextItems);
+
+    if (removedCount > 0) {
+      setTotalItems((total) => Math.max(total - removedCount, 0));
+    }
+  }, [productStockUpdate]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -53,8 +85,24 @@ export function InventoryAuditPanel({
           return;
         }
 
-        setItems(result.data);
-        setTotalItems(result.total);
+        const visibleItems = result.data.filter(
+          (item) => {
+            const resolvedAt = resolvedSkusRef.current.get(
+              item.sku.trim().toUpperCase()
+            );
+
+            return (
+              !resolvedAt ||
+              new Date(item.receivedAt).getTime() > resolvedAt
+            );
+          }
+        );
+
+        itemsRef.current = visibleItems;
+        setItems(visibleItems);
+        setTotalItems(
+          Math.max(result.total - (result.data.length - visibleItems.length), 0)
+        );
       } catch (loadError) {
         if (!ignore) {
           setError(

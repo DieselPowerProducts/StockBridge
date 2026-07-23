@@ -316,7 +316,10 @@ export function App() {
           )}
 
           {route.page === "audit" && (
-            <AuditPage onOpenNotes={setSelectedSku} />
+            <AuditPage
+              onOpenNotes={setSelectedSku}
+              productStockUpdate={productStockUpdate}
+            />
           )}
 
           {route.page === "shopify-availability-sync" && (

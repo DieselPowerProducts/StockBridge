@@ -1161,7 +1161,19 @@ export function NotesModal({
             }
           : current
       );
+      if (productDetails) {
+        const nextProductDetails = {
+          ...productDetails,
+          followUpDate: result.followUpDate || "",
+          followUpNoEta: Boolean(result.followUpNoEta)
+        };
 
+        onProductStockChanged?.({
+          ...getProductDetailsStockUpdate(nextProductDetails),
+          followUpDate: result.followUpDate || "",
+          followUpSaved: true
+        });
+      }
       onFollowUpSaved();
     } catch (err) {
       setFollowUpNoEta(!checked);
