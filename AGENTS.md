@@ -18,7 +18,8 @@ usually `main`. The Vercel project is `stock-bridge` under the
 - Backend: Express 5 server under `server/`, exposed through Vercel functions.
 - API entrypoint: `api/index.js`.
 - Scheduled sync entrypoints: `api/cron/catalog-full-sync.js`,
-  `api/cron/catalog-warehouse-sync.js`, and `api/cron/auto-inventory.js`.
+  `api/cron/catalog-warehouse-sync.js`, `api/cron/auto-inventory.js`, and
+  `api/cron/shopify-availability-sync.js`.
 - Database: Neon Postgres via `@neondatabase/serverless`.
 - External systems: SKU Nexus, Shopify, Gmail SMTP.
 - Active browsers poll `/status/version` once per minute and force a page reload
@@ -237,8 +238,15 @@ Availability button rules:
   clear availability date and date confirmed and write the BTO message when a
   lead time exists.
 - Shopify pushes from follow-up, inventory, and BTO lead-time edits are debounced
-  by 30 seconds. Button clicks update the local UI state immediately and perform
-  their explicit Shopify push.
+  through the database-backed `shopify_availability_sync_queue`. Each new change
+  resets that SKU's 30-second quiet period, and the minute cron processes the
+  latest StockBridge state. Closing the Notes modal does not cancel the update.
+  Button clicks update the local UI state immediately, perform their explicit
+  Shopify push, and clear any redundant queued update.
+- The nightly full catalog sync queues reconciliation for active products whose
+  saved Shopify state is not in stock, plus recently changed in-stock products.
+  This repairs missed BTO messages and stale availability without scanning every
+  in-stock Shopify variant each night.
 
 There is a utility page at `#/shopify-availability-sync` for pulling current
 Shopify availability metafields back into StockBridge local state. It scans

@@ -1,6 +1,7 @@
 const { getSql } = require("../db/neon");
 const followUpsService = require("./followUps.service");
 const kitQuickShipService = require("./kitQuickShip.service");
+const shopifyAvailabilityQueueService = require("./shopifyAvailabilityQueue.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 const shopifyCollectiveInventoryService = require("./shopifyCollectiveInventory.service");
 const skunexus = require("./skunexus.service");
@@ -3205,6 +3206,26 @@ async function syncShopifyAvailabilityForNewProducts(skus, reason) {
   }
 }
 
+async function queueShopifyAvailabilityReconciliationAfterFullSync() {
+  try {
+    return await shopifyAvailabilityQueueService.enqueueNightlyReconciliation();
+  } catch (error) {
+    const errorMessage = String(
+      error?.message || error || "Shopify availability reconciliation could not be queued."
+    ).slice(0, 1000);
+
+    console.error(
+      "Unable to queue nightly Shopify availability reconciliation.",
+      error
+    );
+
+    return {
+      error: errorMessage,
+      queued: 0
+    };
+  }
+}
+
 async function syncShopifyCollectiveInventoryAfterFullSync(reason) {
   try {
     const result = await shopifyCollectiveInventoryService.syncCollectiveInventory({
@@ -3318,6 +3339,8 @@ async function runFullSync({ reason = "manual" } = {}) {
       await syncShopifyCollectiveInventoryAfterFullSync(reason);
     const newProductShopifyAvailability =
       await syncShopifyAvailabilityForNewProducts(newProductSkus, reason);
+    const shopifyAvailabilityReconciliation =
+      await queueShopifyAvailabilityReconciliationAfterFullSync();
     await setSyncState("catalog_last_full_sync_at", syncStamp);
     await setSyncState("catalog_last_full_sync_reason", reason);
     if (didSyncWarehouse) {
@@ -3334,6 +3357,7 @@ async function runFullSync({ reason = "manual" } = {}) {
       warehouseProducts: warehouseStockRows.length,
       kitQuickShip,
       newProductShopifyAvailability,
+      shopifyAvailabilityReconciliation,
       shopifyCollectiveInventory
     };
   })();

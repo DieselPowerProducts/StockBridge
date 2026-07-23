@@ -2,6 +2,7 @@ const skunexus = require("./skunexus.service");
 const catalogService = require("./catalog.service");
 const followUpsService = require("./followUps.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
+const shopifyAvailabilityQueueService = require("./shopifyAvailabilityQueue.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
@@ -19,6 +20,22 @@ function normalizeRequiredString(value, message) {
   }
 
   return normalized;
+}
+
+async function queueShopifyAvailabilitySync(sku, source) {
+  try {
+    return await shopifyAvailabilityQueueService.enqueueAvailabilitySync({
+      sku,
+      source
+    });
+  } catch (error) {
+    console.error("Unable to queue Shopify availability sync.", {
+      error,
+      sku,
+      source
+    });
+    return null;
+  }
 }
 
 function cleanPayload(payload) {
@@ -210,7 +227,14 @@ async function refreshProductDetails(sku, options = {}) {
   await catalogService.refreshProductBySku(sku, {
     includeWarehouse: options.includeWarehouse !== false
   });
-  return catalogService.getProductDetails(sku);
+  const details = await catalogService.getProductDetails(sku);
+
+  await queueShopifyAvailabilitySync(
+    details.sku || sku,
+    "product-details-refresh"
+  );
+
+  return details;
 }
 
 async function assignProductVendor({ sku, vendorId }) {
@@ -287,6 +311,11 @@ async function assignProductVendor({ sku, vendorId }) {
     );
   }
 
+  await queueShopifyAvailabilitySync(
+    details.sku || safeSku,
+    "vendor-assignment"
+  );
+
   return details;
 }
 
@@ -299,6 +328,10 @@ async function setProductFollowUp({ sku, followUpDate, followUpNoEta }) {
 
   await stockCheckEmailsService.clearVendorEmailsForSku(result.sku || sku);
   clearProductCaches();
+  await queueShopifyAvailabilitySync(
+    result.sku || sku,
+    "follow-up-update"
+  );
 
   return result;
 }
@@ -312,6 +345,7 @@ async function setProductBuiltToOrderLeadTime({ sku, buildToOrderLeadTime }) {
     });
 
   clearProductCaches();
+  await queueShopifyAvailabilitySync(safeSku, "build-to-order-lead-time");
 
   return {
     sku: safeSku,
@@ -562,6 +596,10 @@ async function setVendorProductQuantity({
   }
 
   clearProductCaches();
+  await queueShopifyAvailabilitySync(
+    resolvedVendorProduct.product_sku || productSku,
+    "vendor-inventory-update"
+  );
 
   return {
     sku: resolvedVendorProduct.product_sku || productSku,

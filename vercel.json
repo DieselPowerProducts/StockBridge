@@ -23,6 +23,10 @@
     "api/cron/gmail-watch.js": {
       "includeFiles": "server/**",
       "maxDuration": 60
+    },
+    "api/cron/shopify-availability-sync.js": {
+      "includeFiles": "server/**",
+      "maxDuration": 180
     }
   },
   "crons": [
@@ -41,6 +45,10 @@
     {
       "path": "/api/cron/gmail-watch",
       "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/cron/shopify-availability-sync",
+      "schedule": "* * * * *"
     }
   ],
   "routes": [

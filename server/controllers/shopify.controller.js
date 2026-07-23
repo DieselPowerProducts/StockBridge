@@ -1,4 +1,5 @@
 const shopifyService = require("../services/shopify.service");
+const shopifyAvailabilityQueueService = require("../services/shopifyAvailabilityQueue.service");
 const productsService = require("../services/products.service");
 
 async function assertBuiltToOrderAvailabilityAllowed(sku, availability) {
@@ -62,6 +63,14 @@ async function updateProductAvailability(req, res, next) {
       followUpDate: req.body.followUpDate,
       productName: req.body.productName
     });
+    try {
+      await shopifyAvailabilityQueueService.removeAvailabilitySync(req.body.sku);
+    } catch (error) {
+      console.error("Unable to clear queued Shopify availability sync.", {
+        error,
+        sku: req.body.sku
+      });
+    }
 
     res.send(result);
   } catch (err) {
