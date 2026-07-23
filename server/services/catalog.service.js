@@ -3799,11 +3799,7 @@ async function getStockCheckProducts({
       })
     )
     .filter((product) => !product.isKit)
-    .filter(
-      (product) =>
-        product.availability !== "Built to Order" ||
-        !product.hasBuiltToOrderVendor
-    )
+    .filter(shouldIncludeBuiltToOrderProductInStockCheck)
     .filter(
       (product) =>
         product.availability !== "Available" || Boolean(product.followUpDate)
@@ -3821,6 +3817,14 @@ async function getStockCheckProducts({
   });
 
   return filteredData;
+}
+
+function shouldIncludeBuiltToOrderProductInStockCheck(product) {
+  return (
+    product?.availability !== "Built to Order" ||
+    !product?.hasBuiltToOrderVendor ||
+    Boolean(product?.followUpDate)
+  );
 }
 
 async function listStockCheckProducts(queryParams = {}) {
@@ -4106,5 +4110,8 @@ module.exports = {
   stageCatalogVendorProductPrice,
   syncShopifyAvailabilityForSkus,
   updateCatalogVendorProductDetails,
-  updateCatalogVendorProductQuantity
+  updateCatalogVendorProductQuantity,
+  _test: {
+    shouldIncludeBuiltToOrderProductInStockCheck
+  }
 };

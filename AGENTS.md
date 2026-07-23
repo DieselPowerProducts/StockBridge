@@ -168,9 +168,9 @@ Key logic lives in `server/services/catalog.service.js`.
   `Built to Order` when they lose stock, even without a built-to-order vendor.
 - A built-to-order vendor can be manually overridden to `Backorder` for products
   that are delayed beyond the normal build time.
-- Stock Check excludes `Built to Order` products only when they have a
-  built-to-order vendor. Button-only/manual BTO products can still appear when
-  their follow-up state qualifies.
+- Stock Check shows products with a built-to-order vendor only when they have a
+  follow-up date. Button-only/manual BTO products are not subject to that vendor
+  exclusion.
 - Stock Check excludes kit parent products; child/component products can still
   show when their own availability or follow-up state qualifies.
 - Stock Check has date filters for yesterday/today/tomorrow plus a "No follow up"
@@ -260,8 +260,8 @@ Stock Check is backed by `GET /products/stock-check`.
 
 - It shows backordered products and products with follow-up dates.
 - It hides kit parent products.
-- It hides built-to-order products only when the product has a built-to-order
-  vendor.
+- It hides built-to-order vendor products when they do not have a follow-up
+  date, and shows them when a follow-up date is present.
 - Date-filter pagination must be based on the filtered result set for
   yesterday/today/tomorrow, not the unfiltered all-results count.
 - It can show an email icon next to SKUs that have had a vendor stock-check email
