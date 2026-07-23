@@ -2020,12 +2020,6 @@ export function NotesModal({
 
         <div className="notes-modal-grid">
           <aside className="assigned-vendors-panel" aria-labelledby="assignedVendorsHeading">
-            <div className="assigned-vendors-heading">
-              <h3 id="assignedVendorsHeading">
-                {isKitParent ? "Kit inventory" : "Assigned vendors"}
-              </h3>
-            </div>
-
             <div className="shopify-availability-panel">
               <div
                 className="shopify-availability-actions"
@@ -2107,6 +2101,12 @@ export function NotesModal({
                   {shopifyAvailabilityStatus}
                 </p>
               )}
+            </div>
+
+            <div className="assigned-vendors-heading">
+              <h3 id="assignedVendorsHeading">
+                {isKitParent ? "Kit inventory" : "Assigned vendors"}
+              </h3>
             </div>
 
             {!isKitParent && (
