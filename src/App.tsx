@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { LoginPage } from "./components/auth/LoginPage";
+import { AuditPage } from "./components/audit/AuditPage";
 import { NotificationsMenu } from "./components/layout/NotificationsMenu";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
-import { PriceAuditPage } from "./components/priceAudit/PriceAuditPage";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { ShopifyAvailabilitySyncPage } from "./components/shopify/ShopifyAvailabilitySyncPage";
@@ -38,11 +38,15 @@ function parseRoute(): AppRoute {
     page === "vendors" ||
     page === "products" ||
     page === "stock-check" ||
-    page === "price-audit" ||
+    page === "audit" ||
     page === "notifications" ||
     page === "shopify-availability-sync"
   ) {
     return { page, sku: "", vendor: page === "vendors" ? routeValue : "" };
+  }
+
+  if (page === "price-audit") {
+    return { page: "audit", sku: "", vendor: "" };
   }
 
   return { page: "products", sku: "", vendor: "" };
@@ -259,7 +263,7 @@ export function App() {
   const sidebarPage: PageName =
     route.page === "stock-check" ||
     route.page === "vendors" ||
-    route.page === "price-audit" ||
+    route.page === "audit" ||
     route.page === "notifications"
       ? route.page
       : "products";
@@ -311,8 +315,8 @@ export function App() {
             <NotificationsPage onOpenSku={setSelectedSku} />
           )}
 
-          {route.page === "price-audit" && (
-            <PriceAuditPage onOpenNotes={setSelectedSku} />
+          {route.page === "audit" && (
+            <AuditPage onOpenNotes={setSelectedSku} />
           )}
 
           {route.page === "shopify-availability-sync" && (

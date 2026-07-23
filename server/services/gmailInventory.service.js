@@ -3,6 +3,7 @@ const { OAuth2Client } = require("google-auth-library");
 const { getSql } = require("../db/neon");
 const { loadLocalEnv } = require("../config/env");
 const autoInventoryService = require("./autoInventory.service");
+const inventoryAuditService = require("./inventoryAudit.service");
 
 loadLocalEnv();
 
@@ -631,16 +632,25 @@ function decodeRawMessage(raw) {
 
 async function processGmailMessage(oauthClient, messageId) {
   const message = await getRawMessage(oauthClient, messageId);
+  const source = decodeRawMessage(message?.raw);
+  const inventoryAudit =
+    await inventoryAuditService.processStockCheckReplySource({
+      messageUid: messageId,
+      source
+    });
   const result = await autoInventoryService.processInventoryMessageSource({
     messageUid: messageId,
-    source: decodeRawMessage(message?.raw)
+    source
   });
 
   if (result.shouldLabel) {
     await labelAndArchiveMessage(oauthClient, messageId);
   }
 
-  return result;
+  return {
+    ...result,
+    inventoryAudits: inventoryAudit.imported || 0
+  };
 }
 
 async function listHistory(oauthClient, startHistoryId) {
@@ -722,6 +732,7 @@ function createImportTotals() {
     imported: 0,
     skipped: 0,
     followUpsSet: 0,
+    inventoryAudits: 0,
     errors: 0
   };
 }
@@ -733,6 +744,7 @@ function addImportResult(totals, result) {
   totals.imported += result.imported || 0;
   totals.skipped += result.skipped || 0;
   totals.followUpsSet += result.followUpsSet || 0;
+  totals.inventoryAudits += result.inventoryAudits || 0;
   totals.errors += result.errors || 0;
 }
 
@@ -764,16 +776,25 @@ async function runInboxRecovery(oauthClient) {
   const totals = createImportTotals();
 
   for (const message of messages) {
+    const source = decodeRawMessage(message.raw);
+    const inventoryAudit =
+      await inventoryAuditService.processStockCheckReplySource({
+        messageUid: message.id,
+        source
+      });
     const result = await autoInventoryService.processInventoryMessageSource({
       messageUid: message.id,
-      source: decodeRawMessage(message.raw)
+      source
     });
 
     if (result.shouldLabel) {
       await labelAndArchiveMessage(oauthClient, message.id);
     }
 
-    addImportResult(totals, result);
+    addImportResult(totals, {
+      ...result,
+      inventoryAudits: inventoryAudit.imported || 0
+    });
   }
 
   return totals;

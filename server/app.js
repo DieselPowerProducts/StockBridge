@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const auditRoutes = require("./routes/audit.routes");
 const authRoutes = require("./routes/auth.routes");
 const backordersRoutes = require("./routes/backorders.routes");
 const emailRoutes = require("./routes/email.routes");
@@ -48,6 +49,7 @@ app.use(authRoutes);
 app.get("/status/version", statusController.getVersion);
 app.use(integrationsRoutes);
 app.use(requireAuth);
+app.use(auditRoutes);
 app.use(backordersRoutes);
 app.use(emailRoutes);
 app.use(importRoutes);

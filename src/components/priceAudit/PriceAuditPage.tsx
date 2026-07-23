@@ -8,6 +8,7 @@ import type { PriceAuditItem } from "../../types";
 import { Pagination } from "../products/Pagination";
 
 type PriceAuditPageProps = {
+  embedded?: boolean;
   onOpenNotes: (sku: string) => void;
 };
 
@@ -57,7 +58,10 @@ function getSafeSourceUrl(value: string) {
   }
 }
 
-export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
+export function PriceAuditPage({
+  embedded = false,
+  onOpenNotes
+}: PriceAuditPageProps) {
   const [items, setItems] = useState<PriceAuditItem[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -341,10 +345,17 @@ export function PriceAuditPage({ onOpenNotes }: PriceAuditPageProps) {
   }
 
   return (
-    <section className="page price-audit-page" aria-labelledby="priceAuditHeading">
+    <section
+      className={`${embedded ? "" : "page "}price-audit-page`}
+      aria-labelledby="priceAuditHeading"
+    >
       <div className="price-audit-header">
         <div>
-          <h1 id="priceAuditHeading">Price Audit</h1>
+          {embedded ? (
+            <h2 id="priceAuditHeading">Price Audit</h2>
+          ) : (
+            <h1 id="priceAuditHeading">Price Audit</h1>
+          )}
           <span>
             {totalAudits === totalItems
               ? `${totalAudits} pending`

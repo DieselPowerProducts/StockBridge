@@ -5,6 +5,7 @@ import type {
   AuthUser,
   BackordersResponse,
   EmailTemplate,
+  InventoryAuditResponse,
   Note,
   NotesBootstrapResponse,
   PriceAuditConfirmation,
@@ -359,6 +360,26 @@ export function getPriceAudits({
   });
 
   return request<PriceAuditResponse>(`/price-audit?${params.toString()}`);
+}
+
+export function getInventoryAudits({
+  page,
+  limit,
+  search
+}: {
+  page: number;
+  limit: number;
+  search: string;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search
+  });
+
+  return request<InventoryAuditResponse>(
+    `/audits/inventory?${params.toString()}`
+  );
 }
 
 export function confirmPriceAudit(

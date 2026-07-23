@@ -328,6 +328,18 @@ Default vendor contacts are stored in `vendor_default_contacts`. The contacts
 endpoint annotates contacts with `isDefault`; the email composer auto-selects
 the default contact and shows a "Default contact" badge.
 
+Sent stock-check emails store the SMTP message ID in
+`stock_check_vendor_emails`. Gmail replies are matched to that message ID first,
+with a normalized subject/SKU fallback for older sent records. Matched replies
+are stored in `inventory_audits` as plain text only; attachments, inline images,
+and quoted email history are not stored. Updating a product follow-up date or
+No ETA state clears its pending inventory audits.
+
+The sidebar Audit page at `#/audit` has a selector for Price Audit and Inventory
+Audit. Price Audit retains the existing confirm/deny workflow. Inventory Audit
+shows the product SKU, the vendor from the original stock-check email, and the
+vendor's reply. The old `#/price-audit` hash route opens the unified Audit page.
+
 ## Vendor Auto Inventory Feature
 
 Vendor auto inventory settings are configured on each vendor page. The button

@@ -55,7 +55,8 @@ async function sendVendorStockCheck(req, res, next) {
         vendorId,
         vendorName: req.body?.vendorName,
         recipientEmail: to,
-        subject: req.body?.subject
+        subject: req.body?.subject,
+        messageId: result.messageId
       },
       req.user
     );

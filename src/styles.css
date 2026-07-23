@@ -625,10 +625,44 @@ button:disabled {
   color: #9be7bc;
 }
 
-.price-audit-page {
+.audit-page,
+.price-audit-page,
+.inventory-audit-panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.audit-page-header {
+  align-items: end;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+}
+
+.audit-page-header h1,
+.price-audit-header h2 {
+  margin: 0;
+}
+
+.audit-type-control {
+  display: grid;
+  gap: 5px;
+  min-width: 220px;
+}
+
+.audit-type-control span {
+  color: #cccccc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.audit-type-control select {
+  background: #242424;
+  border: 1px solid #666666;
+  border-radius: 4px;
+  color: #ffffff;
+  padding: 8px 34px 8px 10px;
 }
 
 .price-audit-header {
@@ -818,6 +852,27 @@ button:disabled {
 .price-audit-confirm,
 .price-audit-deny {
   min-width: 76px;
+}
+
+.inventory-audit-table {
+  min-width: 820px;
+}
+
+.inventory-audit-table th:nth-child(1) {
+  width: 20%;
+}
+
+.inventory-audit-table th:nth-child(2) {
+  width: 22%;
+}
+
+.inventory-audit-table th:nth-child(3) {
+  width: 58%;
+}
+
+.inventory-audit-response {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .shopify-sync-page {
@@ -2567,10 +2622,16 @@ body:has(.notes-popup-page),
     width: 100%;
   }
 
+  .audit-page-header,
   .price-audit-header,
   .price-audit-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .audit-type-control {
+    min-width: 0;
+    width: 100%;
   }
 
   .price-audit-search {

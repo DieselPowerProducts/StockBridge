@@ -1,6 +1,7 @@
 const skunexus = require("./skunexus.service");
 const catalogService = require("./catalog.service");
 const followUpsService = require("./followUps.service");
+const inventoryAuditService = require("./inventoryAudit.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 const shopifyAvailabilityQueueService = require("./shopifyAvailabilityQueue.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
@@ -326,6 +327,7 @@ async function setProductFollowUp({ sku, followUpDate, followUpNoEta }) {
     followUpNoEta
   });
 
+  await inventoryAuditService.clearInventoryAuditsForSku(result.sku || sku);
   await stockCheckEmailsService.clearVendorEmailsForSku(result.sku || sku);
   clearProductCaches();
   await queueShopifyAvailabilitySync(

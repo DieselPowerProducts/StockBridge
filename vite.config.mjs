@@ -2,12 +2,19 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const apiRoutes = [
+  "/audits",
   "/auth",
   "/backorders",
+  "/email",
   "/status",
   "/import",
+  "/integrations",
   "/notes",
+  "/notifications",
+  "/price-audit",
   "/products",
+  "/shopify",
+  "/users",
   "/vendors"
 ];
 
