@@ -14,6 +14,7 @@ import type {
   AppRoute,
   AuthUser,
   FollowUpOverrides,
+  InventoryAuditResolvedUpdate,
   PageName,
   ProductStockUpdate,
   VendorEmailSentUpdate
@@ -80,6 +81,8 @@ export function App() {
   );
   const [vendorEmailSentUpdate, setVendorEmailSentUpdate] =
     useState<VendorEmailSentUpdate | null>(null);
+  const [inventoryAuditResolvedUpdate, setInventoryAuditResolvedUpdate] =
+    useState<InventoryAuditResolvedUpdate | null>(null);
 
   useEffect(() => {
     const handleHashChange = () => setRoute(parseRoute());
@@ -224,6 +227,13 @@ export function App() {
     }));
   }, []);
 
+  const handleInventoryAuditResolved = useCallback((sku: string) => {
+    setInventoryAuditResolvedUpdate({
+      sku: sku.trim().toUpperCase(),
+      token: Date.now()
+    });
+  }, []);
+
   if (authStatus === "checking") {
     return (
       <main className="auth-page" aria-label="Loading StockBridge">
@@ -253,6 +263,7 @@ export function App() {
           sku={route.sku}
           onClose={handleCloseNotesRoute}
           onFollowUpSaved={() => undefined}
+          onInventoryAuditResolved={handleInventoryAuditResolved}
           onProductStockChanged={handleProductStockChanged}
           onVendorEmailSent={handleVendorEmailSent}
         />
@@ -317,8 +328,8 @@ export function App() {
 
           {route.page === "audit" && (
             <AuditPage
+              inventoryAuditResolvedUpdate={inventoryAuditResolvedUpdate}
               onOpenNotes={setSelectedSku}
-              productStockUpdate={productStockUpdate}
             />
           )}
 
@@ -334,6 +345,7 @@ export function App() {
           sku={selectedSku}
           onClose={() => setSelectedSku("")}
           onFollowUpSaved={() => undefined}
+          onInventoryAuditResolved={handleInventoryAuditResolved}
           onProductStockChanged={handleProductStockChanged}
           onVendorEmailSent={handleVendorEmailSent}
         />

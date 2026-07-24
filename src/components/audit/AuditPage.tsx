@@ -1,18 +1,18 @@
 import { useState } from "react";
-import type { ProductStockUpdate } from "../../types";
+import type { InventoryAuditResolvedUpdate } from "../../types";
 import { PriceAuditPage } from "../priceAudit/PriceAuditPage";
 import { InventoryAuditPanel } from "./InventoryAuditPanel";
 
 type AuditPageProps = {
+  inventoryAuditResolvedUpdate: InventoryAuditResolvedUpdate | null;
   onOpenNotes: (sku: string) => void;
-  productStockUpdate: ProductStockUpdate | null;
 };
 
 type AuditType = "price" | "inventory";
 
 export function AuditPage({
-  onOpenNotes,
-  productStockUpdate
+  inventoryAuditResolvedUpdate,
+  onOpenNotes
 }: AuditPageProps) {
   const [auditType, setAuditType] = useState<AuditType>("price");
 
@@ -39,8 +39,8 @@ export function AuditPage({
         <PriceAuditPage embedded onOpenNotes={onOpenNotes} />
       ) : (
         <InventoryAuditPanel
+          inventoryAuditResolvedUpdate={inventoryAuditResolvedUpdate}
           onOpenNotes={onOpenNotes}
-          productStockUpdate={productStockUpdate}
         />
       )}
     </section>

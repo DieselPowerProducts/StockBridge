@@ -2,20 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { getInventoryAudits } from "../../services/api";
 import type {
   InventoryAuditItem,
-  ProductStockUpdate
+  InventoryAuditResolvedUpdate
 } from "../../types";
 import { Pagination } from "../products/Pagination";
 
 type InventoryAuditPanelProps = {
+  inventoryAuditResolvedUpdate: InventoryAuditResolvedUpdate | null;
   onOpenNotes: (sku: string) => void;
-  productStockUpdate: ProductStockUpdate | null;
 };
 
 const pageSize = 50;
 
 export function InventoryAuditPanel({
-  onOpenNotes,
-  productStockUpdate
+  inventoryAuditResolvedUpdate,
+  onOpenNotes
 }: InventoryAuditPanelProps) {
   const [items, setItems] = useState<InventoryAuditItem[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -29,17 +29,20 @@ export function InventoryAuditPanel({
   const resolvedSkusRef = useRef(new Map<string, number>());
 
   useEffect(() => {
-    if (!productStockUpdate?.followUpSaved) {
+    if (!inventoryAuditResolvedUpdate) {
       return;
     }
 
-    const resolvedSku = productStockUpdate.sku.trim().toUpperCase();
+    const resolvedSku = inventoryAuditResolvedUpdate.sku.trim().toUpperCase();
 
     if (!resolvedSku) {
       return;
     }
 
-    resolvedSkusRef.current.set(resolvedSku, Date.now());
+    resolvedSkusRef.current.set(
+      resolvedSku,
+      inventoryAuditResolvedUpdate.token
+    );
     const nextItems = itemsRef.current.filter(
       (item) => item.sku.trim().toUpperCase() !== resolvedSku
     );
@@ -51,7 +54,7 @@ export function InventoryAuditPanel({
     if (removedCount > 0) {
       setTotalItems((total) => Math.max(total - removedCount, 0));
     }
-  }, [productStockUpdate]);
+  }, [inventoryAuditResolvedUpdate]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {

@@ -51,6 +51,7 @@ type NotesModalProps = {
   sku: string;
   onClose: () => void;
   onFollowUpSaved: () => void;
+  onInventoryAuditResolved?: (sku: string) => void;
   onProductStockChanged?: (update: ProductStockUpdate) => void;
   onVendorEmailSent?: (sku: string) => void;
 };
@@ -592,6 +593,7 @@ export function NotesModal({
   sku,
   onClose,
   onFollowUpSaved,
+  onInventoryAuditResolved,
   onProductStockChanged,
   onVendorEmailSent
 }: NotesModalProps) {
@@ -1127,6 +1129,7 @@ export function NotesModal({
           followUpSaved: true
         });
       }
+      onInventoryAuditResolved?.(result.sku || sku);
       onFollowUpSaved();
     } catch (err) {
       setDetailsError(
@@ -1174,6 +1177,7 @@ export function NotesModal({
           followUpSaved: true
         });
       }
+      onInventoryAuditResolved?.(result.sku || sku);
       onFollowUpSaved();
     } catch (err) {
       setFollowUpNoEta(!checked);
@@ -2994,6 +2998,7 @@ export function NotesModal({
             sku={selectedChildSku}
             onClose={handleCloseChildNotes}
             onFollowUpSaved={onFollowUpSaved}
+            onInventoryAuditResolved={onInventoryAuditResolved}
             onProductStockChanged={onProductStockChanged}
             onVendorEmailSent={onVendorEmailSent}
           />

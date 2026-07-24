@@ -194,6 +194,10 @@ Key logic lives in `server/services/catalog.service.js`.
 - Keep `App`'s `onProductStockChanged` handler stable with `useCallback`; the
   Notes modal's details loader depends on it, so changing the callback identity
   can cause repeated vendor reloads/flicker.
+- Successful follow-up and No ETA saves emit a dedicated inventory-audit
+  resolution event. Keep this separate from general product stock updates so
+  the Audit queue removes the SKU immediately and unrelated modal refreshes
+  cannot replace the event.
 
 When changing availability behavior, check:
 

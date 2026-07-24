@@ -106,6 +106,11 @@ export type VendorEmailSentUpdate = {
   token: number;
 };
 
+export type InventoryAuditResolvedUpdate = {
+  sku: string;
+  token: number;
+};
+
 export type ProductStockUpdate = {
   sku: string;
   qtyAvailable: number;
