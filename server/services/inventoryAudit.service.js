@@ -193,36 +193,143 @@ function stripAutomatedAcknowledgement(value) {
 }
 
 function looksLikePersonName(value) {
-  const text = normalizeText(value);
+  const text = normalizeText(value)
+    .replace(/^[*_]+|[*_]+$/g, "")
+    .trim();
 
   return (
     /^[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){1,3}$/.test(text) &&
+    !/\b(?:available|back\s*order|eta|in stock|out of stock|ship|week|days?)\b/i.test(
+      text
+    ) &&
     !/[.!?]$/.test(text)
   );
 }
 
-function stripSignature(value) {
-  const lines = value.split("\n");
-  const closingMarker =
-    /^(?:thank(?:s| you)|respectfully|regards|best|sincerely|thanx)[\s,!.…-]*$/i;
-  const signatureSeparator = /^--\s*$/;
-  const signatureMarker =
-    /^(?:wholesale sales rep|customer support representative|territory account manager|data entry specialist|technical sales representative|customer service\/sales manager|inside sales|warehouse lead|dealer sales|sales department|wholesale orders|toll free:|office:|direct:|phone\s*:|phone#|fax\s*:|business hours:|mahle internal restricted|get outlook for)/i;
-  let cutoff = lines.length;
+function looksLikeSignatureName(value) {
+  const text = normalizeText(value)
+    .replace(/^[*_]+|[*_]+$/g, "")
+    .trim();
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = normalizeText(lines[index]);
+  return (
+    /^[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,3}$/.test(text) &&
+    !/\b(?:available|back\s*order|eta|in stock|out of stock|ship|week|days?)\b/i.test(
+      text
+    ) &&
+    !/[.!?]$/.test(text)
+  );
+}
+
+function normalizeSignatureLine(value) {
+  return normalizeText(value)
+    .replace(/^[*_]+|[*_]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isSignatureRoleLine(value) {
+  const text = normalizeSignatureLine(value);
+
+  if (
+    text.length > 140 ||
+    /[.!?]/.test(text) ||
+    /\b(?:are|contacted|has|have|is|reviewing|was|were|will)\b/i.test(text)
+  ) {
+    return false;
+  }
+
+  return /\b(?:account manager|customer service(?:\/|\s*\/\s*)?(?:sales manager|tech support)?|customer support representative|customer support team lead|data entry specialist|dealer sales|inside sales|sales support representative|sales, logistics, & ar|shipping and receiving|technical sales representative|territory account manager|warehouse lead|wholesale sales rep|wholesale orders)\b/i.test(
+    text
+  );
+}
+
+function isSignatureContactLine(value) {
+  const text = normalizeSignatureLine(value);
+
+  return (
+    /^(?:\[?https?:\/\/|www\.|[\w.-]+\.(?:com|net|org)\b|mailto:|tel:|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\[[^\]]*(?:https?:\/\/|mailto:|tel:))/i.test(
+      text
+    ) ||
+    /^(?:d|f|m|o|p|tf)\s*:\s*\+?[\d(]/i.test(text) ||
+    /^(?:business hours|cell|direct|fax|main|mobile|office|phone|phone#|toll free)\s*[:#-]?\s*\+?[\d(]/i.test(
+      text
+    ) ||
+    /^\+?1?[\s.( -]*\d{3}[\s.)-]+\d{3}[\s.-]+\d{4}\b/.test(text)
+  );
+}
+
+function hasNearbySignatureEvidence(lines, startIndex) {
+  let inspected = 0;
+
+  for (
+    let index = startIndex + 1;
+    index < lines.length && inspected < 5;
+    index += 1
+  ) {
+    const line = normalizeSignatureLine(lines[index]);
 
     if (!line) {
       continue;
     }
 
-    if (closingMarker.test(line) || signatureSeparator.test(line)) {
+    inspected += 1;
+
+    if (
+      isSignatureRoleLine(line) ||
+      isSignatureContactLine(line) ||
+      /^\[(?:proactive gears|veteran owned)/i.test(line)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function stripSignature(value) {
+  const signatureBlockMarkers = [
+    /\bWest Coast Customer Service\b/i,
+    /^\s*\[(?:PROACTIVE GEARS|VETERAN\s+OWNED)/im,
+    /^\s*\d{5,}:\d{5,}\s*$/m
+  ];
+  const signatureBlockCutoff = findFirstMarker(value, signatureBlockMarkers);
+  const lines = value.slice(0, signatureBlockCutoff).split("\n");
+  const closingMarker =
+    /^(?:thank(?:s| you)|respectfully|regards|best|sincerely|thanx)[\s,!.…-]*$/i;
+  const friendlyClosingMarker =
+    /^(?:thank(?:s| you)|respectfully|regards|best|sincerely|thanx)[\s,!.:;()-]*$/i;
+  const signatureSeparator = /^--\s*$/;
+  let cutoff = lines.length;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = normalizeSignatureLine(lines[index]);
+
+    if (!line) {
+      continue;
+    }
+
+    if (
+      closingMarker.test(line) ||
+      friendlyClosingMarker.test(line) ||
+      signatureSeparator.test(line)
+    ) {
       cutoff = index;
       break;
     }
 
-    if (signatureMarker.test(line)) {
+    if (
+      looksLikePersonName(line) &&
+      hasNearbySignatureEvidence(lines, index)
+    ) {
+      cutoff = index;
+      break;
+    }
+
+    if (
+      isSignatureRoleLine(line) ||
+      isSignatureContactLine(line) ||
+      /^(?:mahle internal restricted|get outlook for)/i.test(line)
+    ) {
       cutoff = index;
       let previousIndex = index - 1;
 
@@ -232,7 +339,7 @@ function stripSignature(value) {
 
       if (
         previousIndex >= 0 &&
-        looksLikePersonName(lines[previousIndex])
+        looksLikeSignatureName(lines[previousIndex])
       ) {
         cutoff = previousIndex;
       }
@@ -263,7 +370,7 @@ function stripSignature(value) {
 function stripOpeningGreeting(value) {
   return value
     .replace(
-      /^(?:hello(?: diesel power products)?|hi|hey team|good (?:morning|afternoon|day)(?: team)?)[\s,!.:-]+/i,
+      /^(?:hello(?: diesel power products)?|hi(?: there)?|hey team|good (?:morning|afternoon|day)(?: team)?)[\s,!.:-]+/i,
       ""
     )
     .replace(/^Thank you for reaching out!\s*/i, "")
@@ -288,6 +395,8 @@ function stripQuotedReply(value, { senderEmail = "" } = {}) {
     .replace(/^\s*##-\s*Please type your reply above this line\s*-##\s*/i, "")
     .replace(/^\s*\d{5,}:\d{5,}\s*/i, "")
     .replace(/^\s*\[[A-Z0-9-]{6,}\]\s*$/gim, "")
+    .replace(/\s+\d{5,}:\d{5,}\s*$/i, "")
+    .replace(/\bIn stock and\s*$/i, "In stock")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .slice(0, maxResponseLength);

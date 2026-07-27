@@ -176,3 +176,130 @@ test("keeps only the response from updated support tickets", () => {
     "Part is currently on back order, no current ETA at this time."
   );
 });
+
+test("removes rich Diesel USA signatures and confidentiality notices", () => {
+  assert.equal(
+    _test.stripQuotedReply(
+      [
+        "This part is no longer available. Our notes indicate that we listed this part as",
+        "obsolete back in 2021.",
+        "",
+        "Sorry for the inconvenience. Thank you!",
+        "",
+        "West Coast Customer Service",
+        "Diesel USA",
+        "[https://example.com/logo.png]https://www.dieselusa.com/",
+        "www.dieselusa.com [https://www.dieselusa.com/]",
+        "[tel:866-887-2648]",
+        "saleswest@dieselusa.com",
+        "",
+        "A 100% Associate-Owned Company of Jasper Holdings, Inc.",
+        "",
+        "CONFIDENTIALITY NOTICE: This email is confidential."
+      ].join("\n")
+    ),
+    [
+      "This part is no longer available. Our notes indicate that we listed this part as",
+      "obsolete back in 2021.",
+      "",
+      "Sorry for the inconvenience."
+    ].join("\n")
+  );
+});
+
+test("removes a name followed by a territory manager title", () => {
+  assert.equal(
+    _test.stripQuotedReply(
+      [
+        "3-4 day lead time on this part number from the date it is ordered, as we don’t stock these",
+        "completed on the shelf normally.",
+        "",
+        "Dan Kizmann",
+        "USNW/USSW Territory Account Manager"
+      ].join("\n")
+    ),
+    [
+      "3-4 day lead time on this part number from the date it is ordered, as we don’t stock these",
+      "completed on the shelf normally."
+    ].join("\n")
+  );
+});
+
+test("removes branded Revolution Gear signature blocks", () => {
+  assert.equal(
+    _test.stripQuotedReply(
+      [
+        "Mid next week. You have a few of these on backorder and I will mark them ready to ship as",
+        "soon as they come in.",
+        "",
+        "[PROACTIVE GEARS  Component S Glut ion s]<http://www.proactivegears.com/>",
+        "",
+        "[VETERAN OWNED AND OPERATED]",
+        "",
+        "Chris Bradford",
+        "Sales / CHA Industries, Inc",
+        "403 Joseph Dr. South Elgin, IL 60177"
+      ].join("\n")
+    ),
+    [
+      "Mid next week. You have a few of these on backorder and I will mark them ready to ship as",
+      "soon as they come in."
+    ].join("\n")
+  );
+});
+
+test("removes short contact signatures and repairs a clipped stock reply", () => {
+  assert.equal(
+    _test.stripQuotedReply(
+      [
+        "In stock and",
+        "",
+        "Don McMillan",
+        "623-907-0081",
+        "donm@sbfilters.com",
+        "donm@daystarproducts.com",
+        "",
+        "This email is a service from DayStar Products."
+      ].join("\n")
+    ),
+    "In stock"
+  );
+});
+
+test("removes a single-name signature before a standalone role", () => {
+  assert.equal(
+    _test.stripQuotedReply(
+      [
+        "I am not aware of them being out of stock at this time",
+        "Debra",
+        "",
+        "*Shipping and Receiving*",
+        "*www.cpaddict.com <http://www.cpaddict.com/>*",
+        "409-383-6004"
+      ].join("\n")
+    ),
+    "I am not aware of them being out of stock at this time"
+  );
+});
+
+test("removes Turn 14 sales support signatures and ticket IDs", () => {
+  assert.equal(
+    _test.stripQuotedReply(
+      [
+        "Thanks for your patience.",
+        "",
+        "Part # DR3500 has an ETA of roughly 4 weeks.",
+        "",
+        "726545:4833579",
+        "",
+        "Thank you :)",
+        "",
+        "Christy Nguyen",
+        "Sales Support Representative P: 267-468-0350x8100",
+        "Turn 14 Distribution"
+      ].join("\n"),
+      { senderEmail: "support@turn14.com" }
+    ),
+    "Thanks for your patience.\n\nPart # DR3500 has an ETA of roughly 4 weeks."
+  );
+});
