@@ -340,7 +340,9 @@ signatures, contact details, legal disclaimers, inline-image placeholders, and
 known support-ticket boilerplate. Signature detection includes standalone names
 followed by role/contact lines and known branded signature boundaries. Keep the
 cleanup deterministic and covered by realistic vendor-format tests; do not add
-an external AI dependency for reply parsing.
+an external AI dependency for reply parsing. Strip opening greetings before
+running name/signature inference so phrases such as "Good Afternoon" cannot be
+mistaken for a signer and erase the operational reply.
 
 Sent stock-check emails store the SMTP message ID in
 `stock_check_vendor_emails`. Gmail replies are matched to that message ID first,

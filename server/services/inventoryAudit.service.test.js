@@ -202,7 +202,7 @@ test("removes rich Diesel USA signatures and confidentiality notices", () => {
       "This part is no longer available. Our notes indicate that we listed this part as",
       "obsolete back in 2021.",
       "",
-      "Sorry for the inconvenience."
+      "Sorry for the inconvenience. Thank you!"
     ].join("\n")
   );
 });
@@ -301,5 +301,26 @@ test("removes Turn 14 sales support signatures and ticket IDs", () => {
       { senderEmail: "support@turn14.com" }
     ),
     "Thanks for your patience.\n\nPart # DR3500 has an ETA of roughly 4 weeks."
+  );
+});
+
+test("keeps a reply when a greeting appears before an inside-sales signature", () => {
+  assert.equal(
+    _test.stripQuotedReply(
+      [
+        "Good Afternoon",
+        "HP10156 is available to ship from Blaine. Five kits are ready and waiting to ship",
+        "Thank You",
+        "Kelly",
+        "",
+        "Kelly Esau,",
+        "Inside Sales Team",
+        "T 1.800.663.0096 | E insidesales@pacbrake.com",
+        "",
+        "On Monday, July 27, 2026, Stock Check wrote:",
+        "> Is PB-HP10156 in stock?"
+      ].join("\n")
+    ),
+    "HP10156 is available to ship from Blaine. Five kits are ready and waiting to ship"
   );
 });

@@ -199,6 +199,9 @@ function looksLikePersonName(value) {
 
   return (
     /^[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){1,3}$/.test(text) &&
+    !/^(?:good (?:morning|afternoon|evening)|hello|hi(?: there)?)$/i.test(
+      text
+    ) &&
     !/\b(?:available|back\s*order|eta|in stock|out of stock|ship|week|days?)\b/i.test(
       text
     ) &&
@@ -213,6 +216,9 @@ function looksLikeSignatureName(value) {
 
   return (
     /^[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,3}$/.test(text) &&
+    !/^(?:good (?:morning|afternoon|evening)|hello|hi(?: there)?)$/i.test(
+      text
+    ) &&
     !/\b(?:available|back\s*order|eta|in stock|out of stock|ship|week|days?)\b/i.test(
       text
     ) &&
@@ -385,8 +391,8 @@ function stripQuotedReply(value, { senderEmail = "" } = {}) {
     return "";
   }
 
-  return stripOpeningGreeting(
-    stripSignature(
+  return stripSignature(
+    stripOpeningGreeting(
       stripAutomatedAcknowledgement(
         stripTurn14Template(stripQuotedContent(normalized), senderEmail)
       )
