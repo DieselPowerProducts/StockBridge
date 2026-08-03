@@ -337,14 +337,17 @@ function getEffectiveQtyAvailable(
     return collectiveQuantity;
   }
 
+  const isKitWithComponents = Boolean(
+    product.is_kit && product.relatedProduct.length > 0
+  );
   const vendorQtyAvailable = getVendorQtyAvailable(product, productVendorAvailability);
 
-  if (vendorQtyAvailable > 0) {
+  if (vendorQtyAvailable > 0 && !isKitWithComponents) {
     qtyCache.set(safeSku, vendorQtyAvailable);
     return vendorQtyAvailable;
   }
 
-  if (!product.is_kit || product.relatedProduct.length === 0) {
+  if (!isKitWithComponents) {
     const qtyAvailable = product.is_kit
       ? 0
       : Math.max(product.qty_available, vendorQtyAvailable);
@@ -4112,6 +4115,8 @@ module.exports = {
   updateCatalogVendorProductDetails,
   updateCatalogVendorProductQuantity,
   _test: {
+    getEffectiveAvailability,
+    getEffectiveQtyAvailable,
     shouldIncludeBuiltToOrderProductInStockCheck
   }
 };
