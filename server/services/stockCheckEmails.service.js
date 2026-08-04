@@ -59,12 +59,17 @@ async function initializeSchema() {
           message_id TEXT NOT NULL DEFAULT '',
           sent_by_email TEXT,
           sent_by_name TEXT,
+          resolved_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `;
       await sql`
         ALTER TABLE stock_check_vendor_emails
         ADD COLUMN IF NOT EXISTS message_id TEXT NOT NULL DEFAULT ''
+      `;
+      await sql`
+        ALTER TABLE stock_check_vendor_emails
+        ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS stock_check_vendor_emails_sku_idx
@@ -286,6 +291,7 @@ async function getEmailedSkuSetForSkus(skus) {
       WHERE upper(sku) IN (
         SELECT jsonb_array_elements_text($1::jsonb)
       )
+      AND resolved_at IS NULL
     `,
     [JSON.stringify(safeSkus)]
   );
@@ -300,8 +306,10 @@ async function clearVendorEmailsForSku(sku) {
 
   const sql = getSql();
   const rows = await sql`
-    DELETE FROM stock_check_vendor_emails
+    UPDATE stock_check_vendor_emails
+    SET resolved_at = now()
     WHERE upper(sku) = ${safeSku}
+      AND resolved_at IS NULL
     RETURNING id::text
   `;
 
