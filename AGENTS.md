@@ -250,9 +250,10 @@ Availability button rules:
   Button clicks update the local UI state immediately, perform their explicit
   Shopify push, and clear any redundant queued update.
 - The nightly full catalog sync queues reconciliation for active products whose
-  saved Shopify state is not in stock, plus recently changed in-stock products.
-  This repairs missed BTO messages and stale availability without scanning every
-  in-stock Shopify variant each night.
+  saved Shopify state is not in stock, recently changed in-stock products, and
+  all products assigned to an active built-to-order vendor. Including BTO-vendor
+  products catches stale or missing saved states after inventory loss without
+  scanning every in-stock Shopify variant each night.
 
 There is a utility page at `#/shopify-availability-sync` for pulling current
 Shopify availability metafields back into StockBridge local state. It scans

@@ -132,13 +132,24 @@ async function enqueueNightlyReconciliation() {
       product.sku,
       now(),
       'nightly-reconciliation'
-    FROM product_shopify_availability_state AS state
-    INNER JOIN catalog_products AS product
-      ON lower(product.sku) = lower(state.sku)
+    FROM catalog_products AS product
+    LEFT JOIN product_shopify_availability_state AS state
+      ON lower(state.sku) = lower(product.sku)
     WHERE lower(COALESCE(product.state, 'Active')) = 'active'
       AND (
         state.availability_status <> 'in_stock'
         OR state.updated_at >= now() - INTERVAL '2 days'
+        OR EXISTS (
+          SELECT 1
+          FROM catalog_vendor_products AS vendor_product
+          INNER JOIN catalog_vendors AS vendor
+            ON vendor.vendor_id = vendor_product.vendor_id
+          INNER JOIN vendor_settings AS settings
+            ON settings.vendor_id = vendor_product.vendor_id
+          WHERE vendor_product.product_id = product.product_id
+            AND vendor.status >= 2
+            AND settings.built_to_order = TRUE
+        )
       )
     ON CONFLICT (sku) DO NOTHING
     RETURNING sku
