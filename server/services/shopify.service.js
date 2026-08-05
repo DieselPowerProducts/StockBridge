@@ -16,6 +16,7 @@ const availabilityDateConfirmedMetafieldKey = "availability_date_confirmed";
 const buildToOrderMessageMetafieldKey = "build_to_order_message";
 const quickShipMetafieldKey = "quick_ship";
 const shopifyCollectiveTag = "Shopify Collective";
+const discontinuedAvailabilityValue = "discontinued";
 const availabilityValues = {
   in_stock: "In Stock",
   out_of_stock: "Out of Stock",
@@ -123,6 +124,16 @@ function normalizeSku(value) {
   return String(value || "")
     .trim()
     .toUpperCase();
+}
+
+function isDiscontinuedAvailabilityValue(value) {
+  return String(value || "").trim().toLowerCase() === discontinuedAvailabilityValue;
+}
+
+function hasDiscontinuedAvailability(variants) {
+  return (variants || []).some((variant) =>
+    isDiscontinuedAvailabilityValue(variant?.productAvailability?.value)
+  );
 }
 
 function normalizeMatchText(value) {
@@ -699,6 +710,12 @@ async function getProductVariants(productId) {
                 id
                 sku
                 inventoryPolicy
+                productAvailability: metafield(
+                  namespace: "custom"
+                  key: "product_availability"
+                ) {
+                  value
+                }
               }
               pageInfo {
                 hasNextPage
@@ -756,6 +773,7 @@ function aggregateTrackedCollectiveInventoryVariants(variants) {
       sku,
       inventoryQuantity: 0,
       inventoryPolicies: new Set(),
+      hasDiscontinuedAvailability: false,
       productAvailabilityByVariantId: new Map(),
       productIds: new Set(),
       variantIds: new Set()
@@ -776,6 +794,9 @@ function aggregateTrackedCollectiveInventoryVariants(variants) {
       current.productAvailabilityByVariantId.set(
         variant.id,
         String(variant?.productAvailability?.value || "").trim()
+      );
+      current.hasDiscontinuedAvailability ||= isDiscontinuedAvailabilityValue(
+        variant?.productAvailability?.value
       );
     }
 
@@ -801,12 +822,15 @@ function aggregateTrackedCollectiveInventoryVariants(variants) {
       inventoryQuantity: record.inventoryQuantity,
       inventoryPolicy,
       availability,
+      hasDiscontinuedAvailability: record.hasDiscontinuedAvailability,
       productIds: Array.from(record.productIds),
       variantIds,
-      availabilityMetafieldMismatch: variantIds.some(
-        (variantId) =>
-          record.productAvailabilityByVariantId.get(variantId) !== availabilityValue
-      )
+      availabilityMetafieldMismatch:
+        !record.hasDiscontinuedAvailability &&
+        variantIds.some(
+          (variantId) =>
+            record.productAvailabilityByVariantId.get(variantId) !== availabilityValue
+        )
     };
   });
 }
@@ -869,7 +893,12 @@ async function getTrackedCollectiveInventory() {
 
 async function syncCollectiveAvailabilityMetafields(records, options = {}) {
   const changedRecords = (records || []).filter(
-    (record) => record?.availabilityMetafieldMismatch
+    (record) =>
+      record?.availabilityMetafieldMismatch &&
+      !record?.hasDiscontinuedAvailability
+  );
+  const skippedDiscontinued = (records || []).filter(
+    (record) => record?.hasDiscontinuedAvailability
   );
   const metafields = changedRecords.flatMap((record) =>
     (record.variantIds || []).map((ownerId) => ({
@@ -887,6 +916,7 @@ async function syncCollectiveAvailabilityMetafields(records, options = {}) {
 
   return {
     requested: changedRecords.length,
+    skippedDiscontinued: skippedDiscontinued.length,
     updated: options.dryRun ? 0 : changedRecords.length,
     variantMetafields: metafields.length
   };
@@ -1979,7 +2009,14 @@ async function syncVariantAvailabilityMetafields(records, options = {}) {
 
   const targets = await getAvailabilityVariantTargets(safeRecords);
   const failedTargets = targets.filter((target) => target.ok === false);
-  const matchedTargets = targets.filter((target) => target.ok !== false);
+  const discontinuedTargets = targets.filter(
+    (target) =>
+      target.ok !== false && hasDiscontinuedAvailability(target.variants)
+  );
+  const matchedTargets = targets.filter(
+    (target) =>
+      target.ok !== false && !hasDiscontinuedAvailability(target.variants)
+  );
   const targetChanges = matchedTargets.map((target) => ({
     target,
     changes: getAvailabilityTargetChanges(target)
@@ -2035,6 +2072,10 @@ async function syncVariantAvailabilityMetafields(records, options = {}) {
     })),
     matched: matchedTargets.length,
     requested: safeRecords.length,
+    skippedDiscontinued: discontinuedTargets.length,
+    discontinuedSamples: discontinuedTargets.slice(0, 25).map((target) => ({
+      sku: target.sku
+    })),
     source: options.source || "",
     updated: changedTargets.length,
     unchanged: matchedTargets.length - changedTargets.length
@@ -2072,6 +2113,13 @@ async function updateProductAvailability({
 
   if (variantIds.length === 0) {
     throw createHttpError(404, "No Shopify variants matched this SKU.");
+  }
+
+  if (hasDiscontinuedAvailability(variantsToUpdate)) {
+    throw createHttpError(
+      409,
+      "Shopify availability is Discontinued and cannot be updated from StockBridge."
+    );
   }
 
   const { deleteKeys, metafields, status } = getMetafieldChanges({
@@ -2360,5 +2408,9 @@ module.exports = {
   syncCollectiveAvailabilityMetafields,
   syncVariantAvailabilityMetafields,
   updateProductAvailability,
-  updateQuickShipMetafields
+  updateQuickShipMetafields,
+  _test: {
+    hasDiscontinuedAvailability,
+    isDiscontinuedAvailabilityValue
+  }
 };

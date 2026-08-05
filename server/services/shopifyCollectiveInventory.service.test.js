@@ -2,7 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  aggregateTrackedCollectiveInventoryVariants
+  aggregateTrackedCollectiveInventoryVariants,
+  _test: { isDiscontinuedAvailabilityValue }
 } = require("./shopify.service");
 
 function variant({
@@ -12,7 +13,8 @@ function variant({
   policy = "DENY",
   tracked = true,
   status = "ACTIVE",
-  tags = ["Shopify Collective"]
+  tags = ["Shopify Collective"],
+  productAvailability = ""
 }) {
   return {
     id,
@@ -20,6 +22,9 @@ function variant({
     inventoryQuantity: quantity,
     inventoryPolicy: policy,
     inventoryItem: { tracked },
+    productAvailability: productAvailability
+      ? { value: productAvailability }
+      : null,
     product: {
       id: `product-${id}`,
       status,
@@ -87,4 +92,21 @@ test("ignores products that are not active tracked Collective products", () => {
   ]);
 
   assert.deepEqual(records, []);
+});
+
+test("does not overwrite discontinued Collective availability", () => {
+  const records = aggregateTrackedCollectiveInventoryVariants([
+    variant({
+      id: "discontinued",
+      sku: "SKU-DISCONTINUED",
+      quantity: 4,
+      productAvailability: " Discontinued "
+    })
+  ]);
+
+  assert.equal(records.length, 1);
+  assert.equal(records[0].availability, "in_stock");
+  assert.equal(records[0].hasDiscontinuedAvailability, true);
+  assert.equal(records[0].availabilityMetafieldMismatch, false);
+  assert.equal(isDiscontinuedAvailabilityValue("DISCONTINUED"), true);
 });

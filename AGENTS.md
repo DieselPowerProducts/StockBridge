@@ -230,6 +230,13 @@ GraphQL:
 
 Availability button rules:
 
+- Before any StockBridge availability write, read Shopify's current
+  `custom.product_availability` value. If any matching variant is set to
+  `Discontinued` (case-insensitive), do not change its availability metafields,
+  BTO message, availability date fields, or inventory policy. This applies to
+  buttons, queued updates, Shopify Collective sync, and nightly reconciliation;
+  the discontinued value is managed manually in Shopify.
+
 - `In Stock` enables vendor stock and clears availability date, confirmed, and
   BTO message metafields.
 - `Backordered` removes vendor stock, pushes the follow-up date if the product
