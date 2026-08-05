@@ -1125,8 +1125,9 @@ async function queryProductBySku(sku) {
       qty_available,
       is_kit
     FROM catalog_products
-    WHERE sku = ${sku}
+    WHERE upper(trim(sku)) = upper(trim(${sku}::text))
     AND lower(COALESCE(state, 'Active')) = 'active'
+    ORDER BY CASE WHEN sku = ${sku} THEN 0 ELSE 1 END
     LIMIT 1
   `;
 

@@ -610,23 +610,31 @@ async function listInventoryAudits({ page, limit, search } = {}) {
   const [rows, countRows] = await Promise.all([
     sql`
       SELECT
-        id::text,
-        sku,
-        vendor_id,
-        vendor_name,
-        sender_email,
-        sender_name,
-        subject,
-        response_text,
-        received_at
-      FROM inventory_audits
+        audit.id::text,
+        COALESCE(product.sku, audit.sku) AS sku,
+        audit.vendor_id,
+        audit.vendor_name,
+        audit.sender_email,
+        audit.sender_name,
+        audit.subject,
+        audit.response_text,
+        audit.received_at
+      FROM inventory_audits audit
+      LEFT JOIN LATERAL (
+        SELECT sku
+        FROM catalog_products
+        WHERE upper(trim(sku)) = upper(trim(audit.sku))
+          AND lower(COALESCE(state, 'Active')) = 'active'
+        ORDER BY CASE WHEN sku = audit.sku THEN 0 ELSE 1 END
+        LIMIT 1
+      ) product ON TRUE
       WHERE
         ${safeSearch} = ''
-        OR sku ILIKE ${searchPattern}
-        OR vendor_name ILIKE ${searchPattern}
-        OR sender_email ILIKE ${searchPattern}
-        OR response_text ILIKE ${searchPattern}
-      ORDER BY received_at DESC, id DESC
+        OR audit.sku ILIKE ${searchPattern}
+        OR audit.vendor_name ILIKE ${searchPattern}
+        OR audit.sender_email ILIKE ${searchPattern}
+        OR audit.response_text ILIKE ${searchPattern}
+      ORDER BY audit.received_at DESC, audit.id DESC
       LIMIT ${safeLimit}
       OFFSET ${offset}
     `,

@@ -10,11 +10,36 @@ type AuditPageProps = {
 
 type AuditType = "price" | "inventory";
 
+const auditTypeStorageKey = "stockbridge.auditType";
+
+function getSavedAuditType(): AuditType {
+  try {
+    return window.localStorage.getItem(auditTypeStorageKey) === "inventory"
+      ? "inventory"
+      : "price";
+  } catch {
+    return "price";
+  }
+}
+
 export function AuditPage({
   inventoryAuditResolvedUpdate,
   onOpenNotes
 }: AuditPageProps) {
-  const [auditType, setAuditType] = useState<AuditType>("price");
+  const [auditType, setAuditType] = useState<AuditType>(getSavedAuditType);
+
+  const handleAuditTypeChange = (value: string) => {
+    const nextAuditType: AuditType =
+      value === "inventory" ? "inventory" : "price";
+
+    setAuditType(nextAuditType);
+
+    try {
+      window.localStorage.setItem(auditTypeStorageKey, nextAuditType);
+    } catch {
+      // Browser privacy settings can disable storage; the selector still works.
+    }
+  };
 
   return (
     <section className="page audit-page" aria-labelledby="auditHeading">
@@ -25,9 +50,7 @@ export function AuditPage({
           <span>Audit type</span>
           <select
             value={auditType}
-            onChange={(event) =>
-              setAuditType(event.target.value as AuditType)
-            }
+            onChange={(event) => handleAuditTypeChange(event.target.value)}
           >
             <option value="price">Price Audit</option>
             <option value="inventory">Inventory Audit</option>

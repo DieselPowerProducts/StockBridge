@@ -137,7 +137,7 @@ async function getNotesForSku(sku) {
       created_at,
       updated_at
     FROM product_notes
-    WHERE sku = ${sku}
+    WHERE upper(trim(sku)) = upper(trim(${sku}::text))
     ORDER BY created_at ASC, id ASC
   `;
 
