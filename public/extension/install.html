@@ -1,0 +1,167 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Install StockBridge</title>
+    <link rel="icon" href="/favicon.ico" />
+    <style>
+      :root {
+        color: #17211f;
+        background: #eef3f1;
+        font-family: Arial, Helvetica, sans-serif;
+        font-synthesis: none;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-width: 280px;
+        min-height: 100vh;
+        margin: 0;
+        background: #eef3f1;
+      }
+
+      .topbar {
+        height: 6px;
+        background: #117a68;
+      }
+
+      main {
+        width: 100%;
+        max-width: 712px;
+        margin: 0 auto;
+        padding: 56px 16px 64px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 42px;
+        color: #17211f;
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .brand img {
+        width: 36px;
+        height: 36px;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: #52625e;
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        color: #101715;
+        font-size: 38px;
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      .version {
+        margin: 14px 0 30px;
+        color: #52625e;
+        font-size: 15px;
+      }
+
+      .install-button {
+        display: inline-flex;
+        min-height: 46px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 20px;
+        border: 1px solid #0b6557;
+        border-radius: 6px;
+        background: #117a68;
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .install-button:hover { background: #0d6b5c; }
+      .install-button:focus-visible { outline: 3px solid #e6a700; outline-offset: 3px; }
+
+      .details {
+        margin-top: 44px;
+        padding-top: 28px;
+        border-top: 1px solid #cbd6d2;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        color: #17211f;
+        font-size: 18px;
+        letter-spacing: 0;
+      }
+
+      ol {
+        margin: 0;
+        padding-left: 22px;
+        color: #354541;
+        line-height: 1.7;
+      }
+
+      li { overflow-wrap: anywhere; }
+
+      .policy-note {
+        margin-top: 28px;
+        padding: 16px 18px;
+        border-left: 4px solid #e6a700;
+        background: #ffffff;
+        color: #354541;
+        font-size: 14px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+      }
+
+      code {
+        overflow-wrap: anywhere;
+        color: #17211f;
+        font-family: Consolas, monospace;
+      }
+
+      @media (max-width: 480px) {
+        main { padding-top: 32px; }
+        .brand { margin-bottom: 32px; }
+        h1 { font-size: 32px; }
+        .install-button { width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar"></div>
+    <main>
+      <div class="brand">
+        <img src="/icon-192.png" alt="" />
+        <span>StockBridge</span>
+      </div>
+
+      <p class="eyebrow">Internal Chrome extension</p>
+      <h1>Install StockBridge</h1>
+      <p class="version">Version 0.2.0 - Diesel Power Products</p>
+      <a class="install-button" href="./stockbridge.crx">Install in Chrome</a>
+
+      <section class="details" aria-labelledby="install-steps">
+        <h2 id="install-steps">Installation</h2>
+        <ol>
+          <li>Click Install in Chrome.</li>
+          <li>Approve Chrome's extension prompt.</li>
+          <li>Remove an older unpacked StockBridge copy if one is still listed.</li>
+        </ol>
+      </section>
+
+      <p class="policy-note">
+        If Chrome reports <code>CRX_REQUIRED_PROOF_MISSING</code>, the company installation policy has not reached this browser. Open <code>chrome://policy</code>, reload policies, and contact IT if the message remains.
+      </p>
+    </main>
+  </body>
+</html>

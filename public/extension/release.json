@@ -4,5 +4,6 @@
     "extensionId":  "hbfdbpbfefkbpmljbfnhedljapnlbfhl",
     "updateUrl":  "https://stockbridgedpp.vercel.app/extension/updates.xml",
     "crxUrl":  "https://stockbridgedpp.vercel.app/extension/stockbridge.crx",
-    "sha256":  "e1ba83bc7178d2b135cd9c61df70ecdbac64923f0f09f4566aa3dcc83a616e8c"
+    "installUrl":  "https://stockbridgedpp.vercel.app/extension/install.html",
+    "sha256":  "ff9db8229d47fefa0cbaa6aeacdc590f31bfacff9a34457605cbf728db50216e"
 }

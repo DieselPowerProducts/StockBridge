@@ -8,14 +8,16 @@ Chrome on Windows only accepts this private extension when the browser is
 managed by Active Directory, Azure AD, or Chrome Enterprise Core. The registry
 file alone will not install the extension on an unmanaged computer.
 
-One-time setup
---------------
-1. Have IT enroll the computer's Chrome browser in Chrome Enterprise Core, or
-   confirm the computer is joined to the company AD/Azure AD environment.
-2. Download and run install-stockbridge-extension.reg as an administrator.
-3. Open chrome://policy in Chrome and click Reload policies.
-4. Open chrome://extensions and confirm StockBridge 0.2.0 is installed.
-5. Remove the older unpacked StockBridge extension if it is still listed.
+Optional installation
+---------------------
+1. IT adds the extension as Allow install and approves this install source:
+   https://stockbridgedpp.vercel.app/*
+2. Open https://stockbridgedpp.vercel.app/extension/install.html in the managed Chrome browser.
+3. Click Install in Chrome and approve the extension prompt.
+4. Remove the older unpacked StockBridge extension if it is still listed.
+
+The registry file in this folder is an IT fallback for force installation. It
+is not needed when Google Admin supplies the optional-install policy.
 
 Updates
 -------
