@@ -1,0 +1,8 @@
+﻿{
+    "name":  "StockBridge",
+    "version":  "0.2.0",
+    "extensionId":  "hbfdbpbfefkbpmljbfnhedljapnlbfhl",
+    "updateUrl":  "https://stockbridgedpp.vercel.app/extension/updates.xml",
+    "crxUrl":  "https://stockbridgedpp.vercel.app/extension/stockbridge.crx",
+    "sha256":  "e1ba83bc7178d2b135cd9c61df70ecdbac64923f0f09f4566aa3dcc83a616e8c"
+}

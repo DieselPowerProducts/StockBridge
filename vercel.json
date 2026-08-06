@@ -53,6 +53,34 @@
   ],
   "routes": [
     {
+      "src": "/extension/updates.xml",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        "Content-Type": "application/xml; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "continue": true
+    },
+    {
+      "src": "/extension/stockbridge.crx",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        "Content-Type": "application/x-chrome-extension",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "continue": true
+    },
+    {
+      "src": "/extension/install-stockbridge-extension.reg",
+      "headers": {
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        "Content-Disposition": "attachment; filename=install-stockbridge-extension.reg",
+        "Content-Type": "application/octet-stream",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "continue": true
+    },
+    {
       "handle": "filesystem"
     },
     {
