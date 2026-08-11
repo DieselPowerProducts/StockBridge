@@ -1456,7 +1456,7 @@ body:has(.notes-popup-page),
   display: grid;
   gap: 10px;
   margin: 6px 0 0;
-  min-width: 210px;
+  min-width: 230px;
   padding: 10px;
   position: absolute;
   right: 0;
@@ -1495,6 +1495,11 @@ body:has(.notes-popup-page),
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.vendor-product-details-actions button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .vendor-product-auto-inventory {
