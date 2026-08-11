@@ -3710,6 +3710,8 @@ async function getProductDetails(sku) {
         canUpdateStock: !settings?.builtToOrder,
         builtToOrder: Boolean(settings?.builtToOrder),
         buildTime: String(settings?.buildTime || ""),
+        autoInventoryEnabled: Boolean(autoInventorySettings?.enabled),
+        autoInventoryExcepted: Boolean(isAutoInventoryExcepted),
         autoInventoryManaged: Boolean(autoInventoryUpdate),
         autoInventoryQuantity: autoInventoryUpdate
           ? Number(autoInventoryUpdate.quantity || 0)

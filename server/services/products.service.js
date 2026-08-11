@@ -5,6 +5,8 @@ const inventoryAuditService = require("./inventoryAudit.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 const shopifyAvailabilityQueueService = require("./shopifyAvailabilityQueue.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
+const vendorAutoInventoryProductUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
+const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorSettingsService = require("./vendorSettings.service");
 
 const enabledVendorStockQuantity = 999999;
@@ -511,6 +513,73 @@ async function setProductVendorDetails({
   };
 }
 
+async function setProductVendorAutoInventory({
+  sku,
+  vendorId,
+  vendorProductId,
+  enabled
+}) {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const safeVendorProductId = normalizeRequiredString(
+    vendorProductId,
+    "Vendor product ID is required."
+  );
+
+  if (typeof enabled !== "boolean") {
+    const error = new Error("Enabled must be true or false.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const [product, vendorProduct] = await Promise.all([
+    catalogService.getCatalogProductBySku(safeSku),
+    catalogService.getCatalogVendorProductById(safeVendorProductId)
+  ]);
+
+  if (!product) {
+    const error = new Error("Product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (!vendorProduct) {
+    const error = new Error("Vendor product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    vendorProduct.vendor_id !== safeVendorId ||
+    vendorProduct.product_id !== product.id
+  ) {
+    const error = new Error("Vendor product does not match this product.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await vendorAutoInventorySettingsService.setSkuException(
+    safeVendorId,
+    [
+      product.sku || safeSku,
+      vendorProduct.product_sku,
+      vendorProduct.sku,
+      vendorProduct.label
+    ],
+    !enabled
+  );
+
+  if (!enabled) {
+    await vendorAutoInventoryProductUpdatesService.deleteUpdatesForVendorProductIds([
+      safeVendorProductId
+    ]);
+  }
+
+  clearProductCaches();
+
+  return catalogService.getProductDetails(product.sku || safeSku);
+}
+
 async function setVendorProductQuantity({
   vendorId,
   vendorProductId,
@@ -625,6 +694,7 @@ module.exports = {
   refreshProductDetails,
   setProductBuiltToOrderLeadTime,
   setProductFollowUp,
+  setProductVendorAutoInventory,
   setProductVendorDetails,
   setProductVendorStock,
   setVendorProductQuantity

@@ -1,4 +1,5 @@
 const { getSql } = require("../db/neon");
+const { getSkuMatchKeys } = require("./autoInventorySkuMatcher");
 
 let schemaReady;
 
@@ -230,6 +231,51 @@ async function getSettings(vendorId) {
   );
 }
 
+function updateSkuExceptions(skuExceptions, skuValues, excepted) {
+  const normalizedValues = Array.from(
+    new Set((skuValues || []).map(normalizeText).filter(Boolean))
+  );
+  const targetKeys = new Set(
+    normalizedValues.flatMap((value) => getSkuMatchKeys(value))
+  );
+  const retainedExceptions = (skuExceptions || []).filter((exception) =>
+    getSkuMatchKeys(exception).every((key) => !targetKeys.has(key))
+  );
+
+  if (!excepted || normalizedValues.length === 0) {
+    return retainedExceptions;
+  }
+
+  return [...retainedExceptions, normalizedValues[0]];
+}
+
+async function setSkuException(vendorId, skuValues, excepted) {
+  const safeVendorId = normalizeText(vendorId);
+
+  if (!safeVendorId) {
+    const error = new Error("Vendor ID is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const currentSettings = await getSettings(safeVendorId);
+
+  if (!currentSettings.enabled) {
+    const error = new Error("Auto inventory is not enabled for this vendor.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return saveSettings(safeVendorId, {
+    ...currentSettings,
+    skuExceptions: updateSkuExceptions(
+      currentSettings.skuExceptions,
+      skuValues,
+      excepted
+    )
+  });
+}
+
 async function getEnabledSettings() {
   await initializeSchema();
 
@@ -328,5 +374,9 @@ module.exports = {
   getSettings,
   getSettingsByVendorIds,
   initializeSchema,
-  saveSettings
+  saveSettings,
+  setSkuException,
+  _test: {
+    updateSkuExceptions
+  }
 };

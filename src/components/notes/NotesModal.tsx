@@ -22,6 +22,7 @@ import {
   sendVendorStockCheckEmail,
   setVendorDefaultContact,
   updateProductBuiltToOrderLeadTime,
+  updateProductVendorAutoInventory,
   updateProductVendorDetails,
   updateShopifyProductAvailability,
   updateProductFollowUp,
@@ -640,6 +641,8 @@ export function NotesModal({
   const [vendorDetailsDraft, setVendorDetailsDraft] =
     useState<VendorProductDetailsDraft | null>(null);
   const [savingVendorDetailsId, setSavingVendorDetailsId] = useState("");
+  const [togglingVendorAutoInventoryId, setTogglingVendorAutoInventoryId] =
+    useState("");
   const [vendorDetailsStatus, setVendorDetailsStatus] = useState("");
   const [isShopifyAvailabilitySaving, setIsShopifyAvailabilitySaving] =
     useState(false);
@@ -1375,6 +1378,55 @@ export function NotesModal({
       );
     } finally {
       setSavingVendorDetailsId("");
+    }
+  }
+
+  async function handleToggleVendorAutoInventory(vendor: ProductVendor) {
+    if (
+      !vendor.autoInventoryEnabled ||
+      togglingVendorAutoInventoryId ||
+      savingVendorDetailsId
+    ) {
+      return;
+    }
+
+    const nextEnabled = Boolean(vendor.autoInventoryExcepted);
+
+    setDetailsError("");
+    setVendorDetailsStatus("");
+    setTogglingVendorAutoInventoryId(vendor.vendorProductId);
+
+    try {
+      const result = await updateProductVendorAutoInventory({
+        sku,
+        vendorId: vendor.id,
+        vendorProductId: vendor.vendorProductId,
+        enabled: nextEnabled
+      });
+
+      setProductDetails(result);
+      setFollowUpDate(result.followUpDate || "");
+      setFollowUpNoEta(Boolean(result.followUpNoEta));
+      setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
+      setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
+      savedBuiltToOrderLeadTimeRef.current = String(
+        result.builtToOrderLeadTime || ""
+      ).trim();
+      setVendorDetailsStatus(
+        nextEnabled
+          ? "Added to auto inventory."
+          : "Removed from auto inventory."
+      );
+      onProductStockChanged?.(getProductDetailsStockUpdate(result));
+      onFollowUpSaved();
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? `Unable to update auto inventory: ${err.message}`
+          : "Unable to update auto inventory."
+      );
+    } finally {
+      setTogglingVendorAutoInventoryId("");
     }
   }
 
@@ -2372,15 +2424,44 @@ export function NotesModal({
                                     }
                                   />
                                 </label>
-                                <button
-                                  type="submit"
-                                  className="vendor-product-details-save"
-                                  disabled={savingVendorDetailsId === vendor.vendorProductId}
-                                >
-                                  {savingVendorDetailsId === vendor.vendorProductId
-                                    ? "Saving..."
-                                    : "Save"}
-                                </button>
+                                <div className="vendor-product-details-actions">
+                                  {vendor.autoInventoryEnabled && (
+                                    <button
+                                      type="button"
+                                      className="vendor-product-auto-inventory"
+                                      aria-pressed={!vendor.autoInventoryExcepted}
+                                      title={
+                                        vendor.autoInventoryExcepted
+                                          ? "Add to auto inventory"
+                                          : "Remove from auto inventory"
+                                      }
+                                      disabled={
+                                        savingVendorDetailsId ===
+                                          vendor.vendorProductId ||
+                                        togglingVendorAutoInventoryId ===
+                                          vendor.vendorProductId
+                                      }
+                                      onClick={() =>
+                                        void handleToggleVendorAutoInventory(vendor)
+                                      }
+                                    >
+                                      Auto Inventory
+                                    </button>
+                                  )}
+                                  <button
+                                    type="submit"
+                                    className="vendor-product-details-save"
+                                    disabled={
+                                      savingVendorDetailsId === vendor.vendorProductId ||
+                                      togglingVendorAutoInventoryId ===
+                                        vendor.vendorProductId
+                                    }
+                                  >
+                                    {savingVendorDetailsId === vendor.vendorProductId
+                                      ? "Saving..."
+                                      : "Save"}
+                                  </button>
+                                </div>
                                 {vendorDetailsStatus && (
                                   <p className="vendor-product-details-status">
                                     {vendorDetailsStatus}

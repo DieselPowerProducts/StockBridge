@@ -362,6 +362,26 @@ export function getPriceAudits({
   return request<PriceAuditResponse>(`/price-audit?${params.toString()}`);
 }
 
+export function updateProductVendorAutoInventory({
+  sku,
+  vendorId,
+  vendorProductId,
+  enabled
+}: {
+  sku: string;
+  vendorId: string;
+  vendorProductId: string;
+  enabled: boolean;
+}) {
+  return request<ProductDetails>("/products/vendor-auto-inventory", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sku, vendorId, vendorProductId, enabled })
+  });
+}
+
 export function getInventoryAudits({
   page,
   limit,

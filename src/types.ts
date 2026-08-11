@@ -221,6 +221,8 @@ export type ProductVendor = {
   canUpdateStock: boolean;
   builtToOrder: boolean;
   buildTime: string;
+  autoInventoryEnabled?: boolean;
+  autoInventoryExcepted?: boolean;
   autoInventoryManaged?: boolean;
   autoInventoryQuantity?: number | null;
   autoInventoryUpdatedAt?: string;
