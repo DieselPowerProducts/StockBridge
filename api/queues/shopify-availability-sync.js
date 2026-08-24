@@ -1,10 +1,15 @@
-const { QueueClient } = require("@vercel/queue");
+const {
+  PollingQueueClient,
+  QueueClient,
+  parseRawCallback
+} = require("@vercel/queue");
 const shopifyAvailabilityEventsService = require("../../server/services/shopifyAvailabilityEvents.service");
 const shopifyAvailabilityQueueService = require("../../server/services/shopifyAvailabilityQueue.service");
 
 // Push callbacks must use the same deployment partition as their publishers.
 const queue = new QueueClient();
 const maximumRetryDelaySeconds = 60 * 60;
+const visibilityTimeoutSeconds = 240;
 
 function getConsumerRetryDelay(error, deliveryCount) {
   const requestedDelay = Number.parseInt(error?.retryAfterSeconds, 10);
@@ -69,18 +74,100 @@ async function processQueueMessage(message, metadata = {}) {
   return result;
 }
 
-module.exports = queue.handleNodeCallback(
+const callbackOptions = {
+  visibilityTimeoutSeconds,
+  retry: (error, metadata) => ({
+    afterSeconds: getConsumerRetryDelay(error, metadata.deliveryCount)
+  })
+};
+const directQueueCallback = queue.handleNodeCallback(
   processQueueMessage,
-  {
-    visibilityTimeoutSeconds: 240,
-    retry: (error, metadata) => ({
-      afterSeconds: getConsumerRetryDelay(error, metadata.deliveryCount)
-    })
-  }
+  callbackOptions
 );
+
+function isIgnorableRoutingResult(result) {
+  return (
+    result?.ok === false &&
+    ["already_processed", "not_available", "not_found"].includes(
+      result.reason
+    )
+  );
+}
+
+async function handleRoutingCallback(parsed, res) {
+  const pollingQueue = new PollingQueueClient({
+    region: parsed.region || process.env.VERCEL_REGION || "iad1"
+  });
+
+  try {
+    const result = await pollingQueue.receive(
+      parsed.queueName,
+      parsed.consumerGroup,
+      processQueueMessage,
+      {
+        messageId: parsed.messageId,
+        visibilityTimeoutSeconds,
+        retry: callbackOptions.retry
+      }
+    );
+
+    if (isIgnorableRoutingResult(result)) {
+      console.log(
+        JSON.stringify({
+          level: "info",
+          message: "Stale Shopify availability queue notification ignored.",
+          queueMessageId: parsed.messageId,
+          queueReason: result.reason
+        })
+      );
+      res.status(200).json({ status: "ignored", reason: result.reason });
+      return;
+    }
+
+    if (!result.ok) {
+      res.status(500).json({
+        error: "Failed to process queue message",
+        reason: result.reason
+      });
+      return;
+    }
+
+    res.status(200).json({ status: "success" });
+  } catch (error) {
+    console.error("Queue callback error:", error);
+    res.status(500).json({ error: "Failed to process queue message" });
+  }
+}
+
+async function handler(req, res) {
+  if (req.method !== "POST") {
+    await directQueueCallback(req, res);
+    return;
+  }
+
+  let parsed;
+
+  try {
+    parsed = parseRawCallback(req.body, req.headers);
+  } catch {
+    await directQueueCallback(req, res);
+    return;
+  }
+
+  if ("receiptHandle" in parsed) {
+    await directQueueCallback(req, res);
+    return;
+  }
+
+  await handleRoutingCallback(parsed, res);
+}
+
+module.exports = handler;
 
 module.exports._test = {
   getConsumerRetryDelay,
   getMessageTarget,
+  handleRoutingCallback,
+  isIgnorableRoutingResult,
   processQueueMessage
 };
