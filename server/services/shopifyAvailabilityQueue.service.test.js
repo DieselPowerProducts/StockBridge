@@ -11,7 +11,7 @@ test("backs off failed Shopify availability jobs up to one hour", () => {
   assert.equal(getRetryDelaySeconds(20), 3600);
 });
 
-test("nightly reconciliation includes active kit parents with stale in-stock state", async () => {
+test("nightly reconciliation includes stale in-stock products that have lost stock", async () => {
   const neonPath = require.resolve("../db/neon");
   const servicePath = require.resolve("./shopifyAvailabilityQueue.service");
   const neonModule = require(neonPath);
@@ -40,6 +40,18 @@ test("nightly reconciliation includes active kit parents with stale in-stock sta
 
     assert.ok(reconciliationQuery);
     assert.match(reconciliationQuery, /OR product\.is_kit = TRUE/);
+    assert.match(
+      reconciliationQuery,
+      /FROM catalog_vendor_products AS assigned_vendor_product/
+    );
+    assert.match(
+      reconciliationQuery,
+      /FROM catalog_vendor_products AS stocked_vendor_product/
+    );
+    assert.match(
+      reconciliationQuery,
+      /FROM catalog_warehouse_stock AS warehouse_stock/
+    );
   } finally {
     neonModule.getSql = originalGetSql;
     delete require.cache[servicePath];

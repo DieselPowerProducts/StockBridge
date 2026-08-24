@@ -140,6 +140,34 @@ async function enqueueNightlyReconciliation() {
         state.availability_status <> 'in_stock'
         OR state.updated_at >= now() - INTERVAL '2 days'
         OR product.is_kit = TRUE
+        OR (
+          EXISTS (
+            SELECT 1
+            FROM catalog_vendor_products AS assigned_vendor_product
+            INNER JOIN catalog_vendors AS assigned_vendor
+              ON assigned_vendor.vendor_id = assigned_vendor_product.vendor_id
+            WHERE assigned_vendor_product.product_id = product.product_id
+              AND assigned_vendor.status >= 2
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM catalog_vendor_products AS stocked_vendor_product
+            INNER JOIN catalog_vendors AS stocked_vendor
+              ON stocked_vendor.vendor_id = stocked_vendor_product.vendor_id
+            LEFT JOIN vendor_settings AS stocked_vendor_settings
+              ON stocked_vendor_settings.vendor_id = stocked_vendor_product.vendor_id
+            WHERE stocked_vendor_product.product_id = product.product_id
+              AND stocked_vendor.status >= 2
+              AND COALESCE(stocked_vendor_settings.built_to_order, FALSE) = FALSE
+              AND stocked_vendor_product.quantity > 0
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM catalog_warehouse_stock AS warehouse_stock
+            WHERE warehouse_stock.product_id = product.product_id
+              AND warehouse_stock.qty_available > 0
+          )
+        )
         OR EXISTS (
           SELECT 1
           FROM catalog_vendor_products AS vendor_product
