@@ -32,12 +32,47 @@ async function queueShopifyAvailabilitySync(sku, source) {
       source
     });
   } catch (error) {
+    const queuedRevision = Number.parseInt(
+      error?.availabilityQueueRecord?.revision,
+      10
+    );
+
     console.error("Unable to queue Shopify availability sync.", {
       error,
       sku,
       source
     });
-    return null;
+
+    try {
+      const shopify = await catalogService.syncShopifyAvailabilityForSkus(
+        [sku],
+        { source: `queue-publish-fallback:${source}` }
+      );
+
+      if (Number(shopify?.failed || 0) > 0) {
+        throw new Error(
+          `${shopify.failed} Shopify availability fallback update(s) failed.`
+        );
+      }
+
+      if (Number.isFinite(queuedRevision) && queuedRevision > 0) {
+        await shopifyAvailabilityQueueService.removeAvailabilitySync(sku, {
+          revision: queuedRevision
+        });
+      }
+
+      return {
+        fallback: true,
+        shopify
+      };
+    } catch (fallbackError) {
+      console.error("Unable to run Shopify availability queue fallback.", {
+        error: fallbackError,
+        sku,
+        source
+      });
+      return null;
+    }
   }
 }
 
@@ -697,5 +732,8 @@ module.exports = {
   setProductVendorAutoInventory,
   setProductVendorDetails,
   setProductVendorStock,
-  setVendorProductQuantity
+  setVendorProductQuantity,
+  _test: {
+    queueShopifyAvailabilitySync
+  }
 };

@@ -1,4 +1,5 @@
 const { getSql } = require("../db/neon");
+const shopifyAvailabilityEventsService = require("./shopifyAvailabilityEvents.service");
 
 const defaultDelaySeconds = 30;
 const defaultProcessLimit = 100;
@@ -13,6 +14,12 @@ function normalizeSku(value) {
 
 function normalizeSource(value) {
   return String(value || "").trim().slice(0, 200);
+}
+
+function normalizeRevision(value) {
+  const revision = Number.parseInt(value, 10);
+
+  return Number.isFinite(revision) && revision > 0 ? revision : null;
 }
 
 function assertSku(sku) {
@@ -99,21 +106,60 @@ async function enqueueAvailabilitySync({
         updated_at = now()
     RETURNING sku, process_after, revision
   `;
+  const queuedRecord = rows[0] || null;
 
-  return rows[0] || null;
+  if (!queuedRecord) {
+    return null;
+  }
+
+  let wake;
+
+  try {
+    wake = await shopifyAvailabilityEventsService.publishAvailabilitySyncWake({
+      delaySeconds: safeDelaySeconds,
+      revision: queuedRecord.revision,
+      sku: queuedRecord.sku,
+      source: safeSource
+    });
+  } catch (error) {
+    const publishError =
+      error instanceof Error
+        ? error
+        : new Error(String(error || "Queue wake publication failed."));
+
+    publishError.availabilityQueueRecord = queuedRecord;
+    throw publishError;
+  }
+
+  return {
+    ...queuedRecord,
+    wake
+  };
 }
 
-async function removeAvailabilitySync(sku) {
+async function removeAvailabilitySync(sku, { revision = null } = {}) {
   assertSku(sku);
   await initializeSchema();
 
   const sql = getSql();
   const safeSku = normalizeSku(sku);
-  const rows = await sql`
-    DELETE FROM shopify_availability_sync_queue
-    WHERE sku = ${safeSku}
-    RETURNING sku
-  `;
+  const safeRevision = normalizeRevision(revision);
+  const rows =
+    safeRevision === null
+      ? await sql`
+          DELETE FROM shopify_availability_sync_queue
+          WHERE sku = ${safeSku}
+          RETURNING sku
+        `
+      : await sql.query(
+          `
+            DELETE FROM shopify_availability_sync_queue
+            WHERE sku = $1
+              AND revision = $2
+            RETURNING sku
+          `,
+          [safeSku, safeRevision]
+        );
 
   return rows.length > 0;
 }
@@ -181,19 +227,31 @@ async function enqueueNightlyReconciliation() {
         )
       )
     ON CONFLICT (sku) DO NOTHING
-    RETURNING sku
+    RETURNING sku, revision
   `;
 
+  const wake =
+    await shopifyAvailabilityEventsService.publishAvailabilitySyncWake({
+      source: "nightly-reconciliation"
+    });
+
   return {
-    queued: rows.length
+    queued: rows.length,
+    wake
   };
 }
 
-async function claimDueAvailabilitySyncs(limit = defaultProcessLimit) {
+async function claimDueAvailabilitySyncs(
+  limit = defaultProcessLimit,
+  { sku = "", revision = null } = {}
+) {
   await initializeSchema();
 
   const sql = getSql();
   const safeLimit = Math.max(Math.min(Number.parseInt(limit, 10) || 1, 250), 1);
+  const safeSku = normalizeSku(sku);
+  const safeRevision = normalizeRevision(revision);
+  const hasTarget = Boolean(safeSku && safeRevision !== null);
 
   return sql.query(
     `
@@ -202,12 +260,16 @@ async function claimDueAvailabilitySyncs(limit = defaultProcessLimit) {
         FROM shopify_availability_sync_queue
         WHERE process_after <= now()
           AND (locked_until IS NULL OR locked_until <= now())
+          AND (
+            $2::boolean = FALSE
+            OR (sku = $3 AND revision = $4)
+          )
         ORDER BY process_after, sku
         LIMIT $1
         FOR UPDATE SKIP LOCKED
       )
       UPDATE shopify_availability_sync_queue AS queue
-      SET locked_until = now() + ($2 * INTERVAL '1 second'),
+      SET locked_until = now() + ($5 * INTERVAL '1 second'),
           updated_at = now()
       FROM due
       WHERE queue.sku = due.sku
@@ -218,8 +280,57 @@ async function claimDueAvailabilitySyncs(limit = defaultProcessLimit) {
         queue.attempt_count,
         queue.source
     `,
-    [safeLimit, leaseSeconds]
+    [safeLimit, hasTarget, safeSku, safeRevision, leaseSeconds]
   );
+}
+
+async function getNextAvailabilitySyncWake({ sku = "", revision = null } = {}) {
+  await initializeSchema();
+
+  const sql = getSql();
+  const safeSku = normalizeSku(sku);
+  const safeRevision = normalizeRevision(revision);
+  const hasTarget = Boolean(safeSku && safeRevision !== null);
+  const rows = await sql.query(
+    `
+      SELECT
+        COUNT(*)::int AS pending,
+        CASE
+          WHEN COUNT(*) = 0 THEN NULL
+          ELSE GREATEST(
+            CEIL(
+              EXTRACT(
+                EPOCH FROM (
+                  MIN(
+                    GREATEST(
+                      process_after,
+                      COALESCE(locked_until, process_after)
+                    )
+                  ) - now()
+                )
+              )
+            ),
+            0
+          )::int
+        END AS next_wake_delay_seconds
+      FROM shopify_availability_sync_queue
+      WHERE (
+        $1::boolean = FALSE
+        OR (sku = $2 AND revision = $3)
+      )
+    `,
+    [hasTarget, safeSku, safeRevision]
+  );
+  const pending = Math.max(Number.parseInt(rows[0]?.pending, 10) || 0, 0);
+  const parsedDelay = Number.parseInt(rows[0]?.next_wake_delay_seconds, 10);
+
+  return {
+    pending,
+    nextWakeDelaySeconds:
+      pending > 0 && Number.isFinite(parsedDelay)
+        ? Math.max(parsedDelay, 0)
+        : null
+  };
 }
 
 async function completeAvailabilitySyncs(records) {
@@ -304,15 +415,26 @@ async function retryAvailabilitySyncs(records, errorMessage) {
   return rows.length;
 }
 
-async function processDueAvailabilitySyncs({ limit = defaultProcessLimit } = {}) {
-  const claimed = await claimDueAvailabilitySyncs(limit);
+async function processDueAvailabilitySyncs({
+  limit = defaultProcessLimit,
+  sku = "",
+  revision = null
+} = {}) {
+  const safeSku = normalizeSku(sku);
+  const safeRevision = normalizeRevision(revision);
+  const target =
+    safeSku && safeRevision !== null
+      ? { sku: safeSku, revision: safeRevision }
+      : {};
+  const claimed = await claimDueAvailabilitySyncs(limit, target);
 
   if (claimed.length === 0) {
     return {
       claimed: 0,
       completed: 0,
       failed: 0,
-      retried: 0
+      retried: 0,
+      ...(await getNextAvailabilitySyncWake(target))
     };
   }
 
@@ -361,14 +483,24 @@ async function processDueAvailabilitySyncs({ limit = defaultProcessLimit } = {})
       failed: failedRecords.length,
       unmatched: unmatchedRecords.length,
       retried,
-      shopify: result
+      shopify: result,
+      ...(await getNextAvailabilitySyncWake(target))
     };
   } catch (error) {
+    const retryAfterSeconds = Math.min(
+      ...claimed.map((record) => getRetryDelaySeconds(record.attempt_count))
+    );
     await retryAvailabilitySyncs(
       claimed,
       String(error?.message || error || "Shopify availability sync failed.")
     );
-    throw error;
+    const retryError =
+      error instanceof Error
+        ? error
+        : new Error(String(error || "Shopify availability sync failed."));
+
+    retryError.retryAfterSeconds = retryAfterSeconds;
+    throw retryError;
   }
 }
 
@@ -376,6 +508,7 @@ module.exports = {
   enqueueAvailabilitySync,
   enqueueNightlyReconciliation,
   getRetryDelaySeconds,
+  getNextAvailabilitySyncWake,
   processDueAvailabilitySyncs,
   removeAvailabilitySync
 };

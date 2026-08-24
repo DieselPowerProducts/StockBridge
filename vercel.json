@@ -27,6 +27,19 @@
     "api/cron/shopify-availability-sync.js": {
       "includeFiles": "server/**",
       "maxDuration": 180
+    },
+    "api/queues/shopify-availability-sync.js": {
+      "includeFiles": "server/**",
+      "maxDuration": 180,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "shopify-availability-sync",
+          "retryAfterSeconds": 60,
+          "initialDelaySeconds": 0,
+          "maxConcurrency": 1
+        }
+      ]
     }
   },
   "crons": [
@@ -45,10 +58,6 @@
     {
       "path": "/api/cron/gmail-watch",
       "schedule": "30 9 * * *"
-    },
-    {
-      "path": "/api/cron/shopify-availability-sync",
-      "schedule": "* * * * *"
     }
   ],
   "routes": [

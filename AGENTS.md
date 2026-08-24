@@ -18,8 +18,11 @@ usually `main`. The Vercel project is `stock-bridge` under the
 - Backend: Express 5 server under `server/`, exposed through Vercel functions.
 - API entrypoint: `api/index.js`.
 - Scheduled sync entrypoints: `api/cron/catalog-full-sync.js`,
-  `api/cron/catalog-warehouse-sync.js`, `api/cron/auto-inventory.js`, and
-  `api/cron/shopify-availability-sync.js`.
+  `api/cron/catalog-warehouse-sync.js`, and `api/cron/auto-inventory.js`.
+- Event-driven Shopify availability consumer:
+  `api/queues/shopify-availability-sync.js`.
+- Authenticated manual Shopify availability recovery endpoint:
+  `api/cron/shopify-availability-sync.js`. It is intentionally not scheduled.
 - Database: Neon Postgres via `@neondatabase/serverless`.
 - External systems: SKU Nexus, Shopify, Gmail SMTP.
 - Active browsers poll `/status/version` once per minute and force a page reload
@@ -252,8 +255,10 @@ Availability button rules:
   lead time exists.
 - Shopify pushes from follow-up, inventory, and BTO lead-time edits are debounced
   through the database-backed `shopify_availability_sync_queue`. Each new change
-  resets that SKU's 30-second quiet period, and the minute cron processes the
-  latest StockBridge state. Closing the Notes modal does not cancel the update.
+  resets that SKU's 30-second quiet period and publishes a delayed Vercel Queue
+  message. Vercel invokes the push consumer when a message is ready; there is no
+  polling cron. The authenticated cron-style endpoint remains available for
+  manual recovery. Closing the Notes modal does not cancel the update.
   Button clicks update the local UI state immediately, perform their explicit
   Shopify push, and clear any redundant queued update.
 - The nightly full catalog sync queues reconciliation for active products whose
