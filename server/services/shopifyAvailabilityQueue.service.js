@@ -139,6 +139,7 @@ async function enqueueNightlyReconciliation() {
       AND (
         state.availability_status <> 'in_stock'
         OR state.updated_at >= now() - INTERVAL '2 days'
+        OR product.is_kit = TRUE
         OR EXISTS (
           SELECT 1
           FROM catalog_vendor_products AS vendor_product
