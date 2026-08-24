@@ -106,7 +106,7 @@ test("publishes the normalized Shopify availability wake payload", async () => {
         messageId: "message-123",
         skipped: false
       });
-      assert.deepEqual(clientOptions, [{ deploymentId: null }]);
+      assert.deepEqual(clientOptions, [undefined]);
       assert.deepEqual(calls, [
         [
           "shopify-availability-sync",

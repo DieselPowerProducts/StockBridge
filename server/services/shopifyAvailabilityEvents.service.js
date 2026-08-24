@@ -7,9 +7,9 @@ let queue;
 
 function getQueue() {
   if (!queue) {
-    // These messages wake a shared Neon-backed queue. Keeping them unpinned makes
-    // delayed/retried wakes use the active deployment instead of old application code.
-    queue = new QueueClient({ deploymentId: null });
+    // Push consumers are partitioned by deployment. Let the SDK pin each wake to
+    // the deployment that published it so Vercel can discover the matching consumer.
+    queue = new QueueClient();
   }
 
   return queue;

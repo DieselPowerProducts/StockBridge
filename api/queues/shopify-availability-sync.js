@@ -2,7 +2,8 @@ const { QueueClient } = require("@vercel/queue");
 const shopifyAvailabilityEventsService = require("../../server/services/shopifyAvailabilityEvents.service");
 const shopifyAvailabilityQueueService = require("../../server/services/shopifyAvailabilityQueue.service");
 
-const queue = new QueueClient({ deploymentId: null });
+// Push callbacks must use the same deployment partition as their publishers.
+const queue = new QueueClient();
 const maximumRetryDelaySeconds = 60 * 60;
 
 function getConsumerRetryDelay(error, deliveryCount) {

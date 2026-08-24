@@ -167,7 +167,7 @@ test("backs consumer retries off to a maximum of one hour", async () => {
     async ({ callbackOptions, clientOptions, consumer }) => {
       const { getConsumerRetryDelay } = consumer._test;
 
-      assert.deepEqual(clientOptions, { deploymentId: null });
+      assert.equal(clientOptions, undefined);
       assert.equal(getConsumerRetryDelay(null, 1), 60);
       assert.equal(getConsumerRetryDelay(null, 2), 120);
       assert.equal(getConsumerRetryDelay(null, 7), 3600);
