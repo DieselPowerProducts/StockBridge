@@ -2272,7 +2272,9 @@ export function NotesModal({
                     <li className="assigned-vendor-item" key={vendor.vendorProductId}>
                       <div className="assigned-vendor-main">
                         <span className="assigned-vendor-name">{vendor.name}</span>
+                      </div>
 
+                      <div className="assigned-vendor-controls">
                         {vendor.stockSource === "vendor" && (
                           <button
                             type="button"
@@ -2290,9 +2292,7 @@ export function NotesModal({
                             </svg>
                           </button>
                         )}
-                      </div>
 
-                      <div className="assigned-vendor-controls">
                         {vendor.builtToOrder ? (
                           <div
                             className="vendor-build-time-display"

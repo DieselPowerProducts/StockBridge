@@ -1166,7 +1166,7 @@ body:has(.notes-popup-page),
 .notes-modal-grid {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: minmax(220px, 32%) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 45%) minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
 }
@@ -1293,13 +1293,13 @@ body:has(.notes-popup-page),
 }
 
 .assigned-vendors-list li {
-  align-items: center;
+  align-items: stretch;
   background: #333333;
   border: 1px solid #555555;
   border-radius: 6px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   justify-content: space-between;
   overflow-wrap: anywhere;
   padding: 10px;
@@ -1315,9 +1315,10 @@ body:has(.notes-popup-page),
 .assigned-vendor-main {
   align-items: center;
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   gap: 8px;
-  min-width: 104px;
+  min-width: 0;
+  width: 100%;
 }
 
 .assigned-vendor-controls {
@@ -1325,8 +1326,10 @@ body:has(.notes-popup-page),
   display: flex;
   flex: 0 0 auto;
   gap: 6px;
-  margin-left: auto;
+  justify-content: flex-end;
+  margin-left: 0;
   max-width: 100%;
+  width: 100%;
 }
 
 .vendor-add-control {
