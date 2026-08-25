@@ -44,3 +44,20 @@ test("runs the push consumer serially without the availability polling cron", ()
   });
   assert.equal(availabilityCron, undefined);
 });
+
+test("runs Gmail queue processing serially", () => {
+  const queueFunction = config.functions["api/queues/gmail-inventory.js"];
+  const trigger = queueFunction.experimentalTriggers.find(
+    (candidate) => candidate.type === "queue/v2beta"
+  );
+
+  assert.ok(queueFunction);
+  assert.equal(queueFunction.maxDuration, 180);
+  assert.deepEqual(trigger, {
+    type: "queue/v2beta",
+    topic: "gmail-inventory",
+    retryAfterSeconds: 60,
+    initialDelaySeconds: 0,
+    maxConcurrency: 1
+  });
+});

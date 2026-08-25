@@ -81,3 +81,45 @@ test("selects Gmail labels for inventory replies and inventory sheets", () => {
     }
   }
 });
+
+test("compares Gmail history IDs without losing integer precision", () => {
+  assert.equal(
+    _test.isHistoryAtOrBeyond("99999999999999999999", "99999999999999999998"),
+    true
+  );
+  assert.equal(_test.isHistoryAtOrBeyond("123", "124"), false);
+  assert.equal(_test.isHistoryAtOrBeyond("", "124"), false);
+  assert.equal(
+    _test.getLatestHistoryId("123", "99999999999999999999", "456"),
+    "99999999999999999999"
+  );
+});
+
+test("uses a SQL-safe numeric Gmail history ID pattern", () => {
+  assert.equal(_test.gmailHistoryIdSqlPattern, "^[0-9]+$");
+});
+
+test("normalizes Gmail queue jobs", () => {
+  assert.deepEqual(
+    _test.normalizeQueueJob({
+      gmailMessageId: " gmail-1 ",
+      jobKey: " job-1 ",
+      kind: " gmail-message ",
+      mailboxEmail: " StockCheck@DieselPowerProducts.com "
+    }),
+    {
+      gmailMessageId: "gmail-1",
+      jobKey: "job-1",
+      kind: "gmail-message",
+      mailboxEmail: "stockcheck@dieselpowerproducts.com",
+      pageToken: "",
+      startHistoryId: "",
+      targetHistoryId: ""
+    }
+  );
+
+  assert.throws(
+    () => _test.normalizeQueueJob({ kind: "gmail-message" }),
+    /Invalid Gmail queue job/
+  );
+});

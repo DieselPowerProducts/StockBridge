@@ -255,10 +255,12 @@ test("reports no replacement wake when the database queue is empty", async () =>
 test("nightly reconciliation includes stale in-stock products that have lost stock", async () => {
   const neonPath = require.resolve("../db/neon");
   const eventsPath = require.resolve("./shopifyAvailabilityEvents.service");
+  const statePath = require.resolve("./shopifyAvailabilityState.service");
   const servicePath = require.resolve("./shopifyAvailabilityQueue.service");
   const neonModule = require(neonPath);
   const originalGetSql = neonModule.getSql;
   const originalEventsModule = require.cache[eventsPath];
+  const originalStateModule = require.cache[statePath];
   const queries = [];
 
   neonModule.getSql = () => async (strings, ...values) => {
@@ -279,6 +281,14 @@ test("nightly reconciliation includes stale in-stock products that have lost sto
         messageId: "nightly-message",
         skipped: false
       })
+    }
+  };
+  require.cache[statePath] = {
+    id: statePath,
+    filename: statePath,
+    loaded: true,
+    exports: {
+      initializeSchema: async () => {}
     }
   };
   delete require.cache[servicePath];
@@ -313,6 +323,12 @@ test("nightly reconciliation includes stale in-stock products that have lost sto
       require.cache[eventsPath] = originalEventsModule;
     } else {
       delete require.cache[eventsPath];
+    }
+
+    if (originalStateModule) {
+      require.cache[statePath] = originalStateModule;
+    } else {
+      delete require.cache[statePath];
     }
 
     delete require.cache[servicePath];

@@ -3,6 +3,7 @@ const { OAuth2Client } = require("google-auth-library");
 const { getSql } = require("../db/neon");
 const { loadLocalEnv } = require("../config/env");
 const autoInventoryService = require("./autoInventory.service");
+const gmailInventoryEventsService = require("./gmailInventoryEvents.service");
 const inventoryAuditService = require("./inventoryAudit.service");
 
 loadLocalEnv();
@@ -11,6 +12,10 @@ const gmailScope = "https://www.googleapis.com/auth/gmail.modify";
 const gmailApiBaseUrl = "https://gmail.googleapis.com/gmail/v1";
 const oauthStateLifetimeSeconds = 10 * 60;
 const defaultLookbackDays = 14;
+const gmailHistoryPageSize = 100;
+const gmailInboxPageSize = 100;
+const queuePublishBatchSize = 10;
+const gmailHistoryIdSqlPattern = "^[0-9]+$";
 
 let schemaReady;
 let gmailLabelIds;
@@ -142,6 +147,34 @@ async function initializeSchema() {
       await sql`
         ALTER TABLE gmail_push_state
         ADD COLUMN IF NOT EXISTS processing_until TIMESTAMPTZ
+      `;
+      await sql`
+        ALTER TABLE gmail_push_state
+        ADD COLUMN IF NOT EXISTS pending_history_id TEXT NOT NULL DEFAULT ''
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS gmail_processing_jobs (
+          job_key TEXT PRIMARY KEY,
+          mailbox_email TEXT NOT NULL DEFAULT '',
+          job_kind TEXT NOT NULL DEFAULT '',
+          payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          queue_message_id TEXT NOT NULL DEFAULT '',
+          last_error TEXT NOT NULL DEFAULT '',
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`
+        ALTER TABLE gmail_processing_jobs
+        ADD COLUMN IF NOT EXISTS result JSONB NOT NULL DEFAULT '{}'::jsonb
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS gmail_processing_jobs_status_idx
+        ON gmail_processing_jobs (status, updated_at DESC)
       `;
     })();
   }
@@ -385,14 +418,63 @@ async function advanceHistoryId(mailboxEmail, historyId) {
     SET
       history_id = CASE
         WHEN gmail_push_state.history_id = ''
-          OR gmail_push_state.history_id !~ '^\d+$'
+          OR gmail_push_state.history_id !~ ${gmailHistoryIdSqlPattern}
           OR gmail_push_state.history_id::numeric < EXCLUDED.history_id::numeric
         THEN EXCLUDED.history_id
         ELSE gmail_push_state.history_id
       END,
+      pending_history_id = CASE
+        WHEN gmail_push_state.pending_history_id = ''
+          OR gmail_push_state.pending_history_id !~ ${gmailHistoryIdSqlPattern}
+          OR gmail_push_state.pending_history_id::numeric <= EXCLUDED.history_id::numeric
+        THEN ''
+        ELSE gmail_push_state.pending_history_id
+      END,
       last_notification_at = now(),
       updated_at = now()
   `;
+}
+
+async function recordPendingNotification(mailboxEmail, historyId) {
+  const safeMailboxEmail = normalizeEmail(mailboxEmail);
+  const safeHistoryId = normalizeText(historyId);
+
+  if (!safeMailboxEmail || !/^\d+$/.test(safeHistoryId)) {
+    throw createHttpError(400, "Invalid Gmail notification state.");
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO gmail_push_state (
+      mailbox_email,
+      pending_history_id,
+      last_notification_at
+    )
+    VALUES (
+      ${safeMailboxEmail},
+      ${safeHistoryId},
+      now()
+    )
+    ON CONFLICT (mailbox_email) DO UPDATE
+    SET
+      pending_history_id = CASE
+        WHEN gmail_push_state.pending_history_id = ''
+          OR gmail_push_state.pending_history_id !~ ${gmailHistoryIdSqlPattern}
+          OR gmail_push_state.pending_history_id::numeric < EXCLUDED.pending_history_id::numeric
+        THEN EXCLUDED.pending_history_id
+        ELSE gmail_push_state.pending_history_id
+      END,
+      last_notification_at = now(),
+      updated_at = now()
+    RETURNING history_id, pending_history_id
+  `;
+
+  return rows[0] || {
+    history_id: "",
+    pending_history_id: safeHistoryId
+  };
 }
 
 async function getPushState(mailboxEmail = getMailboxEmail()) {
@@ -402,6 +484,7 @@ async function getPushState(mailboxEmail = getMailboxEmail()) {
   const rows = await sql`
     SELECT
       history_id,
+      pending_history_id,
       watch_expiration,
       last_notification_at
     FROM gmail_push_state
@@ -410,52 +493,6 @@ async function getPushState(mailboxEmail = getMailboxEmail()) {
   `;
 
   return rows[0] || null;
-}
-
-async function acquireProcessingLock(mailboxEmail) {
-  await initializeSchema();
-
-  const token = crypto.randomUUID();
-  const sql = getSql();
-  const rows = await sql`
-    INSERT INTO gmail_push_state (
-      mailbox_email,
-      processing_token,
-      processing_until
-    )
-    VALUES (
-      ${normalizeEmail(mailboxEmail)},
-      ${token},
-      now() + interval '4 minutes'
-    )
-    ON CONFLICT (mailbox_email) DO UPDATE
-    SET
-      processing_token = EXCLUDED.processing_token,
-      processing_until = EXCLUDED.processing_until,
-      updated_at = now()
-    WHERE gmail_push_state.processing_until IS NULL
-      OR gmail_push_state.processing_until < now()
-    RETURNING processing_token
-  `;
-
-  return rows[0]?.processing_token === token ? token : "";
-}
-
-async function releaseProcessingLock(mailboxEmail, token) {
-  if (!token) {
-    return;
-  }
-
-  const sql = getSql();
-  await sql`
-    UPDATE gmail_push_state
-    SET
-      processing_token = '',
-      processing_until = NULL,
-      updated_at = now()
-    WHERE mailbox_email = ${normalizeEmail(mailboxEmail)}
-    AND processing_token = ${token}
-  `;
 }
 
 async function renewWatchWithClient(oauthClient) {
@@ -708,156 +745,407 @@ async function processGmailMessage(oauthClient, messageId) {
   };
 }
 
-async function listHistory(oauthClient, startHistoryId) {
+async function listHistoryPage(oauthClient, startHistoryId, pageToken = "") {
   const messageIds = new Set();
-  let pageToken = "";
-  let latestHistoryId = startHistoryId;
+  const params = new URLSearchParams({
+    startHistoryId,
+    historyTypes: "messageAdded",
+    labelId: "INBOX",
+    maxResults: String(gmailHistoryPageSize)
+  });
 
-  do {
-    const params = new URLSearchParams({
-      startHistoryId,
-      historyTypes: "messageAdded",
-      labelId: "INBOX",
-      maxResults: "500"
-    });
+  if (pageToken) {
+    params.set("pageToken", pageToken);
+  }
 
-    if (pageToken) {
-      params.set("pageToken", pageToken);
-    }
+  const result = await gmailRequest(
+    oauthClient,
+    `/users/me/history?${params.toString()}`
+  );
 
-    const result = await gmailRequest(
-      oauthClient,
-      `/users/me/history?${params.toString()}`
-    );
-
-    for (const history of result?.history || []) {
-      for (const item of history?.messagesAdded || []) {
-        if (item?.message?.id) {
-          messageIds.add(item.message.id);
-        }
+  for (const history of result?.history || []) {
+    for (const item of history?.messagesAdded || []) {
+      if (item?.message?.id) {
+        messageIds.add(item.message.id);
       }
     }
-
-    latestHistoryId =
-      normalizeText(result?.historyId) || latestHistoryId;
-    pageToken = normalizeText(result?.nextPageToken);
-  } while (pageToken);
+  }
 
   return {
-    historyId: latestHistoryId,
-    messageIds: Array.from(messageIds)
+    historyId: normalizeText(result?.historyId) || startHistoryId,
+    messageIds: Array.from(messageIds),
+    nextPageToken: normalizeText(result?.nextPageToken)
   };
 }
 
-async function listCurrentInboxMessages(oauthClient) {
+async function listCurrentInboxMessagesPage(oauthClient, pageToken = "") {
   const lookbackDays = Math.max(
     Number(process.env.AUTO_INVENTORY_LOOKBACK_DAYS || defaultLookbackDays),
     1
   );
-  const messages = [];
-  let pageToken = "";
+  const params = new URLSearchParams({
+    labelIds: "INBOX",
+    q: `newer_than:${lookbackDays}d`,
+    maxResults: String(gmailInboxPageSize)
+  });
 
-  do {
-    const params = new URLSearchParams({
-      labelIds: "INBOX",
-      q: `newer_than:${lookbackDays}d`,
-      maxResults: "500"
-    });
+  if (pageToken) {
+    params.set("pageToken", pageToken);
+  }
 
-    if (pageToken) {
-      params.set("pageToken", pageToken);
-    }
+  const result = await gmailRequest(
+    oauthClient,
+    `/users/me/messages?${params.toString()}`
+  );
 
-    const result = await gmailRequest(
-      oauthClient,
-      `/users/me/messages?${params.toString()}`
-    );
-    messages.push(...(result?.messages || []));
-    pageToken = normalizeText(result?.nextPageToken);
-  } while (pageToken);
-
-  return messages;
-}
-
-function createImportTotals() {
   return {
-    messages: 0,
-    labeled: 0,
-    attachments: 0,
-    imported: 0,
-    skipped: 0,
-    followUpsSet: 0,
-    inventoryAudits: 0,
-    errors: 0
+    messageIds: (result?.messages || [])
+      .map((message) => normalizeText(message?.id))
+      .filter(Boolean),
+    nextPageToken: normalizeText(result?.nextPageToken)
   };
 }
 
-function addImportResult(totals, result) {
-  totals.messages += 1;
-  totals.labeled += result.shouldLabel ? 1 : 0;
-  totals.attachments += result.attachments || 0;
-  totals.imported += result.imported || 0;
-  totals.skipped += result.skipped || 0;
-  totals.followUpsSet += result.followUpsSet || 0;
-  totals.inventoryAudits += result.inventoryAudits || 0;
-  totals.errors += result.errors || 0;
+function isHistoryAtOrBeyond(currentHistoryId, targetHistoryId) {
+  const current = normalizeText(currentHistoryId);
+  const target = normalizeText(targetHistoryId);
+
+  return /^\d+$/.test(current) && /^\d+$/.test(target)
+    ? BigInt(current) >= BigInt(target)
+    : false;
 }
 
-async function processMessageIds(oauthClient, messageIds) {
-  const totals = createImportTotals();
-
-  for (const messageId of messageIds) {
-    const result = await processGmailMessage(oauthClient, messageId);
-    addImportResult(totals, result);
-  }
-
-  return totals;
+function getLatestHistoryId(...historyIds) {
+  return historyIds
+    .map(normalizeText)
+    .filter((historyId) => /^\d+$/.test(historyId))
+    .reduce(
+      (latest, historyId) =>
+        !latest || BigInt(historyId) > BigInt(latest) ? historyId : latest,
+      ""
+    );
 }
 
-async function runInboxRecovery(oauthClient) {
-  const messageRefs = await listCurrentInboxMessages(oauthClient);
-  const messages = [];
+function normalizeQueueJob(message) {
+  const job = {
+    gmailMessageId: normalizeText(message?.gmailMessageId),
+    jobKey: normalizeText(message?.jobKey),
+    kind: normalizeText(message?.kind),
+    mailboxEmail: normalizeEmail(message?.mailboxEmail),
+    pageToken: normalizeText(message?.pageToken),
+    startHistoryId: normalizeText(message?.startHistoryId),
+    targetHistoryId: normalizeText(message?.targetHistoryId)
+  };
 
-  for (const messageRef of messageRefs) {
-    const message = await getRawMessage(oauthClient, messageRef.id);
-    messages.push(message);
+  if (!job.jobKey || !job.kind || !job.mailboxEmail) {
+    throw createHttpError(400, "Invalid Gmail queue job.");
   }
 
-  messages.sort(
-    (left, right) =>
-      Number(left?.internalDate || 0) - Number(right?.internalDate || 0)
+  return job;
+}
+
+async function startQueueJob(message, metadata = {}) {
+  const job = normalizeQueueJob(message);
+  const deliveryCount = Math.max(
+    Number.parseInt(metadata.deliveryCount, 10) || 1,
+    1
   );
 
-  const totals = createImportTotals();
+  await initializeSchema();
 
-  for (const message of messages) {
-    const source = decodeRawMessage(message.raw);
-    const inventoryAudit =
-      await inventoryAuditService.processStockCheckReplySource({
-        messageUid: message.id,
-        source
-      });
-    const result = await autoInventoryService.processInventoryMessageSource({
-      messageUid: message.id,
-      source
-    });
-    const labelNames = getMessageLabelNames({
-      inventoryAuditMatched: inventoryAudit.matched,
-      shouldLabelInventory: result.shouldLabel
-    });
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO gmail_processing_jobs (
+      job_key,
+      mailbox_email,
+      job_kind,
+      payload,
+      status,
+      attempt_count,
+      queue_message_id
+    )
+    VALUES (
+      ${job.jobKey},
+      ${job.mailboxEmail},
+      ${job.kind},
+      CAST(${JSON.stringify(job)} AS jsonb),
+      'processing',
+      ${deliveryCount},
+      ${normalizeText(metadata.messageId)}
+    )
+    ON CONFLICT (job_key) DO UPDATE
+    SET
+      attempt_count = GREATEST(
+        gmail_processing_jobs.attempt_count,
+        EXCLUDED.attempt_count
+      ),
+      queue_message_id = EXCLUDED.queue_message_id,
+      status = CASE
+        WHEN gmail_processing_jobs.status IN ('completed', 'failed')
+        THEN gmail_processing_jobs.status
+        ELSE 'processing'
+      END,
+      updated_at = now()
+    RETURNING status, attempt_count
+  `;
 
-    if (labelNames.length > 0) {
-      await labelAndArchiveMessage(oauthClient, message.id, labelNames);
-    }
+  return {
+    ...job,
+    attemptCount: Number(rows[0]?.attempt_count || deliveryCount),
+    status: normalizeText(rows[0]?.status) || "processing"
+  };
+}
 
-    addImportResult(totals, {
-      ...result,
-      inventoryAudits:
-        (inventoryAudit.imported || 0) + (inventoryAudit.updated || 0)
-    });
+async function completeQueueJob(jobKey, result = {}) {
+  await initializeSchema();
+
+  const sql = getSql();
+  await sql`
+    UPDATE gmail_processing_jobs
+    SET
+      status = 'completed',
+      result = CAST(${JSON.stringify(result || {})} AS jsonb),
+      last_error = '',
+      completed_at = now(),
+      updated_at = now()
+    WHERE job_key = ${normalizeText(jobKey)}
+  `;
+}
+
+async function failQueueJob(jobKey, error, { terminal = false } = {}) {
+  await initializeSchema();
+
+  const sql = getSql();
+  const errorMessage = normalizeText(error?.message || error).slice(0, 10000);
+  await sql`
+    UPDATE gmail_processing_jobs
+    SET
+      status = ${terminal ? "failed" : "retrying"},
+      last_error = ${errorMessage || "Unknown Gmail processing failure."},
+      completed_at = ${terminal ? new Date() : null},
+      updated_at = now()
+    WHERE job_key = ${normalizeText(jobKey)}
+  `;
+}
+
+async function getQueueJobStats() {
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status IN ('pending', 'processing', 'retrying'))::int
+        AS pending,
+      COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+    FROM gmail_processing_jobs
+  `;
+
+  return {
+    failed: Number(rows[0]?.failed || 0),
+    pending: Number(rows[0]?.pending || 0)
+  };
+}
+
+async function publishMessageJobs(mailboxEmail, messageIds) {
+  const uniqueMessageIds = Array.from(
+    new Set((messageIds || []).map(normalizeText).filter(Boolean))
+  );
+
+  for (let index = 0; index < uniqueMessageIds.length; index += queuePublishBatchSize) {
+    const batch = uniqueMessageIds.slice(index, index + queuePublishBatchSize);
+    await Promise.all(
+      batch.map((gmailMessageId) =>
+        gmailInventoryEventsService.publishMessage({
+          gmailMessageId,
+          mailboxEmail
+        })
+      )
+    );
   }
 
-  return totals;
+  return uniqueMessageIds.length;
+}
+
+async function queuePendingHistoryIfNeeded(mailboxEmail) {
+  const state = await getPushState(mailboxEmail);
+
+  if (
+    state?.pending_history_id &&
+    !isHistoryAtOrBeyond(state.history_id, state.pending_history_id)
+  ) {
+    await gmailInventoryEventsService.publishNotificationScan({
+      mailboxEmail,
+      targetHistoryId: state.pending_history_id
+    });
+    return true;
+  }
+
+  return false;
+}
+
+async function processHistoryQueueJob(job) {
+  const state = await getPushState(job.mailboxEmail);
+  const targetHistoryId = getLatestHistoryId(
+    job.targetHistoryId,
+    state?.pending_history_id
+  );
+
+  if (!state?.history_id) {
+    await advanceHistoryId(job.mailboxEmail, targetHistoryId);
+    return {
+      historyId: targetHistoryId,
+      initialized: true,
+      messagesQueued: 0
+    };
+  }
+
+  if (
+    targetHistoryId &&
+    isHistoryAtOrBeyond(state.history_id, targetHistoryId)
+  ) {
+    return {
+      duplicate: true,
+      historyId: state.history_id,
+      messagesQueued: 0
+    };
+  }
+
+  const startHistoryId = job.startHistoryId || state.history_id;
+  const oauthClient = await getAuthorizedClient();
+  let page;
+
+  try {
+    page = await listHistoryPage(oauthClient, startHistoryId, job.pageToken);
+  } catch (error) {
+    if (error.gmailStatus !== 404) {
+      throw error;
+    }
+
+    const recovery = await gmailInventoryEventsService.publishInboxRecovery({
+      mailboxEmail: job.mailboxEmail,
+      targetHistoryId: targetHistoryId || job.targetHistoryId
+    });
+
+    return {
+      historyExpired: true,
+      messagesQueued: 0,
+      recoveryJobKey: recovery.jobKey
+    };
+  }
+
+  const messagesQueued = await publishMessageJobs(
+    job.mailboxEmail,
+    page.messageIds
+  );
+  const latestHistoryId = getLatestHistoryId(
+    page.historyId,
+    targetHistoryId,
+    job.targetHistoryId
+  );
+
+  if (page.nextPageToken) {
+    const continuation =
+      await gmailInventoryEventsService.publishHistoryPage({
+        mailboxEmail: job.mailboxEmail,
+        pageToken: page.nextPageToken,
+        startHistoryId,
+        targetHistoryId: latestHistoryId
+      });
+
+    return {
+      continuationJobKey: continuation.jobKey,
+      historyId: latestHistoryId,
+      messagesQueued
+    };
+  }
+
+  await advanceHistoryId(job.mailboxEmail, latestHistoryId);
+  const followUpQueued = await queuePendingHistoryIfNeeded(job.mailboxEmail);
+
+  return {
+    followUpQueued,
+    historyId: latestHistoryId,
+    messagesQueued
+  };
+}
+
+async function processInboxRecoveryQueueJob(job) {
+  const oauthClient = await getAuthorizedClient();
+  const page = await listCurrentInboxMessagesPage(oauthClient, job.pageToken);
+  const messagesQueued = await publishMessageJobs(
+    job.mailboxEmail,
+    page.messageIds
+  );
+
+  if (page.nextPageToken) {
+    const continuation =
+      await gmailInventoryEventsService.publishInboxRecovery({
+        mailboxEmail: job.mailboxEmail,
+        pageToken: page.nextPageToken,
+        targetHistoryId: job.targetHistoryId
+      });
+
+    return {
+      continuationJobKey: continuation.jobKey,
+      messagesQueued,
+      recovering: true
+    };
+  }
+
+  const profile = await getProfile(oauthClient);
+  const historyId = getLatestHistoryId(
+    profile?.historyId,
+    job.targetHistoryId
+  );
+  await advanceHistoryId(job.mailboxEmail, historyId);
+  const followUpQueued = await queuePendingHistoryIfNeeded(job.mailboxEmail);
+
+  return {
+    followUpQueued,
+    historyId,
+    messagesQueued,
+    recovering: false
+  };
+}
+
+async function processGmailMessageQueueJob(job) {
+  const oauthClient = await getAuthorizedClient();
+
+  try {
+    return await processGmailMessage(oauthClient, job.gmailMessageId);
+  } catch (error) {
+    if (error.gmailStatus === 404) {
+      return {
+        gmailMessageId: job.gmailMessageId,
+        missing: true
+      };
+    }
+
+    throw error;
+  }
+}
+
+async function processQueuedJob(message) {
+  const job = normalizeQueueJob(message);
+  const expectedEmail = getMailboxEmail();
+
+  if (job.mailboxEmail !== expectedEmail) {
+    throw createHttpError(403, "Unexpected Gmail queue mailbox.");
+  }
+
+  if (job.kind === "history-scan" || job.kind === "history-page") {
+    return processHistoryQueueJob(job);
+  }
+
+  if (job.kind === "inbox-recovery") {
+    return processInboxRecoveryQueueJob(job);
+  }
+
+  if (job.kind === "gmail-message" && job.gmailMessageId) {
+    return processGmailMessageQueueJob(job);
+  }
+
+  throw createHttpError(400, "Unsupported Gmail queue job.");
 }
 
 async function processPushNotification({ authorizationHeader, body }) {
@@ -870,78 +1158,45 @@ async function processPushNotification({ authorizationHeader, body }) {
     throw createHttpError(403, "Unexpected Gmail mailbox notification.");
   }
 
-  const processingToken = await acquireProcessingLock(expectedEmail);
-
-  if (!processingToken) {
-    throw createHttpError(503, "Gmail notification processing is busy.");
-  }
-
+  const state = await recordPendingNotification(
+    expectedEmail,
+    notification.historyId
+  );
+  let wake;
   try {
-    const state = await getPushState(expectedEmail);
-
-    if (!state?.history_id) {
-      await advanceHistoryId(expectedEmail, notification.historyId);
-      return {
-        initialized: true,
-        historyId: notification.historyId,
-        messageId: notification.messageId
-      };
-    }
-
-    if (
-      /^\d+$/.test(state.history_id) &&
-      BigInt(notification.historyId) <= BigInt(state.history_id)
-    ) {
-      return {
-        duplicate: true,
-        historyId: state.history_id,
-        messageId: notification.messageId
-      };
-    }
-
-    const oauthClient = await getAuthorizedClient();
-    let history;
-    let totals;
-
-    try {
-      history = await listHistory(oauthClient, state.history_id);
-      totals = await processMessageIds(oauthClient, history.messageIds);
-    } catch (error) {
-      if (error.gmailStatus !== 404) {
-        throw error;
-      }
-
-      totals = await runInboxRecovery(oauthClient);
-      const profile = await getProfile(oauthClient);
-      history = {
-        historyId: normalizeText(profile?.historyId) || notification.historyId
-      };
-    }
-
-    await advanceHistoryId(
-      expectedEmail,
-      history.historyId || notification.historyId
-    );
-
-    return {
-      ...totals,
-      historyId: history.historyId || notification.historyId,
-      messageId: notification.messageId
-    };
-  } finally {
-    await releaseProcessingLock(expectedEmail, processingToken);
+    wake = await gmailInventoryEventsService.publishNotificationScan({
+      mailboxEmail: expectedEmail,
+      targetHistoryId: state.pending_history_id || notification.historyId
+    });
+  } catch (error) {
+    error.statusCode = 503;
+    throw error;
   }
+
+  return {
+    historyId: notification.historyId,
+    messageId: notification.messageId,
+    queueJobKey: wake.jobKey,
+    queueMessageId: wake.messageId,
+    queued: !wake.skipped
+  };
 }
 
 async function getConnectionStatus() {
   const mailboxEmail = getMailboxEmail();
-  const refreshToken = await getStoredRefreshToken(mailboxEmail);
-  const state = await getPushState(mailboxEmail);
+  const [refreshToken, state, queueJobs] = await Promise.all([
+    getStoredRefreshToken(mailboxEmail),
+    getPushState(mailboxEmail),
+    getQueueJobStats()
+  ]);
 
   return {
     connected: Boolean(refreshToken),
     email: mailboxEmail,
     historyId: normalizeText(state?.history_id),
+    pendingHistoryId: normalizeText(state?.pending_history_id),
+    queueFailedJobs: queueJobs.failed,
+    queuePendingJobs: queueJobs.pending,
     watchExpiration: state?.watch_expiration
       ? new Date(state.watch_expiration).toISOString()
       : "",
@@ -955,13 +1210,21 @@ module.exports = {
   completeOAuth,
   getAuthorizationUrl,
   getConnectionStatus,
+  completeQueueJob,
+  failQueueJob,
   processPushNotification,
+  processQueuedJob,
   renewWatch,
+  startQueueJob,
   _test: {
     decodePushMessage,
     decryptRefreshToken,
     encryptRefreshToken,
     getMessageLabelNames,
+    getLatestHistoryId,
+    gmailHistoryIdSqlPattern,
+    isHistoryAtOrBeyond,
+    normalizeQueueJob,
     verifyOAuthState
   }
 };
