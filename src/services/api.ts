@@ -14,6 +14,7 @@ import type {
   ProductDetails,
   ProductsResponse,
   ShopifyAvailabilityResponse,
+  ShopifyAvailabilityModifier,
   ShopifyAvailabilitySyncResponse,
   ShopifyAvailabilityStatus,
   StockCheckSort,
@@ -427,6 +428,7 @@ export function denyPriceAudit(vendorProductId: string) {
 
 export function updateShopifyProductAvailability({
   availability,
+  availabilityModifier,
   buildToOrderLeadTime,
   buildToOrderMessage,
   followUpDate,
@@ -434,6 +436,7 @@ export function updateShopifyProductAvailability({
   sku
 }: {
   availability: ShopifyAvailabilityStatus;
+  availabilityModifier?: ShopifyAvailabilityModifier | "";
   buildToOrderLeadTime?: string;
   buildToOrderMessage?: string;
   followUpDate: string;
@@ -447,6 +450,7 @@ export function updateShopifyProductAvailability({
     },
     body: JSON.stringify({
       availability,
+      availabilityModifier,
       buildToOrderLeadTime,
       buildToOrderMessage,
       followUpDate,

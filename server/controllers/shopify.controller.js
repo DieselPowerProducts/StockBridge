@@ -58,6 +58,7 @@ async function updateProductAvailability(req, res, next) {
     const result = await shopifyService.updateProductAvailability({
       sku: req.body.sku,
       availability: req.body.availability,
+      availabilityModifier: req.body.availabilityModifier,
       buildToOrderLeadTime: req.body.buildToOrderLeadTime,
       buildToOrderMessage: req.body.buildToOrderMessage,
       followUpDate: req.body.followUpDate,

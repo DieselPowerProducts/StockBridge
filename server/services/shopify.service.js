@@ -21,7 +21,8 @@ const availabilityValues = {
   in_stock: "In Stock",
   out_of_stock: "Out of Stock",
   backordered: "Backorder",
-  built_to_order: "Built to Order"
+  built_to_order: "Built to Order",
+  discontinued: "Discontinued"
 };
 const availabilityStatuses = new Set(Object.keys(availabilityValues));
 const shopifyCredentialProfiles = {
@@ -1052,6 +1053,7 @@ function normalizeAvailabilitySyncRecord(record) {
   }
 
   return {
+    allowDiscontinuedOverride: Boolean(record?.allowDiscontinuedOverride),
     availability,
     buildToOrderLeadTime: String(record?.buildToOrderLeadTime || "").trim(),
     buildToOrderMessage: normalizeBuildToOrderMessage(record?.buildToOrderMessage),
@@ -2011,11 +2013,15 @@ async function syncVariantAvailabilityMetafields(records, options = {}) {
   const failedTargets = targets.filter((target) => target.ok === false);
   const discontinuedTargets = targets.filter(
     (target) =>
-      target.ok !== false && hasDiscontinuedAvailability(target.variants)
+      target.ok !== false &&
+      hasDiscontinuedAvailability(target.variants) &&
+      !target.allowDiscontinuedOverride
   );
   const matchedTargets = targets.filter(
     (target) =>
-      target.ok !== false && !hasDiscontinuedAvailability(target.variants)
+      target.ok !== false &&
+      (!hasDiscontinuedAvailability(target.variants) ||
+        target.allowDiscontinuedOverride)
   );
   const targetChanges = matchedTargets.map((target) => ({
     target,
@@ -2085,6 +2091,7 @@ async function syncVariantAvailabilityMetafields(records, options = {}) {
 async function updateProductAvailability({
   sku,
   availability,
+  availabilityModifier,
   buildToOrderLeadTime,
   buildToOrderMessage,
   followUpDate,
@@ -2115,13 +2122,6 @@ async function updateProductAvailability({
     throw createHttpError(404, "No Shopify variants matched this SKU.");
   }
 
-  if (hasDiscontinuedAvailability(variantsToUpdate)) {
-    throw createHttpError(
-      409,
-      "Shopify availability is Discontinued and cannot be updated from StockBridge."
-    );
-  }
-
   const { deleteKeys, metafields, status } = getMetafieldChanges({
     ownerIds: variantIds,
     availability: requestedStatus,
@@ -2148,10 +2148,11 @@ async function updateProductAvailability({
         inventoryPolicy
       )
     : [];
-  const savedAvailabilityStatus =
+  const savedAvailabilityState =
     await shopifyAvailabilityStateService.setAvailabilityStatus({
       sku,
       availability: status,
+      availabilityModifier,
       buildToOrderLeadTime:
         status === "built_to_order" ? buildToOrderLeadTime : undefined
     });
@@ -2162,7 +2163,8 @@ async function updateProductAvailability({
   }
 
   return {
-    availability: savedAvailabilityStatus || status,
+    availability: savedAvailabilityState.availability || status,
+    availabilityModifier: savedAvailabilityState.availabilityModifier || "",
     availabilityText: availabilityValues[status],
     deletedMetafields,
     duplicateSkuMatchCount: productMatch.duplicateSkuMatchCount,

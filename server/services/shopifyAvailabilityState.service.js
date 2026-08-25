@@ -4,7 +4,13 @@ const availabilityStatuses = new Set([
   "in_stock",
   "out_of_stock",
   "backordered",
-  "built_to_order"
+  "built_to_order",
+  "discontinued"
+]);
+const availabilityModifiers = new Set([
+  "out_of_stock",
+  "built_to_order",
+  "discontinued"
 ]);
 
 let schemaReady;
@@ -20,6 +26,15 @@ function normalizeAvailabilityStatus(value) {
     .replace(/[\s-]+/g, "_");
 
   return availabilityStatuses.has(normalized) ? normalized : "";
+}
+
+function normalizeAvailabilityModifier(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  return availabilityModifiers.has(normalized) ? normalized : "";
 }
 
 function normalizeBuildToOrderLeadTime(value) {
@@ -51,10 +66,21 @@ async function initializeSchema() {
         CREATE TABLE IF NOT EXISTS product_shopify_availability_state (
           sku TEXT PRIMARY KEY,
           availability_status TEXT NOT NULL,
+          availability_modifier TEXT NOT NULL DEFAULT '',
           build_to_order_lead_time TEXT NOT NULL DEFAULT '',
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+      `;
+      await sql`
+        ALTER TABLE product_shopify_availability_state
+        ADD COLUMN IF NOT EXISTS availability_modifier TEXT NOT NULL DEFAULT ''
+      `;
+      await sql`
+        UPDATE product_shopify_availability_state
+        SET availability_modifier = availability_status
+        WHERE availability_modifier = ''
+          AND availability_status IN ('built_to_order', 'out_of_stock')
       `;
       await sql`
         ALTER TABLE product_shopify_availability_state
@@ -96,6 +122,55 @@ async function getBuildToOrderLeadTimeForSku(sku) {
   `;
 
   return String(rows[0]?.build_to_order_lead_time || "").trim();
+}
+
+async function getAvailabilityModifierForSku(sku) {
+  assertSku(sku);
+  await initializeSchema();
+
+  const sql = getSql();
+  const safeSku = normalizeSku(sku);
+  const rows = await sql`
+    SELECT availability_modifier
+    FROM product_shopify_availability_state
+    WHERE sku = ${safeSku}
+    LIMIT 1
+  `;
+
+  return normalizeAvailabilityModifier(rows[0]?.availability_modifier);
+}
+
+async function getAvailabilityModifiersForSkus(skus) {
+  const safeSkus = Array.from(
+    new Set((skus || []).map(normalizeSku).filter(Boolean))
+  );
+
+  if (safeSkus.length === 0) {
+    return new Map();
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql.query(
+    `
+      SELECT sku, availability_modifier
+      FROM product_shopify_availability_state
+      WHERE sku IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+    `,
+    [JSON.stringify(safeSkus)]
+  );
+
+  return new Map(
+    rows
+      .map((row) => [
+        normalizeSku(row?.sku),
+        normalizeAvailabilityModifier(row?.availability_modifier)
+      ])
+      .filter(([sku, modifier]) => sku && modifier)
+  );
 }
 
 async function getBuildToOrderLeadTimesForSkus(skus) {
@@ -169,11 +244,16 @@ async function getAvailabilityStatusesForSkus(skus) {
 async function setAvailabilityStatus({
   sku,
   availability,
+  availabilityModifier,
   buildToOrderLeadTime
 }) {
   assertSku(sku);
   const safeAvailability = normalizeAvailabilityStatus(availability);
   const shouldUpdateLeadTime = buildToOrderLeadTime !== undefined;
+  const shouldUpdateModifier = availabilityModifier !== undefined;
+  const safeAvailabilityModifier = shouldUpdateModifier
+    ? normalizeAvailabilityModifier(availabilityModifier)
+    : "";
   const safeBuildToOrderLeadTime = shouldUpdateLeadTime
     ? normalizeBuildToOrderLeadTime(buildToOrderLeadTime)
     : "";
@@ -192,15 +272,23 @@ async function setAvailabilityStatus({
     INSERT INTO product_shopify_availability_state (
       sku,
       availability_status,
+      availability_modifier,
       build_to_order_lead_time
     )
     VALUES (
       ${safeSku},
       ${safeAvailability},
+      ${safeAvailabilityModifier},
       ${safeBuildToOrderLeadTime}
     )
     ON CONFLICT (sku) DO UPDATE
     SET availability_status = EXCLUDED.availability_status,
+        availability_modifier =
+          CASE
+            WHEN ${shouldUpdateModifier}
+            THEN EXCLUDED.availability_modifier
+            ELSE product_shopify_availability_state.availability_modifier
+          END,
         build_to_order_lead_time =
           CASE
             WHEN ${shouldUpdateLeadTime}
@@ -208,10 +296,15 @@ async function setAvailabilityStatus({
             ELSE product_shopify_availability_state.build_to_order_lead_time
           END,
         updated_at = now()
-    RETURNING availability_status
+    RETURNING availability_status, availability_modifier
   `;
 
-  return normalizeAvailabilityStatus(rows[0]?.availability_status);
+  return {
+    availability: normalizeAvailabilityStatus(rows[0]?.availability_status),
+    availabilityModifier: normalizeAvailabilityModifier(
+      rows[0]?.availability_modifier
+    )
+  };
 }
 
 async function setAvailabilityStatuses(records) {
@@ -333,10 +426,13 @@ async function setBuildToOrderLeadTime({ sku, buildToOrderLeadTime }) {
 }
 
 module.exports = {
+  getAvailabilityModifierForSku,
+  getAvailabilityModifiersForSkus,
   getAvailabilityStatusForSku,
   getAvailabilityStatusesForSkus,
   getBuildToOrderLeadTimeForSku,
   getBuildToOrderLeadTimesForSkus,
+  initializeSchema,
   setAvailabilityStatus,
   setAvailabilityStatuses,
   setBuildToOrderLeadTime

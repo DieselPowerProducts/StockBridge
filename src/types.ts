@@ -67,7 +67,12 @@ export type ShopifyAvailabilityStatus =
   | "in_stock"
   | "out_of_stock"
   | "backordered"
-  | "built_to_order";
+  | "built_to_order"
+  | "discontinued";
+export type ShopifyAvailabilityModifier =
+  | "out_of_stock"
+  | "built_to_order"
+  | "discontinued";
 export type ShopifyAvailabilitySyncResponse = {
   availabilityCounts: Partial<Record<ShopifyAvailabilityStatus, number>>;
   hasNextPage: boolean;
@@ -180,6 +185,7 @@ export type InventoryAuditResponse = {
 
 export type ShopifyAvailabilityResponse = {
   availability: ShopifyAvailabilityStatus;
+  availabilityModifier: ShopifyAvailabilityModifier | "";
   availabilityText: string;
   duplicateSkuMatchCount: number;
   handle: string;
@@ -278,6 +284,7 @@ export type ProductDetails = {
   followUpDate: string;
   followUpNoEta: boolean;
   shopifyAvailabilityStatus: ShopifyAvailabilityStatus | "";
+  shopifyAvailabilityModifier: ShopifyAvailabilityModifier | "";
   builtToOrderLeadTime: string;
   childProducts: ProductKitChild[];
   parentKits: ProductParentKit[];

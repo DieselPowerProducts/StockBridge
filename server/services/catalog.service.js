@@ -1957,9 +1957,21 @@ function getLatestBackorderFollowUpDateForKit(
   return latestFollowUpDate;
 }
 
-function mapProductAvailabilityToShopifyStatus(product, savedAvailabilityStatus) {
+function mapProductAvailabilityToShopifyStatus(
+  product,
+  savedAvailabilityStatus,
+  availabilityModifier = ""
+) {
   if (product.availability === "Available") {
     return "in_stock";
+  }
+
+  if (
+    availabilityModifier === "built_to_order" ||
+    availabilityModifier === "out_of_stock" ||
+    availabilityModifier === "discontinued"
+  ) {
+    return availabilityModifier;
   }
 
   if (product.availability === "Built to Order") {
@@ -1979,13 +1991,15 @@ function getShopifyAvailabilityRecord({
   productVendorAvailability,
   followUpInfo,
   followUpInfoBySku,
+  shopifyAvailabilityModifier,
   shopifyAvailabilityStatus,
   shopifyAvailabilityBySku,
   buildToOrderLeadTimeBySku
 }) {
   const availability = mapProductAvailabilityToShopifyStatus(
     product,
-    shopifyAvailabilityStatus
+    shopifyAvailabilityStatus,
+    shopifyAvailabilityModifier
   );
   const buildToOrderLeadTime =
     availability === "built_to_order"
@@ -2014,6 +2028,8 @@ function getShopifyAvailabilityRecord({
       : followUpInfo?.followUpDate || kitBackorderFollowUpDate || "";
 
   return {
+    allowDiscontinuedOverride:
+      shopifyAvailabilityModifier === "discontinued",
     sku: product.sku,
     productName: product.name,
     availability,
@@ -2032,11 +2048,13 @@ async function buildShopifyAvailabilityRecords(rows) {
   const [
     productVendorAvailability,
     followUpInfoBySku,
+    shopifyAvailabilityModifierBySku,
     shopifyAvailabilityBySku,
     buildToOrderLeadTimeBySku
   ] = await Promise.all([
     getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
     followUpsService.getFollowUpInfoForSkus(graphSkus),
+    shopifyAvailabilityStateService.getAvailabilityModifiersForSkus(graphSkus),
     shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus),
     shopifyAvailabilityStateService.getBuildToOrderLeadTimesForSkus(graphSkus)
   ]);
@@ -2060,6 +2078,8 @@ async function buildShopifyAvailabilityRecords(rows) {
       productVendorAvailability,
       followUpInfo: followUpInfoBySku.get(product.sku),
       followUpInfoBySku,
+      shopifyAvailabilityModifier:
+        shopifyAvailabilityModifierBySku.get(product.sku) || "",
       shopifyAvailabilityStatus: shopifyAvailabilityBySku.get(product.sku) || "",
       shopifyAvailabilityBySku,
       buildToOrderLeadTimeBySku
@@ -3555,10 +3575,12 @@ async function listProducts(queryParams = {}) {
   const graphSkus = getProductGraphSkus(productGraph);
   const [
     productVendorAvailability,
+    shopifyAvailabilityModifierBySku,
     shopifyAvailabilityBySku,
     buildToOrderLeadTimeBySku
   ] = await Promise.all([
     getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
+    shopifyAvailabilityStateService.getAvailabilityModifiersForSkus(graphSkus),
     shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus),
     shopifyAvailabilityStateService.getBuildToOrderLeadTimesForSkus(graphSkus)
   ]);
@@ -3604,11 +3626,13 @@ async function getProductDetails(sku) {
   const graphSkus = getProductGraphSkus(productGraph);
   const [
     productVendorAvailability,
+    shopifyAvailabilityModifierBySku,
     shopifyAvailabilityBySku,
     buildToOrderLeadTimeBySku,
     childFollowUpInfoBySku
   ] = await Promise.all([
     getProductVendorAvailabilityInfo(getProductGraphProductIds(productGraph)),
+    shopifyAvailabilityStateService.getAvailabilityModifiersForSkus(graphSkus),
     shopifyAvailabilityStateService.getAvailabilityStatusesForSkus(graphSkus),
     shopifyAvailabilityStateService.getBuildToOrderLeadTimesForSkus(graphSkus),
     followUpsService.getFollowUpInfoForSkus(graphSkus)
@@ -3618,6 +3642,10 @@ async function getProductDetails(sku) {
     "";
   const shopifyAvailabilityStatus =
     shopifyAvailabilityBySku.get(productNode?.sku || product.sku || safeSku) || "";
+  const shopifyAvailabilityModifier =
+    shopifyAvailabilityModifierBySku.get(
+      productNode?.sku || product.sku || safeSku
+    ) || "";
   const qtyAvailable = productNode
     ? getEffectiveQtyAvailable(
         productNode.sku,
@@ -3759,6 +3787,7 @@ async function getProductDetails(sku) {
     followUpDate: followUpInfo.followUpDate,
     followUpNoEta: followUpInfo.followUpNoEta,
     shopifyAvailabilityStatus,
+    shopifyAvailabilityModifier,
     builtToOrderLeadTime,
     childProducts,
     parentKits,
@@ -4120,6 +4149,7 @@ module.exports = {
   _test: {
     getEffectiveAvailability,
     getEffectiveQtyAvailable,
+    mapProductAvailabilityToShopifyStatus,
     shouldIncludeBuiltToOrderProductInStockCheck
   }
 };

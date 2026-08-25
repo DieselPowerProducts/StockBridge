@@ -1,5 +1,6 @@
 const { getSql } = require("../db/neon");
 const shopifyAvailabilityEventsService = require("./shopifyAvailabilityEvents.service");
+const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 
 const defaultDelaySeconds = 30;
 const defaultProcessLimit = 100;
@@ -165,7 +166,10 @@ async function removeAvailabilitySync(sku, { revision = null } = {}) {
 }
 
 async function enqueueNightlyReconciliation() {
-  await initializeSchema();
+  await Promise.all([
+    initializeSchema(),
+    shopifyAvailabilityStateService.initializeSchema()
+  ]);
 
   const sql = getSql();
   const rows = await sql`
@@ -184,6 +188,7 @@ async function enqueueNightlyReconciliation() {
     WHERE lower(COALESCE(product.state, 'Active')) = 'active'
       AND (
         state.availability_status <> 'in_stock'
+        OR COALESCE(state.availability_modifier, '') <> ''
         OR state.updated_at >= now() - INTERVAL '2 days'
         OR product.is_kit = TRUE
         OR (

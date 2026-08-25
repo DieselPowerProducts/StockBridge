@@ -39,6 +39,7 @@ import type {
   ProductParentKit,
   ProductAvailability,
   ProductStockUpdate,
+  ShopifyAvailabilityModifier,
   ShopifyAvailabilityStatus,
   VendorContact,
   VendorSummary,
@@ -80,14 +81,20 @@ type VendorProductDetailsDraft = {
 };
 
 const newTemplateValue = "__new_template__";
-const shopifyAvailabilityOptions: Array<{
+const stockAvailabilityOptions: Array<{
   label: string;
-  status: ShopifyAvailabilityStatus;
+  status: "in_stock" | "backordered";
 }> = [
   { label: "In Stock", status: "in_stock" },
-  { label: "Out of Stock", status: "out_of_stock" },
-  { label: "Backordered", status: "backordered" },
-  { label: "Built to Order", status: "built_to_order" }
+  { label: "Backordered", status: "backordered" }
+];
+const availabilityModifierOptions: Array<{
+  label: string;
+  status: ShopifyAvailabilityModifier;
+}> = [
+  { label: "BTO", status: "built_to_order" },
+  { label: "Remove ATC", status: "out_of_stock" },
+  { label: "Discontinued", status: "discontinued" }
 ];
 
 function formatFollowUpDate(value: string) {
@@ -241,18 +248,6 @@ function getProductDetailsBuiltToOrderLeadTime(
     getBuiltToOrderVendor(productDetails)?.buildTime ||
     productDetails?.builtToOrderLeadTime ||
     ""
-  );
-}
-
-function canPushBuiltToOrderAvailability(productDetails: ProductDetails) {
-  const assignedVendors = productDetails.vendors.filter(
-    (vendor) => vendor.stockSource === "vendor"
-  );
-
-  return (
-    assignedVendors.length > 0 &&
-    Number(productDetails.qtyAvailable || 0) <= 0 &&
-    productDetails.vendors.every((vendor) => Number(vendor.quantity || 0) <= 0)
   );
 }
 
@@ -410,6 +405,13 @@ function getShopifyAvailabilityStatus(
     return "in_stock";
   }
 
+  if (
+    savedAvailability === "discontinued" ||
+    currentAvailability === "discontinued"
+  ) {
+    return "discontinued";
+  }
+
   if (savedAvailability === "out_of_stock" || currentAvailability === "out_of_stock") {
     return "out_of_stock";
   }
@@ -450,6 +452,22 @@ function getDisplayedShopifyAvailabilityStatus(
   );
 }
 
+function getDisplayedShopifyAvailabilityModifier(
+  productDetails: ProductDetails
+): ShopifyAvailabilityModifier | "" {
+  if (productDetails.shopifyAvailabilityModifier) {
+    return productDetails.shopifyAvailabilityModifier;
+  }
+
+  const savedAvailability = productDetails.shopifyAvailabilityStatus;
+
+  return savedAvailability === "built_to_order" ||
+    savedAvailability === "out_of_stock" ||
+    savedAvailability === "discontinued"
+    ? savedAvailability
+    : "";
+}
+
 function getProductAvailabilityFromShopifyStatus(
   status: ShopifyAvailabilityStatus | "",
   productDetails?: ProductDetails
@@ -469,6 +487,7 @@ function getProductAvailabilityFromShopifyStatus(
       return "Built to Order";
     case "out_of_stock":
     case "backordered":
+    case "discontinued":
       return productDetails && !hasAssignedVendor ? "Available" : "Backorder";
     default:
       return "";
@@ -652,6 +671,10 @@ export function NotesModal({
     currentShopifyAvailability,
     setCurrentShopifyAvailability
   ] = useState<ShopifyAvailabilityStatus | "">("");
+  const [
+    shopifyAvailabilityModifier,
+    setShopifyAvailabilityModifier
+  ] = useState<ShopifyAvailabilityModifier | "">("");
   const [isBuiltToOrderLeadTimeOpen, setIsBuiltToOrderLeadTimeOpen] =
     useState(false);
   const [builtToOrderLeadTime, setBuiltToOrderLeadTime] = useState("");
@@ -691,6 +714,9 @@ export function NotesModal({
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
       setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
+      setShopifyAvailabilityModifier(
+        getDisplayedShopifyAvailabilityModifier(result)
+      );
       setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       savedBuiltToOrderLeadTimeRef.current = String(
         result.builtToOrderLeadTime || ""
@@ -704,6 +730,7 @@ export function NotesModal({
       setFollowUpDate("");
       setFollowUpNoEta(false);
       setCurrentShopifyAvailability("");
+      setShopifyAvailabilityModifier("");
       setBuiltToOrderLeadTime("");
       savedBuiltToOrderLeadTimeRef.current = "";
     } finally {
@@ -725,6 +752,9 @@ export function NotesModal({
       setCurrentShopifyAvailability(
         getDisplayedShopifyAvailabilityStatus(result.productDetails)
       );
+      setShopifyAvailabilityModifier(
+        getDisplayedShopifyAvailabilityModifier(result.productDetails)
+      );
       setBuiltToOrderLeadTime(
         getProductDetailsBuiltToOrderLeadTime(result.productDetails)
       );
@@ -741,6 +771,7 @@ export function NotesModal({
       setFollowUpDate("");
       setFollowUpNoEta(false);
       setCurrentShopifyAvailability("");
+      setShopifyAvailabilityModifier("");
       setBuiltToOrderLeadTime("");
       savedBuiltToOrderLeadTimeRef.current = "";
     } finally {
@@ -821,6 +852,7 @@ export function NotesModal({
     setIsShopifyAvailabilitySaving(false);
     setShopifyAvailabilityStatus("");
     setCurrentShopifyAvailability("");
+    setShopifyAvailabilityModifier("");
     setIsBuiltToOrderLeadTimeOpen(false);
     setBuiltToOrderLeadTime("");
     savedBuiltToOrderLeadTimeRef.current = "";
@@ -1019,9 +1051,15 @@ export function NotesModal({
   }
 
   function setDisplayedShopifyAvailability(
-    availability: ShopifyAvailabilityStatus
+    availability: ShopifyAvailabilityStatus,
+    availabilityModifier?: ShopifyAvailabilityModifier | ""
   ) {
     setCurrentShopifyAvailability(availability);
+
+    if (availabilityModifier !== undefined) {
+      setShopifyAvailabilityModifier(availabilityModifier);
+    }
+
     setProductDetails((current) =>
       current
         ? (() => {
@@ -1033,7 +1071,10 @@ export function NotesModal({
               ...(productAvailability
                 ? { availability: productAvailability }
                 : {}),
-              shopifyAvailabilityStatus: availability
+              shopifyAvailabilityStatus: availability,
+              ...(availabilityModifier !== undefined
+                ? { shopifyAvailabilityModifier: availabilityModifier }
+                : {})
             };
           })()
         : current
@@ -1143,7 +1184,9 @@ export function NotesModal({
     }
   }
 
-  async function handleFollowUpNoEtaChange(checked: boolean) {
+  async function saveFollowUpNoEta(
+    checked: boolean
+  ): Promise<ProductDetails | null> {
     setFollowUpNoEta(checked);
     setDetailsError("");
     setShopifyAvailabilityStatus("");
@@ -1158,22 +1201,16 @@ export function NotesModal({
 
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
-      setProductDetails((current) =>
-        current
-          ? {
-              ...current,
-              followUpDate: result.followUpDate || "",
-              followUpNoEta: Boolean(result.followUpNoEta)
-            }
-          : current
-      );
-      if (productDetails) {
-        const nextProductDetails = {
-          ...productDetails,
-          followUpDate: result.followUpDate || "",
-          followUpNoEta: Boolean(result.followUpNoEta)
-        };
+      const nextProductDetails = productDetails
+        ? {
+            ...productDetails,
+            followUpDate: result.followUpDate || "",
+            followUpNoEta: Boolean(result.followUpNoEta)
+          }
+        : null;
 
+      setProductDetails(nextProductDetails);
+      if (nextProductDetails) {
         onProductStockChanged?.({
           ...getProductDetailsStockUpdate(nextProductDetails),
           followUpDate: result.followUpDate || "",
@@ -1182,11 +1219,13 @@ export function NotesModal({
       }
       onInventoryAuditResolved?.(result.sku || sku);
       onFollowUpSaved();
+      return nextProductDetails;
     } catch (err) {
       setFollowUpNoEta(!checked);
       setDetailsError(
         err instanceof Error ? err.message : "Unable to save No ETA."
       );
+      return null;
     } finally {
       setIsFollowUpSaving(false);
     }
@@ -1273,6 +1312,9 @@ export function NotesModal({
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
       setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
+      setShopifyAvailabilityModifier(
+        getDisplayedShopifyAvailabilityModifier(result)
+      );
       setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       savedBuiltToOrderLeadTimeRef.current = String(
         result.builtToOrderLeadTime || ""
@@ -1408,6 +1450,9 @@ export function NotesModal({
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
       setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
+      setShopifyAvailabilityModifier(
+        getDisplayedShopifyAvailabilityModifier(result)
+      );
       setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       savedBuiltToOrderLeadTimeRef.current = String(
         result.builtToOrderLeadTime || ""
@@ -1458,6 +1503,9 @@ export function NotesModal({
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
       setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
+      setShopifyAvailabilityModifier(
+        getDisplayedShopifyAvailabilityModifier(result)
+      );
       setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
       savedBuiltToOrderLeadTimeRef.current = String(
         result.builtToOrderLeadTime || ""
@@ -1497,6 +1545,9 @@ export function NotesModal({
       setCurrentShopifyAvailability(
         getDisplayedShopifyAvailabilityStatus(refreshedDetails)
       );
+      setShopifyAvailabilityModifier(
+        getDisplayedShopifyAvailabilityModifier(refreshedDetails)
+      );
       setBuiltToOrderLeadTime(
         getProductDetailsBuiltToOrderLeadTime(refreshedDetails)
       );
@@ -1511,6 +1562,9 @@ export function NotesModal({
         setFollowUpNoEta(Boolean(fallbackDetails.followUpNoEta));
         setCurrentShopifyAvailability(
           getDisplayedShopifyAvailabilityStatus(fallbackDetails)
+        );
+        setShopifyAvailabilityModifier(
+          getDisplayedShopifyAvailabilityModifier(fallbackDetails)
         );
         setBuiltToOrderLeadTime(
           getProductDetailsBuiltToOrderLeadTime(fallbackDetails)
@@ -1797,17 +1851,18 @@ export function NotesModal({
   const visibleAssignedVendors = isKitParent ? warehouseVendors : vendors;
   const editableVendors = isKitParent ? [] : vendors.filter(canUpdateVendorStock);
   const builtToOrderVendor = getBuiltToOrderVendor(productDetails);
-  const productStockQuantity = Math.max(
-    Number(productDetails?.qtyAvailable || 0),
-    getVendorDrivenAvailability(vendors).qtyAvailable
-  );
-  const hasProductStock = productStockQuantity > 0;
+  const currentStockAvailability: "in_stock" | "backordered" =
+    currentShopifyAvailability === "in_stock" ||
+    productDetails?.availability === "Available"
+      ? "in_stock"
+      : "backordered";
   const builtToOrderLeadTimeValue =
     builtToOrderVendor?.buildTime || builtToOrderLeadTime;
   const builtToOrderMessagePreview = formatBuiltToOrderMessage(
     builtToOrderLeadTimeValue
   );
   const shouldShowBuiltToOrderLeadTime =
+    shopifyAvailabilityModifier === "built_to_order" ||
     currentShopifyAvailability === "built_to_order" ||
     isBuiltToOrderLeadTimeOpen ||
     productDetails?.availability === "Built to Order";
@@ -1935,53 +1990,142 @@ export function NotesModal({
     return productDetails;
   }
 
-  async function handleShopifyAvailabilityChange(
-    availability: ShopifyAvailabilityStatus
+  function getEffectiveShopifyAvailability(
+    details: ProductDetails,
+    modifier: ShopifyAvailabilityModifier | "",
+    { defaultToBackorder = false } = {}
+  ): ShopifyAvailabilityStatus {
+    if (
+      Number(details.qtyAvailable || 0) > 0 ||
+      details.availability === "Available"
+    ) {
+      return "in_stock";
+    }
+
+    if (modifier) {
+      return modifier;
+    }
+
+    if (!defaultToBackorder && details.availability === "Built to Order") {
+      return "built_to_order";
+    }
+
+    return "backordered";
+  }
+
+  async function saveShopifyAvailability(
+    detailsForShopify: ProductDetails,
+    availability: ShopifyAvailabilityStatus,
+    modifier: ShopifyAvailabilityModifier | ""
+  ) {
+    const result = await updateShopifyProductAvailability({
+      sku,
+      availability,
+      availabilityModifier: modifier,
+      buildToOrderLeadTime: getShopifyBuildToOrderLeadTime(
+        detailsForShopify,
+        availability
+      ),
+      buildToOrderMessage: getShopifyBuildToOrderMessage(
+        detailsForShopify,
+        availability
+      ),
+      followUpDate: getShopifyFollowUpDate(detailsForShopify, availability),
+      productName: detailsForShopify.name || ""
+    });
+
+    setDisplayedShopifyAvailability(
+      result.availability,
+      result.availabilityModifier
+    );
+    setShopifyAvailabilityStatus(
+      `Shopify set to ${result.availabilityText} on ${
+        result.productTitle || result.matchedSku
+      } for ${result.updatedMetafieldOwnerCount} variant${
+        result.updatedMetafieldOwnerCount === 1 ? "" : "s"
+      }${
+        result.duplicateSkuMatchCount > 1
+          ? ` (${result.duplicateSkuMatchCount} SKU matches found)`
+          : ""
+      }${
+        availability === "out_of_stock"
+          ? ` and ${result.updatedInventoryPolicyCount} variant${
+              result.updatedInventoryPolicyCount === 1 ? "" : "s"
+            } set to stop overselling`
+          : ""
+      }.`
+    );
+
+    onProductStockChanged?.(
+      getProductDetailsStockUpdateWithShopifyAvailability(
+        detailsForShopify,
+        result.availability
+      )
+    );
+  }
+
+  async function handleStockAvailabilityChange(
+    availability: "in_stock" | "backordered"
   ) {
     if (!productDetails || isShopifyAvailabilitySaving) {
       return;
     }
 
-    if (availability === "backordered" && hasProductStock) {
-      setDetailsError(
-        `This product has ${formatStockQuantity(
-          productStockQuantity
-        )} in stock, so it cannot be set to Backordered.`
-      );
-      setShopifyAvailabilityStatus("");
-      return;
-    }
-
-    const isBuiltToOrder = availability === "built_to_order";
-    const hasBuiltToOrderVendor = vendors.some(
-      (vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder
-    );
-
-    if (isBuiltToOrder) {
-      setIsBuiltToOrderLeadTimeOpen(true);
-
-      if (!canPushBuiltToOrderAvailability(productDetails)) {
-        setDetailsError("");
-        setShopifyAvailabilityStatus(
-          "Built to Order will update Shopify once every assigned vendor is out of stock."
-        );
-        return;
-      }
-    }
-
     setDetailsError("");
     setShopifyAvailabilityStatus("");
-    setDisplayedShopifyAvailability(availability);
     setIsShopifyAvailabilitySaving(true);
 
     try {
       const nextProductDetails =
-        isBuiltToOrder
-          ? productDetails
-          : availability === "in_stock"
+        availability === "in_stock"
           ? await handleAllVendorStockChange(true, { syncShopify: false })
           : await handleAllVendorStockChange(false, { syncShopify: false });
-      let detailsForShopify = nextProductDetails || productDetails;
+      const detailsForShopify = nextProductDetails || productDetails;
+      const effectiveAvailability = getEffectiveShopifyAvailability(
+        detailsForShopify,
+        shopifyAvailabilityModifier
+      );
+
+      await saveShopifyAvailability(
+        detailsForShopify,
+        effectiveAvailability,
+        shopifyAvailabilityModifier
+      );
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? `Unable to update Shopify availability: ${err.message}`
+          : "Unable to update Shopify availability."
+      );
+    } finally {
+      setIsShopifyAvailabilitySaving(false);
+    }
+  }
+
+  async function saveAvailabilityModifier(
+    nextModifier: ShopifyAvailabilityModifier | "",
+    details: ProductDetails,
+    previousModifier: ShopifyAvailabilityModifier | ""
+  ): Promise<boolean> {
+    const isBuiltToOrder = nextModifier === "built_to_order";
+    const hasBuiltToOrderVendor = details.vendors.some(
+      (vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder
+    );
+
+    if (
+      nextModifier === "built_to_order" ||
+      previousModifier === "built_to_order"
+    ) {
+      setIsBuiltToOrderLeadTimeOpen(nextModifier === "built_to_order");
+    }
+
+    setDetailsError("");
+    setShopifyAvailabilityStatus("");
+    setShopifyAvailabilityModifier(nextModifier);
+    setIsShopifyAvailabilitySaving(true);
+
+    try {
+      let detailsForShopify = details;
 
       if (isBuiltToOrder && !hasBuiltToOrderVendor) {
         const savedLeadTime = await updateProductBuiltToOrderLeadTime({
@@ -2005,63 +2149,96 @@ export function NotesModal({
         );
       }
 
-      // Re-apply after stock changes because the product refresh can return the
-      // last saved Shopify value before the new push completes.
-      setDisplayedShopifyAvailability(availability);
-      onProductStockChanged?.(
-        getProductDetailsStockUpdateWithShopifyAvailability(
-          detailsForShopify,
-          availability
-        )
-      );
-      const result = await updateShopifyProductAvailability({
-        sku,
-        availability,
-        buildToOrderLeadTime: getShopifyBuildToOrderLeadTime(
-          detailsForShopify,
-          availability
-        ),
-        buildToOrderMessage: getShopifyBuildToOrderMessage(
-          detailsForShopify,
-          availability
-        ),
-        followUpDate: getShopifyFollowUpDate(detailsForShopify, availability),
-        productName: detailsForShopify.name || ""
-      });
-
-      setDisplayedShopifyAvailability(result.availability);
-      setShopifyAvailabilityStatus(
-        `Shopify set to ${result.availabilityText} on ${
-          result.productTitle || result.matchedSku
-        } for ${result.updatedMetafieldOwnerCount} variant${
-          result.updatedMetafieldOwnerCount === 1 ? "" : "s"
-        }${
-          result.duplicateSkuMatchCount > 1
-            ? ` (${result.duplicateSkuMatchCount} SKU matches found)`
-            : ""
-        }${
-          availability === "out_of_stock"
-            ? ` and ${result.updatedInventoryPolicyCount} variant${
-                result.updatedInventoryPolicyCount === 1 ? "" : "s"
-              } set to stop overselling`
-            : ""
-        }.`
+      const effectiveAvailability = getEffectiveShopifyAvailability(
+        detailsForShopify,
+        nextModifier,
+        { defaultToBackorder: !nextModifier }
       );
 
-      onProductStockChanged?.(
-        getProductDetailsStockUpdateWithShopifyAvailability(
-          detailsForShopify,
-          result.availability
-        )
+      await saveShopifyAvailability(
+        detailsForShopify,
+        effectiveAvailability,
+        nextModifier
       );
+      return true;
     } catch (err) {
+      setShopifyAvailabilityModifier(previousModifier);
       setDetailsError(
         err instanceof Error
           ? `Unable to update Shopify availability: ${err.message}`
           : "Unable to update Shopify availability."
       );
+      return false;
     } finally {
       setIsShopifyAvailabilitySaving(false);
+    }
+  }
+
+  async function handleAvailabilityModifierChange(
+    modifier: ShopifyAvailabilityModifier
+  ) {
+    if (
+      !productDetails ||
+      isShopifyAvailabilitySaving ||
+      isFollowUpSaving
+    ) {
+      return;
+    }
+
+    const previousModifier = shopifyAvailabilityModifier;
+    const nextModifier = previousModifier === modifier ? "" : modifier;
+    let detailsForShopify = productDetails;
+
+    if (nextModifier && followUpNoEta) {
+      const updatedDetails = await saveFollowUpNoEta(false);
+
+      if (!updatedDetails) {
+        return;
+      }
+
+      detailsForShopify = updatedDetails;
+    }
+
+    await saveAvailabilityModifier(
+      nextModifier,
+      detailsForShopify,
+      previousModifier
+    );
+  }
+
+  async function handleNoEtaButtonChange() {
+    if (
+      !productDetails ||
+      isShopifyAvailabilitySaving ||
+      isFollowUpSaving
+    ) {
+      return;
+    }
+
+    const nextNoEta = !followUpNoEta;
+    const previousModifier = shopifyAvailabilityModifier;
+
+    if (!nextNoEta || !previousModifier) {
+      await saveFollowUpNoEta(nextNoEta);
+      return;
+    }
+
+    setShopifyAvailabilityModifier("");
+    const updatedDetails = await saveFollowUpNoEta(true);
+
+    if (!updatedDetails) {
+      setShopifyAvailabilityModifier(previousModifier);
+      return;
+    }
+
+    const modifierCleared = await saveAvailabilityModifier(
+      "",
+      updatedDetails,
+      previousModifier
+    );
+
+    if (!modifierCleared) {
+      await saveFollowUpNoEta(false);
     }
   }
 
@@ -2090,50 +2267,81 @@ export function NotesModal({
           <aside className="assigned-vendors-panel" aria-labelledby="assignedVendorsHeading">
             <div className="shopify-availability-panel">
               <div
-                className="shopify-availability-actions"
+                className="shopify-stock-actions"
                 role="group"
-                aria-label="Shopify product availability"
+                aria-label="Stock state"
               >
-                {shopifyAvailabilityOptions.map((option) => {
-                  const isBackorderedBlocked =
-                    option.status === "backordered" && hasProductStock;
-
-                  return (
+                {stockAvailabilityOptions.map((option) => (
                   <button
                     key={option.status}
                     type="button"
                     className={getShopifyAvailabilityButtonClass(
                       option.status,
-                      currentShopifyAvailability
+                      currentStockAvailability
                     )}
-                    aria-pressed={option.status === currentShopifyAvailability}
+                    aria-pressed={option.status === currentStockAvailability}
                     disabled={
                       !productDetails ||
                       isShopifyAvailabilitySaving ||
                       isFollowUpSaving ||
-                      isBulkVendorStockSaving ||
-                      isBackorderedBlocked
+                      isBulkVendorStockSaving
                     }
-                    title={
-                      isBackorderedBlocked
-                        ? `StockBridge shows ${formatStockQuantity(
-                            productStockQuantity
-                          )} in stock.`
-                        : undefined
-                    }
-                    onClick={() => handleShopifyAvailabilityChange(option.status)}
+                    onClick={() => handleStockAvailabilityChange(option.status)}
                   >
                     {option.label}
                   </button>
-                  );
-                })}
+                ))}
               </div>
 
-              {hasProductStock && (
-                <p className="shopify-availability-note">
-                  Backordered is disabled while StockBridge shows stock.
-                </p>
-              )}
+              <div
+                className="shopify-availability-modifiers"
+                role="group"
+                aria-label="Optional availability state"
+              >
+                {availabilityModifierOptions.map((option) => (
+                  <button
+                    key={option.status}
+                    type="button"
+                    className={getShopifyAvailabilityButtonClass(
+                      option.status,
+                      shopifyAvailabilityModifier
+                    )}
+                    aria-pressed={option.status === shopifyAvailabilityModifier}
+                    disabled={
+                      !productDetails ||
+                      isShopifyAvailabilitySaving ||
+                      isFollowUpSaving ||
+                      isBulkVendorStockSaving
+                    }
+                    onClick={() =>
+                      handleAvailabilityModifierChange(option.status)
+                    }
+                  >
+                    {option.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={[
+                    "shopify-availability-button",
+                    "availability-no-eta",
+                    followUpNoEta ? "active" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  aria-pressed={followUpNoEta}
+                  disabled={
+                    !productDetails ||
+                    isShopifyAvailabilitySaving ||
+                    isFollowUpSaving ||
+                    isBulkVendorStockSaving ||
+                    !followUpDate
+                  }
+                  onClick={handleNoEtaButtonChange}
+                >
+                  No ETA
+                </button>
+              </div>
 
               {shouldShowBuiltToOrderLeadTime && (
                 <label className="built-to-order-lead-time">
@@ -2580,17 +2788,6 @@ export function NotesModal({
                   aria-label="Follow-up date"
                   onChange={(event) => handleFollowUpDateChange(event.target.value)}
                 />
-                <label className="follow-up-no-eta">
-                  <input
-                    type="checkbox"
-                    checked={followUpNoEta}
-                    disabled={isFollowUpSaving || !followUpDate}
-                    onChange={(event) =>
-                      handleFollowUpNoEtaChange(event.target.checked)
-                    }
-                  />
-                  <span>No ETA</span>
-                </label>
               </div>
             )}
 

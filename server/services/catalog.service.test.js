@@ -40,6 +40,44 @@ test("keeps non-vendor BTO and non-BTO products eligible", () => {
   );
 });
 
+test("keeps stock authoritative over optional Shopify availability modifiers", () => {
+  assert.equal(
+    _test.mapProductAvailabilityToShopifyStatus(
+      { availability: "Available" },
+      "in_stock",
+      "built_to_order"
+    ),
+    "in_stock"
+  );
+  assert.equal(
+    _test.mapProductAvailabilityToShopifyStatus(
+      { availability: "Backorder" },
+      "in_stock",
+      "built_to_order"
+    ),
+    "built_to_order"
+  );
+  assert.equal(
+    _test.mapProductAvailabilityToShopifyStatus(
+      { availability: "Backorder" },
+      "backordered",
+      "discontinued"
+    ),
+    "discontinued"
+  );
+});
+
+test("uses backorder when an unavailable product has no lower modifier", () => {
+  assert.equal(
+    _test.mapProductAvailabilityToShopifyStatus(
+      { availability: "Backorder" },
+      "backordered",
+      ""
+    ),
+    "backordered"
+  );
+});
+
 test("calculates kit inventory from components instead of parent vendor stock", () => {
   const productsBySku = new Map([
     [

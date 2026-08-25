@@ -1206,13 +1206,28 @@ body:has(.notes-popup-page),
   margin-bottom: 12px;
 }
 
-.shopify-availability-actions {
+.shopify-stock-actions,
+.shopify-availability-modifiers {
   display: grid;
   gap: 6px;
+}
+
+.shopify-stock-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.shopify-availability-actions button {
+.shopify-availability-modifiers {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.shopify-availability-modifiers button {
+  font-size: 12px;
+  padding-inline: 4px;
+  white-space: nowrap;
+}
+
+.shopify-stock-actions button,
+.shopify-availability-modifiers button {
   background: #242f3d;
   border: 1px solid #5d7188;
   border-radius: 6px;
@@ -1223,36 +1238,50 @@ body:has(.notes-popup-page),
   padding: 8px 6px;
 }
 
-.shopify-availability-actions button:not(:disabled):hover {
+.shopify-stock-actions button:not(:disabled):hover,
+.shopify-availability-modifiers button:not(:disabled):hover {
   background: #2e4259;
   color: white;
 }
 
-.shopify-availability-actions button.active.availability-in-stock {
+.shopify-stock-actions button.active.availability-in-stock {
   background: #1f6f4a;
   border-color: #4fb77f;
   color: #e9fff4;
 }
 
-.shopify-availability-actions button.active.availability-out-of-stock {
+.shopify-availability-modifiers button.active.availability-out-of-stock {
   background: #7a2830;
   border-color: #d0606b;
   color: #ffecee;
 }
 
-.shopify-availability-actions button.active.availability-backordered {
+.shopify-stock-actions button.active.availability-backordered {
   background: #72551e;
   border-color: #d8ab47;
   color: #fff4d9;
 }
 
-.shopify-availability-actions button.active.availability-built-to-order {
+.shopify-availability-modifiers button.active.availability-built-to-order {
   background: #2c5877;
   border-color: #74a8ca;
   color: #e7f6ff;
 }
 
-.shopify-availability-actions button:disabled {
+.shopify-availability-modifiers button.active.availability-discontinued {
+  background: #505050;
+  border-color: #a0a0a0;
+  color: #ffffff;
+}
+
+.shopify-availability-modifiers button.active.availability-no-eta {
+  background: #5b3f72;
+  border-color: #a47bc3;
+  color: #ffffff;
+}
+
+.shopify-stock-actions button:disabled,
+.shopify-availability-modifiers button:disabled {
   cursor: wait;
   opacity: 0.65;
 }
@@ -2121,24 +2150,6 @@ body:has(.notes-popup-page),
   padding: 8px 10px;
 }
 
-.follow-up-no-eta {
-  align-items: center;
-  color: #dddddd;
-  display: inline-flex;
-  font-size: 14px;
-  gap: 6px;
-}
-
-.follow-up-no-eta input {
-  accent-color: #5d7188;
-  height: 16px;
-  width: 16px;
-}
-
-.follow-up-no-eta:has(input:disabled) {
-  color: #888888;
-}
-
 .follow-up-status {
   color: #cccccc;
   font-size: 13px;
@@ -2808,5 +2819,11 @@ body:has(.notes-popup-page),
   .vendor-build-time-field {
     max-width: none;
     width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .shopify-availability-modifiers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

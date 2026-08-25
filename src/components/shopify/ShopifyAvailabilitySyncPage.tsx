@@ -17,6 +17,7 @@ type SyncTotals = {
 const emptyAvailabilityCounts: Record<ShopifyAvailabilityStatus, number> = {
   backordered: 0,
   built_to_order: 0,
+  discontinued: 0,
   in_stock: 0,
   out_of_stock: 0
 };
@@ -28,7 +29,8 @@ const availabilityLabels: Array<{
   { key: "in_stock", label: "In Stock" },
   { key: "out_of_stock", label: "Out of Stock" },
   { key: "backordered", label: "Backordered" },
-  { key: "built_to_order", label: "Built to Order" }
+  { key: "built_to_order", label: "Built to Order" },
+  { key: "discontinued", label: "Discontinued" }
 ];
 
 function createEmptyTotals(): SyncTotals {
