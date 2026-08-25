@@ -1220,12 +1220,6 @@ body:has(.notes-popup-page),
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.shopify-availability-modifiers button {
-  font-size: 12px;
-  padding-inline: 4px;
-  white-space: nowrap;
-}
-
 .shopify-stock-actions button,
 .shopify-availability-modifiers button {
   background: #242f3d;
@@ -1236,6 +1230,17 @@ body:has(.notes-popup-page),
   font-weight: 700;
   min-height: 36px;
   padding: 8px 6px;
+}
+
+.shopify-availability-modifiers button {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  justify-content: center;
+  line-height: 1;
+  padding-inline: 4px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .shopify-stock-actions button:not(:disabled):hover,
