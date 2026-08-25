@@ -1,4 +1,4 @@
-﻿StockBridge Chrome Extension 0.2.0
+﻿StockBridge Chrome Extension 0.2.1
 
 Extension ID: hbfdbpbfefkbpmljbfnhedljapnlbfhl
 
