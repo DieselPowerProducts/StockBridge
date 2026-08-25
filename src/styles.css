@@ -959,10 +959,17 @@ button:disabled {
 }
 
 .sheet-import-list-item {
-  align-items: center;
   background: #2c2c2c;
   border: 1px solid #484848;
   color: #ffffff;
+  overflow: hidden;
+}
+
+.sheet-import-list-select {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
   display: grid;
   gap: 8px;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -975,6 +982,25 @@ button:disabled {
 .sheet-import-list-item.selected {
   background: #313f4f;
   border-color: #5d7897;
+}
+
+.sheet-import-list-actions {
+  border-top: 1px solid #484848;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 10px;
+}
+
+.sheet-import-load-error {
+  align-items: center;
+  background: #49292c;
+  border: 1px solid #8c444b;
+  border-radius: 4px;
+  color: #ffd5d8;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 9px 10px;
 }
 
 .sheet-import-list-main,
@@ -1144,9 +1170,15 @@ button:disabled {
   color: #aaaaaa;
 }
 
-.sheet-import-proposals-table tr.changed td:nth-child(4) {
+.sheet-import-change {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.sheet-import-proposals-table tr.changed .sheet-import-change strong {
   color: #9be7bc;
-  font-weight: 700;
 }
 
 .sheet-import-row-limit,

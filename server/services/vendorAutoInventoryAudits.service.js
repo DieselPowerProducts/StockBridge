@@ -438,8 +438,22 @@ async function listAudits({ page, limit, search, view = "pending" } = {}) {
       LEFT JOIN catalog_vendors AS vendor ON vendor.vendor_id = audit.vendor_id
       WHERE (
         $1 = 'all'
-        OR ($1 = 'pending' AND audit.is_legacy = FALSE AND audit.status IN ('ready_for_review', 'needs_mapping', 'failed', 'approved', 'applying'))
-        OR ($1 = 'history' AND (audit.is_legacy = TRUE OR audit.status IN ('applied', 'rejected')))
+        OR (
+          $1 = 'pending'
+          AND audit.is_legacy = FALSE
+          AND (
+            audit.status IN ('ready_for_review', 'needs_mapping', 'retrying', 'approved', 'applying')
+            OR (audit.status = 'failed' AND audit.manual_retry_count < ${maximumManualRetries})
+          )
+        )
+        OR (
+          $1 = 'history'
+          AND (
+            audit.is_legacy = TRUE
+            OR audit.status IN ('applied', 'rejected')
+            OR (audit.status = 'failed' AND audit.manual_retry_count >= ${maximumManualRetries})
+          )
+        )
       )
       AND (
         $2 = ''
@@ -654,10 +668,7 @@ async function requestManualRetry(auditId) {
     UPDATE vendor_auto_inventory_audits
     SET
       manual_retry_count = manual_retry_count + 1,
-      status = CASE
-        WHEN status IN ('needs_mapping', 'failed') THEN 'failed'
-        ELSE status
-      END,
+      status = 'retrying',
       error_message = '',
       updated_at = now()
     WHERE id = ${normalizeText(auditId, 500)}

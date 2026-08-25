@@ -188,6 +188,7 @@ export type InventorySheetImportStatus =
   | "ready_for_review"
   | "needs_mapping"
   | "failed"
+  | "retrying"
   | "approved"
   | "applying"
   | "applied"

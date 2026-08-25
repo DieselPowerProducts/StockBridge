@@ -117,7 +117,7 @@
       "handle": "filesystem"
     },
     {
-      "src": "/(audits|auth|backorders|status|email|import|integrations|notes|notifications|price-audit|products|shopify|users|vendors)(.*)",
+      "src": "/(audits|auth|backorders|status|email|import|integrations|inventory-sheet-imports|notes|notifications|price-audit|products|shopify|users|vendors)(.*)",
       "dest": "api/index.js"
     }
   ]

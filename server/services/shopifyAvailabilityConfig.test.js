@@ -61,3 +61,11 @@ test("runs Gmail queue processing serially", () => {
     maxConcurrency: 1
   });
 });
+
+test("routes the sheet import review API through Express", () => {
+  const apiRoute = config.routes.find(
+    (route) => route.dest === "api/index.js"
+  );
+
+  assert.match(apiRoute.src, /inventory-sheet-imports/);
+});

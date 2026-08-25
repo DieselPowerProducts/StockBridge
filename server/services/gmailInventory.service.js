@@ -943,7 +943,7 @@ async function failQueueJob(jobKey, error, { terminal = false } = {}) {
       WHERE job.job_key = ${normalizeText(jobKey)}
         AND job.job_kind IN ('apply-inventory-audit', 'gmail-message')
         AND audit.id = job.payload->>'auditId'
-        AND audit.status IN ('approved', 'applying')
+        AND audit.status IN ('approved', 'applying', 'retrying')
     `;
   }
 }

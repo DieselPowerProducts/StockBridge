@@ -21,9 +21,10 @@ const statusLabels: Record<InventorySheetImportStatus, string> = {
   ready_for_review: "Ready for review",
   needs_mapping: "Needs mapping",
   failed: "Failed",
+  retrying: "Retrying",
   approved: "Approved",
   applying: "Applying",
-  applied: "Applied",
+  applied: "Success",
   rejected: "Rejected"
 };
 
@@ -38,9 +39,9 @@ function formatAvailability(quantity: number) {
 }
 
 function getStatusClass(status: InventorySheetImportStatus) {
-  if (status === "applied" || status === "ready_for_review") return "success";
+  if (status === "applied") return "success";
   if (status === "failed" || status === "rejected") return "danger";
-  if (status === "needs_mapping") return "warning";
+  if (status === "needs_mapping" || status === "ready_for_review") return "warning";
   return "processing";
 }
 
@@ -94,11 +95,7 @@ export function InventorySheetImportsPage() {
         }
       } catch (loadError) {
         if (!ignore) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Unable to load sheet imports."
-          );
+          setError("Unable to load sheet imports. Try again in a moment.");
         }
       } finally {
         if (!ignore) setIsLoading(false);
@@ -208,6 +205,13 @@ export function InventorySheetImportsPage() {
     });
   }
 
+  function handleCardRetry(item: InventorySheetImport) {
+    void runAction(`retry-${item.id}`, async () => {
+      await retryInventorySheetImport(item.id);
+      refreshAfterAction("The sheet import retry was queued.");
+    });
+  }
+
   function handleSaveMapping() {
     if (!details) return;
     void runAction("mapping", async () => {
@@ -285,7 +289,18 @@ export function InventorySheetImportsPage() {
         <span>{totalItems} import{totalItems === 1 ? "" : "s"}</span>
       </div>
 
-      {error ? <p className="status-message error-message">{error}</p> : null}
+      {error ? (
+        <div className="sheet-import-load-error" role="alert">
+          <span>{error}</span>
+          <button
+            type="button"
+            className="price-audit-refresh"
+            onClick={() => setRefreshNonce((current) => current + 1)}
+          >
+            Try again
+          </button>
+        </div>
+      ) : null}
       {message ? <p className="status-message success-message">{message}</p> : null}
 
       <div className="sheet-imports-layout">
@@ -299,26 +314,44 @@ export function InventorySheetImportsPage() {
             </p>
           ) : null}
           {items.map((item) => (
-            <button
-              type="button"
+            <article
               className={`sheet-import-list-item${selectedId === item.id ? " selected" : ""}`}
               key={item.id}
-              onClick={() => setSelectedId(item.id)}
             >
-              <span className="sheet-import-list-main">
-                <strong>{item.vendorName || item.vendorId}</strong>
-                <small>{item.attachmentFilename || "Historical import"}</small>
-              </span>
-              <span className={`sheet-import-status ${getStatusClass(item.status)}`}>
-                {statusLabels[item.status] || item.status}
-              </span>
-              <span className="sheet-import-list-meta">
-                {item.changedRows > 0
-                  ? `${item.changedRows} proposed change${item.changedRows === 1 ? "" : "s"}`
-                  : `${item.appliedCount} applied`}
-                <small>{formatDate(item.updatedAt)}</small>
-              </span>
-            </button>
+              <button
+                type="button"
+                className="sheet-import-list-select"
+                onClick={() => setSelectedId(item.id)}
+              >
+                <span className="sheet-import-list-main">
+                  <strong>{item.vendorName || item.vendorId}</strong>
+                  <small>{item.attachmentFilename || "Historical import"}</small>
+                </span>
+                <span className={`sheet-import-status ${getStatusClass(item.status)}`}>
+                  {statusLabels[item.status] || item.status}
+                </span>
+                <span className="sheet-import-list-meta">
+                  {item.changedRows > 0
+                    ? `${item.changedRows} proposed change${item.changedRows === 1 ? "" : "s"}`
+                    : `${item.appliedCount} applied`}
+                  <small>{formatDate(item.updatedAt)}</small>
+                </span>
+              </button>
+              {item.status === "failed" &&
+              !item.isLegacy &&
+              item.manualRetryCount < maximumManualRetries ? (
+                <div className="sheet-import-list-actions">
+                  <button
+                    type="button"
+                    className="price-audit-refresh"
+                    disabled={activeAction !== ""}
+                    onClick={() => handleCardRetry(item)}
+                  >
+                    Retry ({item.manualRetryCount}/{maximumManualRetries})
+                  </button>
+                </div>
+              ) : null}
+            </article>
           ))}
           <Pagination
             currentPage={currentPage}
@@ -410,8 +443,7 @@ export function InventorySheetImportsPage() {
                       <tr>
                         <th>Product SKU</th>
                         <th>Sheet SKU</th>
-                        <th>Current</th>
-                        <th>Proposed</th>
+                        <th>Availability change</th>
                         <th>Sheet value</th>
                       </tr>
                     </thead>
@@ -420,8 +452,11 @@ export function InventorySheetImportsPage() {
                         <tr className={row.changeRequired ? "changed" : "unchanged"} key={`${row.rowNumber}-${row.vendorProductId}`}>
                           <td><strong>{row.productSku}</strong></td>
                           <td>{row.sheetSku}</td>
-                          <td>{formatAvailability(row.currentQuantity)}</td>
-                          <td>{formatAvailability(row.proposedQuantity)}</td>
+                          <td className="sheet-import-change">
+                            <span>{formatAvailability(row.currentQuantity)}</span>
+                            <span aria-hidden="true">&rarr;</span>
+                            <strong>{formatAvailability(row.proposedQuantity)}</strong>
+                          </td>
                           <td>{row.inventoryValue || "Blank"}</td>
                         </tr>
                       ))}
