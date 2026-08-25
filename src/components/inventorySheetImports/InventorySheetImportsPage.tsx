@@ -331,7 +331,9 @@ export function InventorySheetImportsPage() {
                   {statusLabels[item.status] || item.status}
                 </span>
                 <span className="sheet-import-list-meta">
-                  {item.changedRows > 0
+                  {item.isLegacy
+                    ? `${item.appliedCount} applied · Summary only`
+                    : item.changedRows > 0
                     ? `${item.changedRows} proposed change${item.changedRows === 1 ? "" : "s"}`
                     : `${item.appliedCount} applied`}
                   <small>{formatDate(item.updatedAt)}</small>
@@ -378,14 +380,36 @@ export function InventorySheetImportsPage() {
                 </span>
               </div>
 
-              <dl className="sheet-import-metadata">
-                <div><dt>Sender</dt><dd>{details.senderEmail || "Unknown"}</dd></div>
-                <div><dt>Received</dt><dd>{formatDate(details.createdAt)}</dd></div>
-                <div><dt>Rows</dt><dd>{details.totalRows || details.matchedRows}</dd></div>
-                <div><dt>Matched</dt><dd>{details.matchedRows}</dd></div>
-                <div><dt>Unmatched</dt><dd>{details.unmatchedRows}</dd></div>
-                <div><dt>Changed</dt><dd>{details.changedRows}</dd></div>
-              </dl>
+              {details.isLegacy ? (
+                <>
+                  <dl className="sheet-import-metadata">
+                    <div><dt>Sender</dt><dd>{details.senderEmail || "Unknown"}</dd></div>
+                    <div><dt>First imported</dt><dd>{formatDate(details.createdAt)}</dd></div>
+                    <div><dt>Last seen</dt><dd>{formatDate(details.updatedAt)}</dd></div>
+                    <div><dt>Applied</dt><dd>{details.appliedCount}</dd></div>
+                    <div><dt>Skipped</dt><dd>{details.skippedCount}</dd></div>
+                    <div><dt>Errors</dt><dd>{details.errorCount}</dd></div>
+                  </dl>
+                  <div className="sheet-import-legacy-note">
+                    <strong>Historical summary only</strong>
+                    <span>
+                      This sheet ran before row-level import tracking was added.
+                      StockBridge saved the result counts, but not the individual
+                      SKUs or their previous values. New imports retain every row
+                      and show the exact availability changes here.
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <dl className="sheet-import-metadata">
+                  <div><dt>Sender</dt><dd>{details.senderEmail || "Unknown"}</dd></div>
+                  <div><dt>Received</dt><dd>{formatDate(details.createdAt)}</dd></div>
+                  <div><dt>Rows</dt><dd>{details.totalRows || details.matchedRows}</dd></div>
+                  <div><dt>Matched</dt><dd>{details.matchedRows}</dd></div>
+                  <div><dt>Unmatched</dt><dd>{details.unmatchedRows}</dd></div>
+                  <div><dt>Changed</dt><dd>{details.changedRows}</dd></div>
+                </dl>
+              )}
 
               {details.errorMessage ? (
                 <p className="sheet-import-error">{details.errorMessage}</p>
