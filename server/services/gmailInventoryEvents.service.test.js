@@ -124,6 +124,40 @@ test("uses a stable per-message idempotency key", async () => {
       assert.equal(calls[0][1].kind, "gmail-message");
       assert.equal(calls[0][1].gmailMessageId, "gmail-abc");
       assert.equal(calls[0][2].idempotencyKey, result.jobKey);
+
+      const retry = await publishMessage({
+        gmailMessageId: "gmail-abc",
+        mailboxEmail: "stockcheck@dieselpowerproducts.com",
+        retryToken: "manual-1",
+        rfcMessageId: "<vendor-sheet@example.com>"
+      });
+
+      assert.notEqual(retry.jobKey, result.jobKey);
+      assert.equal(calls[1][1].rfcMessageId, "<vendor-sheet@example.com>");
+    }
+  );
+});
+
+test("publishes inventory approval jobs with retry-specific keys", async () => {
+  const calls = [];
+
+  await withMockedQueueSend(
+    {
+      environment: { VERCEL: "1" },
+      send: async (...args) => {
+        calls.push(args);
+        return { messageId: "queue-message-apply" };
+      }
+    },
+    async ({ publishAuditApply }) => {
+      const result = await publishAuditApply({
+        auditId: "sheet-1",
+        mailboxEmail: "stockcheck@dieselpowerproducts.com"
+      });
+
+      assert.equal(calls[0][1].kind, "apply-inventory-audit");
+      assert.equal(calls[0][1].auditId, "sheet-1");
+      assert.equal(calls[0][2].idempotencyKey, result.jobKey);
     }
   );
 });

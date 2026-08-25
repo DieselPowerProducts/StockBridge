@@ -3,6 +3,7 @@ export type PageName =
   | "stock-check"
   | "vendors"
   | "audit"
+  | "sheet-imports"
   | "notifications";
 export type RoutePageName = PageName | "notes" | "shopify-availability-sync";
 
@@ -181,6 +182,87 @@ export type InventoryAuditResponse = {
   total: number;
   totalPages: number;
   isLastPage: boolean;
+};
+
+export type InventorySheetImportStatus =
+  | "ready_for_review"
+  | "needs_mapping"
+  | "failed"
+  | "approved"
+  | "applying"
+  | "applied"
+  | "rejected";
+
+export type InventorySheetMapping = {
+  skuHeader?: string;
+  inventoryHeader?: string;
+  subtractiveColumn?: string;
+  inventoryMode?: "numerical" | "alphabetical";
+  inStockPhrases?: string[];
+  outOfStockPhrases?: string[];
+};
+
+export type InventorySheetImport = {
+  id: string;
+  vendorId: string;
+  vendorName: string;
+  messageUid: string;
+  messageId: string;
+  senderEmail: string;
+  subject: string;
+  attachmentFilename: string;
+  attachmentHash: string;
+  status: InventorySheetImportStatus;
+  mapping: InventorySheetMapping;
+  availableHeaders: string[];
+  totalRows: number;
+  matchedRows: number;
+  changedRows: number;
+  unmatchedRows: number;
+  invalidRows: number;
+  exceptionRows: number;
+  appliedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errorMessage: string;
+  manualRetryCount: number;
+  reviewedByEmail: string;
+  reviewedByName: string;
+  reviewedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  isLegacy: boolean;
+};
+
+export type InventorySheetImportRow = {
+  rowNumber: number;
+  vendorProductId: string;
+  productId: string;
+  productSku: string;
+  vendorSku: string;
+  sheetSku: string;
+  inventoryValue: string;
+  subtractiveValue: string;
+  currentQuantity: number;
+  proposedQuantity: number;
+  sheetQuantity: number | null;
+  changeRequired: boolean;
+  status: string;
+  errorMessage: string;
+};
+
+export type InventorySheetImportsResponse = {
+  data: InventorySheetImport[];
+  total: number;
+  totalPages: number;
+  isLastPage: boolean;
+};
+
+export type InventorySheetImportDetails = InventorySheetImport & {
+  rows: InventorySheetImportRow[];
+  rowPage: number;
+  rowTotal: number;
+  rowTotalPages: number;
 };
 
 export type ShopifyAvailabilityResponse = {

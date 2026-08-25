@@ -115,22 +115,55 @@ async function publishInboxRecovery({
   });
 }
 
-async function publishMessage({ mailboxEmail, gmailMessageId }) {
+async function publishMessage({
+  auditId = "",
+  mailboxEmail,
+  gmailMessageId,
+  retryToken = "",
+  rfcMessageId = ""
+}) {
+  const safeAuditId = normalizeText(auditId, 500);
   const safeMailboxEmail = normalizeText(mailboxEmail, 320).toLowerCase();
   const safeGmailMessageId = normalizeText(gmailMessageId, 500);
+  const safeRetryToken = normalizeText(retryToken, 500);
+  const safeRfcMessageId = normalizeText(rfcMessageId, 1000);
 
   return publishJob({
+    auditId: safeAuditId,
     kind: "gmail-message",
     jobKey: createJobKey("gmail-message", [
       safeMailboxEmail,
-      safeGmailMessageId
+      safeGmailMessageId,
+      safeRfcMessageId,
+      safeAuditId,
+      safeRetryToken || "initial"
     ]),
     mailboxEmail: safeMailboxEmail,
-    gmailMessageId: safeGmailMessageId
+    gmailMessageId: safeGmailMessageId,
+    retryToken: safeRetryToken,
+    rfcMessageId: safeRfcMessageId
+  });
+}
+
+async function publishAuditApply({ auditId, mailboxEmail, retryToken = "" }) {
+  const safeAuditId = normalizeText(auditId, 500);
+  const safeMailboxEmail = normalizeText(mailboxEmail, 320).toLowerCase();
+  const safeRetryToken = normalizeText(retryToken, 500);
+
+  return publishJob({
+    kind: "apply-inventory-audit",
+    auditId: safeAuditId,
+    jobKey: createJobKey("apply-inventory-audit", [
+      safeAuditId,
+      safeRetryToken || "initial"
+    ]),
+    mailboxEmail: safeMailboxEmail,
+    retryToken: safeRetryToken
   });
 }
 
 module.exports = {
+  publishAuditApply,
   publishHistoryPage,
   publishInboxRecovery,
   publishMessage,

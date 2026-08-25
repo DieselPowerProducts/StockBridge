@@ -6,6 +6,9 @@ import type {
   BackordersResponse,
   EmailTemplate,
   InventoryAuditResponse,
+  InventorySheetImport,
+  InventorySheetImportDetails,
+  InventorySheetImportsResponse,
   Note,
   NotesBootstrapResponse,
   PriceAuditConfirmation,
@@ -400,6 +403,74 @@ export function getInventoryAudits({
 
   return request<InventoryAuditResponse>(
     `/audits/inventory?${params.toString()}`
+  );
+}
+
+export function getInventorySheetImports({
+  page,
+  limit,
+  search,
+  view
+}: {
+  page: number;
+  limit: number;
+  search: string;
+  view: "pending" | "history" | "all";
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search,
+    view
+  });
+
+  return request<InventorySheetImportsResponse>(
+    `/inventory-sheet-imports?${params.toString()}`
+  );
+}
+
+export function getInventorySheetImport(importId: string) {
+  return request<InventorySheetImportDetails>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}`
+  );
+}
+
+export function approveInventorySheetImport(importId: string) {
+  return request<InventorySheetImport & { queued: boolean }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/approve`,
+    { method: "POST" }
+  );
+}
+
+export function rejectInventorySheetImport(importId: string) {
+  return request<InventorySheetImport>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/reject`,
+    { method: "POST" }
+  );
+}
+
+export function retryInventorySheetImport(importId: string) {
+  return request<InventorySheetImport & { queued: boolean; retryMode: string }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/retry`,
+    { method: "POST" }
+  );
+}
+
+export function updateInventorySheetImportMapping(
+  importId: string,
+  mapping: {
+    skuHeader: string;
+    inventoryHeader: string;
+    subtractiveColumn: string;
+  }
+) {
+  return request<InventorySheetImport & { queued: boolean; retryMode: string }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/mapping`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mapping)
+    }
   );
 }
 

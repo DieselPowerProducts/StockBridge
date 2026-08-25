@@ -9,6 +9,7 @@ const notificationsService = require("./notifications.service");
 const productsService = require("./products.service");
 const productUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 const settingsService = require("./vendorAutoInventorySettings.service");
+const auditsService = require("./vendorAutoInventoryAudits.service");
 const importsService = require("./vendorAutoInventoryImports.service");
 const {
   addSkuMatchKeys,
@@ -573,6 +574,246 @@ async function parseSheetRows(content, attachment) {
   throw error;
 }
 
+function getAuditMapping(settings) {
+  return {
+    skuHeader: normalizeText(settings?.skuHeader),
+    inventoryHeader: normalizeText(settings?.inventoryHeader),
+    subtractiveColumn: normalizeText(settings?.subtractiveColumn),
+    inventoryMode: normalizeText(settings?.inventoryMode) || "numerical",
+    inStockPhrases: Array.isArray(settings?.inStockPhrases)
+      ? settings.inStockPhrases
+      : [],
+    outOfStockPhrases: Array.isArray(settings?.outOfStockPhrases)
+      ? settings.outOfStockPhrases
+      : []
+  };
+}
+
+async function stageSheetAttachment({ settings, attachment, message }) {
+  const content = attachment.content || Buffer.alloc(0);
+  const attachmentHash = getAttachmentHash(content);
+  const existing = await auditsService.getAuditByAttachment(
+    settings.vendorId,
+    attachmentHash
+  );
+
+  if (
+    existing &&
+    [
+      "applied",
+      "rejected",
+      "ready_for_review",
+      "approved",
+      "applying"
+    ].includes(existing.status)
+  ) {
+    return {
+      auditId: existing.id,
+      duplicate: true,
+      errors: 0,
+      staged: 0,
+      skipped: 0
+    };
+  }
+
+  const baseAudit = {
+    vendorId: settings.vendorId,
+    messageUid: message.uid,
+    messageId: message.messageId,
+    senderEmail: settings.senderEmail,
+    subject: message.subject,
+    attachmentFilename: attachment.filename,
+    attachmentHash,
+    mapping: getAuditMapping(settings)
+  };
+  let rows;
+
+  try {
+    rows = await parseSheetRows(content, attachment);
+  } catch (error) {
+    const audit = await auditsService.stageAudit({
+      ...baseAudit,
+      status: "failed",
+      errorCount: 1,
+      errorMessage: `Inventory sheet could not be parsed: ${error.message}`
+    });
+
+    return {
+      auditId: audit.id,
+      duplicate: false,
+      errors: 1,
+      staged: 0,
+      skipped: 0
+    };
+  }
+
+  if (rows.length === 0) {
+    const audit = await auditsService.stageAudit({
+      ...baseAudit,
+      status: "failed",
+      errorCount: 1,
+      errorMessage: "Inventory sheet did not contain any rows."
+    });
+
+    return {
+      auditId: audit.id,
+      duplicate: false,
+      errors: 1,
+      staged: 0,
+      skipped: 0
+    };
+  }
+
+  const firstRow = rows[0] || {};
+  const availableHeaders = Object.keys(firstRow)
+    .map((header) => header.replace(/^\uFEFF/, ""))
+    .filter(Boolean);
+  const missingHeaders = [
+    !hasHeader(firstRow, settings.skuHeader) ? settings.skuHeader : "",
+    !hasHeader(firstRow, settings.inventoryHeader) ? settings.inventoryHeader : "",
+    settings.inventoryMode !== "alphabetical" &&
+    settings.subtractiveColumn &&
+    !hasHeader(firstRow, settings.subtractiveColumn)
+      ? settings.subtractiveColumn
+      : ""
+  ].filter(Boolean);
+
+  if (missingHeaders.length > 0) {
+    const audit = await auditsService.stageAudit({
+      ...baseAudit,
+      status: "needs_mapping",
+      availableHeaders,
+      totalRows: rows.length,
+      invalidRows: rows.length,
+      errorCount: 1,
+      errorMessage: `Missing configured header(s): ${missingHeaders.join(", ")}`
+    });
+
+    return {
+      auditId: audit.id,
+      duplicate: false,
+      errors: 1,
+      staged: 0,
+      skipped: rows.length
+    };
+  }
+
+  const vendorProducts =
+    await catalogService.getActiveCatalogVendorProductsByVendorId(
+      settings.vendorId
+    );
+  const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
+  const skuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const proposalRows = [];
+  const invalidSamples = [];
+  let unmatchedRows = 0;
+  let invalidRows = 0;
+  let exceptionRows = 0;
+
+  rows.forEach((row, index) => {
+    const sheetSku = findHeaderValue(row, settings.skuHeader);
+    const inventoryValue = findHeaderValue(row, settings.inventoryHeader);
+    const subtractiveValue =
+      settings.inventoryMode !== "alphabetical" && settings.subtractiveColumn
+        ? findHeaderValue(row, settings.subtractiveColumn)
+        : "";
+
+    if (!sheetSku) {
+      invalidRows += 1;
+      if (invalidSamples.length < 5) invalidSamples.push(`Row ${index + 2}: missing SKU`);
+      return;
+    }
+
+    const vendorProduct = findVendorProductForSheetSku(
+      vendorProductLookup,
+      sheetSku
+    );
+
+    if (!vendorProduct) {
+      unmatchedRows += 1;
+      return;
+    }
+
+    if (isVendorProductExcepted(vendorProduct, skuExceptionKeys, [sheetSku])) {
+      exceptionRows += 1;
+      return;
+    }
+
+    const inventoryResult = parseInventoryResult(
+      inventoryValue,
+      settings,
+      subtractiveValue
+    );
+
+    if (!inventoryResult) {
+      invalidRows += 1;
+      if (invalidSamples.length < 5) {
+        invalidSamples.push(
+          `Row ${index + 2} (${sheetSku}): ${inventoryValue || "blank"}`
+        );
+      }
+      return;
+    }
+
+    const currentQuantity = Number(vendorProduct.quantity || 0);
+    const proposedQuantity = Number(inventoryResult.quantity || 0);
+    proposalRows.push({
+      rowNumber: index + 2,
+      vendorProductId: vendorProduct.id,
+      productId: vendorProduct.product_id || "",
+      productSku: getVendorProductDisplaySku(vendorProduct),
+      vendorSku: vendorProduct.sku || vendorProduct.label || sheetSku,
+      sheetSku,
+      inventoryValue,
+      subtractiveValue,
+      currentQuantity,
+      proposedQuantity,
+      sheetQuantity: getTrackedSheetQuantity(
+        inventoryResult,
+        settings.inventoryMode
+      ),
+      changeRequired:
+        (currentQuantity > 0) !== (proposedQuantity > 0),
+      status: "matched",
+      errorMessage: ""
+    });
+  });
+
+  const changedRows = proposalRows.filter((row) => row.changeRequired).length;
+  const hasUsableRows = proposalRows.length > 0;
+  const errorMessage = invalidSamples.length > 0
+    ? `Some rows need attention: ${invalidSamples.join("; ")}`
+    : "";
+  const audit = await auditsService.stageAudit(
+    {
+      ...baseAudit,
+      status: hasUsableRows ? "ready_for_review" : "failed",
+      availableHeaders,
+      totalRows: rows.length,
+      matchedRows: proposalRows.length,
+      changedRows,
+      unmatchedRows,
+      invalidRows,
+      exceptionRows,
+      errorCount: hasUsableRows ? 0 : 1,
+      errorMessage:
+        errorMessage ||
+        (hasUsableRows
+          ? ""
+          : "No configured vendor products could be staged from this sheet.")
+    },
+    proposalRows
+  );
+
+  return {
+    auditId: audit.id,
+    duplicate: false,
+    errors: hasUsableRows ? 0 : 1,
+    staged: changedRows,
+    skipped: unmatchedRows + invalidRows + exceptionRows
+  };
+}
+
 async function importSheetAttachment({ settings, attachment, message }) {
   const content = attachment.content || Buffer.alloc(0);
   const attachmentHash = getAttachmentHash(content);
@@ -590,6 +831,7 @@ async function importSheetAttachment({ settings, attachment, message }) {
 
     return {
       imported: 0,
+      staged: 0,
       skipped: 0,
       errors: 0,
       duplicate: true,
@@ -622,6 +864,7 @@ async function importSheetAttachment({ settings, attachment, message }) {
     });
     return {
       imported: 0,
+      staged: 0,
       skipped: 0,
       errors: 1,
       duplicate: false,
@@ -980,6 +1223,168 @@ async function setBackorderFollowUpForStockRemoval({ sku, followUpDate }) {
   };
 }
 
+async function applyStagedInventoryAudit(auditId) {
+  const audit = await auditsService.getAuditRecord(auditId);
+
+  if (!audit) {
+    const error = new Error("Inventory sheet audit not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (audit.status === "applied") {
+    return {
+      applied: audit.appliedCount,
+      auditId: audit.id,
+      duplicate: true,
+      errors: audit.errorCount,
+      skipped: audit.skippedCount,
+      status: audit.status
+    };
+  }
+
+  if (!["approved", "applying"].includes(audit.status)) {
+    const error = new Error("This inventory sheet has not been approved.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await auditsService.setStatus(audit.id, "applying", {
+    errorCount: 0,
+    errorMessage: ""
+  });
+  const [proposalRows, vendorProducts] = await Promise.all([
+    auditsService.getProposalRows(audit.id),
+    catalogService.getActiveCatalogVendorProductsByVendorId(audit.vendorId)
+  ]);
+  const vendorProductsById = new Map(
+    vendorProducts.map((vendorProduct) => [String(vendorProduct.id), vendorProduct])
+  );
+  const mapping = audit.mapping || {};
+  const stockRemovedDate = getLocalDateText();
+  const sheetManagedProductUpdates = new Map();
+  const updateErrors = [];
+  let applied = audit.appliedCount;
+  let skipped = 0;
+  let followUpsSet = 0;
+
+  for (const proposal of proposalRows) {
+    const vendorProduct = vendorProductsById.get(proposal.vendorProductId);
+
+    if (!vendorProduct) {
+      skipped += 1;
+      updateErrors.push(`${proposal.productSku || proposal.sheetSku}: vendor product is no longer active`);
+      continue;
+    }
+
+    const trackedQuantity =
+      proposal.sheetQuantity === null
+        ? proposal.proposedQuantity
+        : proposal.sheetQuantity;
+    const sheetManagedProductUpdate = {
+      vendorId: audit.vendorId,
+      vendorProductId: proposal.vendorProductId,
+      productId: proposal.productId || vendorProduct.product_id || "",
+      sku: proposal.productSku || getVendorProductDisplaySku(vendorProduct),
+      sheetSku: proposal.sheetSku,
+      quantity: trackedQuantity,
+      inventoryValue: proposal.inventoryValue,
+      subtractiveValue: proposal.subtractiveValue,
+      attachmentFilename: audit.attachmentFilename,
+      messageId: audit.messageId
+    };
+
+    const currentIsAvailable = Number(vendorProduct.quantity || 0) > 0;
+    const nextIsAvailable = Number(proposal.proposedQuantity || 0) > 0;
+    const stockWasRemoved =
+      !nextIsAvailable &&
+      (currentIsAvailable || Number(proposal.currentQuantity || 0) > 0);
+    let inventoryApplied = false;
+
+    if (currentIsAvailable === nextIsAvailable) {
+      sheetManagedProductUpdates.set(
+        proposal.vendorProductId,
+        sheetManagedProductUpdate
+      );
+      skipped += 1;
+      inventoryApplied = true;
+    } else {
+      try {
+        await productsService.setVendorProductQuantity({
+          vendorId: audit.vendorId,
+          vendorProductId: proposal.vendorProductId,
+          quantity: proposal.proposedQuantity,
+          vendorProduct
+        });
+        vendorProduct.quantity = proposal.proposedQuantity;
+        sheetManagedProductUpdates.set(
+          proposal.vendorProductId,
+          sheetManagedProductUpdate
+        );
+        applied += 1;
+        inventoryApplied = true;
+      } catch (error) {
+        updateErrors.push(
+          `${proposal.productSku || proposal.sheetSku}: ${error.message}`
+        );
+      }
+    }
+
+    if (inventoryApplied && stockWasRemoved) {
+      try {
+        const followUpResult = await setBackorderFollowUpForStockRemoval({
+          followUpDate: stockRemovedDate,
+          sku:
+            proposal.productSku || getVendorProductDisplaySku(vendorProduct)
+        });
+
+        if (followUpResult.followUpSet) followUpsSet += 1;
+      } catch (error) {
+        updateErrors.push(
+          `${proposal.productSku || proposal.sheetSku} follow-up: ${error.message}`
+        );
+      }
+    }
+  }
+
+  await productUpdatesService.replaceVendorProductUpdatesForVendor({
+    vendorId: audit.vendorId,
+    updates: Array.from(sheetManagedProductUpdates.values())
+  });
+
+  const errorMessage = updateErrors.slice(0, 20).join(" | ");
+  const status = updateErrors.length > 0 ? "failed" : "applied";
+  await importsService.recordImport({
+    vendorId: audit.vendorId,
+    messageUid: audit.messageUid,
+    messageId: audit.messageId,
+    senderEmail: audit.senderEmail,
+    attachmentFilename: audit.attachmentFilename,
+    attachmentHash: audit.attachmentHash,
+    importedCount: applied,
+    skippedCount: skipped,
+    errorCount: updateErrors.length,
+    status: updateErrors.length > 0 ? "completed_with_errors" : "completed",
+    errorMessage
+  });
+  await auditsService.setStatus(audit.id, status, {
+    appliedCount: applied,
+    skippedCount: skipped,
+    errorCount: updateErrors.length,
+    errorMessage
+  });
+
+  return {
+    applied,
+    auditId: audit.id,
+    errors: updateErrors.length,
+    followUpsSet,
+    inventoryMode: mapping.inventoryMode || "numerical",
+    skipped,
+    status
+  };
+}
+
 async function processParsedMessageForSettings({ uid, parsed }, settings) {
   const senderEmails = getSenderEmails(parsed);
 
@@ -998,6 +1403,7 @@ async function processParsedMessageForSettings({ uid, parsed }, settings) {
   );
   const totals = {
     imported: 0,
+    staged: 0,
     skipped: 0,
     errors: 0,
     attachments: 0,
@@ -1006,17 +1412,18 @@ async function processParsedMessageForSettings({ uid, parsed }, settings) {
   };
 
   for (const attachment of sheetAttachments) {
-    const result = await importSheetAttachment({
+    const result = await stageSheetAttachment({
       settings,
       attachment,
       message: {
         uid: String(uid),
-        messageId: normalizeText(parsed.messageId)
+        messageId: normalizeText(parsed.messageId),
+        subject: normalizeText(parsed.subject)
       }
     });
 
     totals.attachments += result.duplicate ? 0 : 1;
-    totals.imported += result.imported;
+    totals.staged += result.staged || 0;
     totals.skipped += result.skipped;
     totals.errors += result.errors;
     totals.followUpsSet += result.followUpsSet || 0;
@@ -1036,6 +1443,7 @@ async function processInventoryMessageSource({ messageUid, source }) {
   const parsed = await simpleParser(source);
   const totals = {
     imported: 0,
+    staged: 0,
     skipped: 0,
     errors: 0,
     attachments: 0,
@@ -1053,6 +1461,7 @@ async function processInventoryMessageSource({ messageUid, source }) {
     );
 
     totals.imported += result.imported;
+    totals.staged += result.staged || 0;
     totals.skipped += result.skipped;
     totals.errors += result.errors;
     totals.attachments += result.attachments;
@@ -1142,6 +1551,7 @@ async function runAutoInventoryImport() {
       attachments: 0,
       labeled: 0,
       imported: 0,
+      staged: 0,
       skipped: 0,
       followUpsSet: 0,
       errors: 0
@@ -1156,6 +1566,7 @@ async function runAutoInventoryImport() {
     attachments: 0,
     labeled: 0,
     imported: 0,
+    staged: 0,
     skipped: 0,
     followUpsSet: 0,
     errors: 0
@@ -1236,6 +1647,7 @@ async function runAutoInventoryImport() {
 
       totals.attachments += result.attachments;
       totals.imported += result.imported;
+      totals.staged += result.staged || 0;
       totals.skipped += result.skipped;
       totals.followUpsSet += result.followUpsSet || 0;
       totals.errors += result.errors;
@@ -1243,6 +1655,7 @@ async function runAutoInventoryImport() {
       console.log("Auto inventory vendor import completed.", {
         vendorId: settings.vendorId,
         imported: result.imported,
+        staged: result.staged || 0,
         skipped: result.skipped,
         errors: result.errors,
         attachments: result.attachments,
@@ -1318,10 +1731,12 @@ async function runAutoInventoryImport() {
 }
 
 module.exports = {
+  applyStagedInventoryAudit,
   processInventoryMessageSource,
   runAutoInventoryImport,
   _test: {
     getTrackedSheetQuantity,
-    parseInventoryResult
+    parseInventoryResult,
+    stageSheetAttachment
   }
 };

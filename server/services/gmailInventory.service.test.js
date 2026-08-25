@@ -108,11 +108,14 @@ test("normalizes Gmail queue jobs", () => {
       mailboxEmail: " StockCheck@DieselPowerProducts.com "
     }),
     {
+      auditId: "",
       gmailMessageId: "gmail-1",
       jobKey: "job-1",
       kind: "gmail-message",
       mailboxEmail: "stockcheck@dieselpowerproducts.com",
       pageToken: "",
+      retryToken: "",
+      rfcMessageId: "",
       startHistoryId: "",
       targetHistoryId: ""
     }

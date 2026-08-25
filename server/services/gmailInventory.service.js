@@ -3,6 +3,7 @@ const { OAuth2Client } = require("google-auth-library");
 const { getSql } = require("../db/neon");
 const { loadLocalEnv } = require("../config/env");
 const autoInventoryService = require("./autoInventory.service");
+const autoInventoryAuditsService = require("./vendorAutoInventoryAudits.service");
 const gmailInventoryEventsService = require("./gmailInventoryEvents.service");
 const inventoryAuditService = require("./inventoryAudit.service");
 
@@ -828,11 +829,14 @@ function getLatestHistoryId(...historyIds) {
 
 function normalizeQueueJob(message) {
   const job = {
+    auditId: normalizeText(message?.auditId),
     gmailMessageId: normalizeText(message?.gmailMessageId),
     jobKey: normalizeText(message?.jobKey),
     kind: normalizeText(message?.kind),
     mailboxEmail: normalizeEmail(message?.mailboxEmail),
     pageToken: normalizeText(message?.pageToken),
+    retryToken: normalizeText(message?.retryToken),
+    rfcMessageId: normalizeText(message?.rfcMessageId),
     startHistoryId: normalizeText(message?.startHistoryId),
     targetHistoryId: normalizeText(message?.targetHistoryId)
   };
@@ -926,6 +930,22 @@ async function failQueueJob(jobKey, error, { terminal = false } = {}) {
       updated_at = now()
     WHERE job_key = ${normalizeText(jobKey)}
   `;
+
+  if (terminal) {
+    await sql`
+      UPDATE vendor_auto_inventory_audits AS audit
+      SET
+        status = 'failed',
+        error_count = GREATEST(audit.error_count, 1),
+        error_message = ${errorMessage || "Gmail queue processing failed."},
+        updated_at = now()
+      FROM gmail_processing_jobs AS job
+      WHERE job.job_key = ${normalizeText(jobKey)}
+        AND job.job_kind IN ('apply-inventory-audit', 'gmail-message')
+        AND audit.id = job.payload->>'auditId'
+        AND audit.status IN ('approved', 'applying')
+    `;
+  }
 }
 
 async function getQueueJobStats() {
@@ -1114,14 +1134,44 @@ async function processGmailMessageQueueJob(job) {
   try {
     return await processGmailMessage(oauthClient, job.gmailMessageId);
   } catch (error) {
-    if (error.gmailStatus === 404) {
+    if (error.gmailStatus !== 404 || !job.rfcMessageId) {
+      if (error.gmailStatus === 404) {
+        return {
+          gmailMessageId: job.gmailMessageId,
+          missing: true
+        };
+      }
+
+      throw error;
+    }
+
+    const searchableRfcMessageId = job.rfcMessageId.replace(/^<|>$/g, "");
+    const params = new URLSearchParams({
+      maxResults: "1",
+      q: `rfc822msgid:${searchableRfcMessageId}`
+    });
+    const searchResult = await gmailRequest(
+      oauthClient,
+      `/users/me/messages?${params.toString()}`
+    );
+    const resolvedMessageId = normalizeText(searchResult?.messages?.[0]?.id);
+
+    if (!resolvedMessageId) {
+      if (job.auditId) {
+        await autoInventoryAuditsService.setStatus(job.auditId, "failed", {
+          errorCount: 1,
+          errorMessage: "The original Gmail message could not be found for this retry."
+        });
+      }
+
       return {
         gmailMessageId: job.gmailMessageId,
-        missing: true
+        missing: true,
+        rfcMessageId: job.rfcMessageId
       };
     }
 
-    throw error;
+    return processGmailMessage(oauthClient, resolvedMessageId);
   }
 }
 
@@ -1145,7 +1195,34 @@ async function processQueuedJob(message) {
     return processGmailMessageQueueJob(job);
   }
 
+  if (job.kind === "apply-inventory-audit" && job.auditId) {
+    return autoInventoryService.applyStagedInventoryAudit(job.auditId);
+  }
+
   throw createHttpError(400, "Unsupported Gmail queue job.");
+}
+
+async function queueInventoryAuditApply(auditId, retryToken = "") {
+  return gmailInventoryEventsService.publishAuditApply({
+    auditId,
+    mailboxEmail: getMailboxEmail(),
+    retryToken
+  });
+}
+
+async function queueGmailMessageRetry(messageReference, retryToken) {
+  const reference =
+    messageReference && typeof messageReference === "object"
+      ? messageReference
+      : { gmailMessageId: messageReference };
+
+  return gmailInventoryEventsService.publishMessage({
+    auditId: reference.auditId,
+    gmailMessageId: reference.gmailMessageId,
+    mailboxEmail: getMailboxEmail(),
+    retryToken,
+    rfcMessageId: reference.rfcMessageId
+  });
 }
 
 async function processPushNotification({ authorizationHeader, body }) {
@@ -1214,6 +1291,8 @@ module.exports = {
   failQueueJob,
   processPushNotification,
   processQueuedJob,
+  queueGmailMessageRetry,
+  queueInventoryAuditApply,
   renewWatch,
   startQueueJob,
   _test: {

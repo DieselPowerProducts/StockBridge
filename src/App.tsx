@@ -5,6 +5,7 @@ import { NotificationsMenu } from "./components/layout/NotificationsMenu";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
+import { InventorySheetImportsPage } from "./components/inventorySheetImports/InventorySheetImportsPage";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { ShopifyAvailabilitySyncPage } from "./components/shopify/ShopifyAvailabilitySyncPage";
@@ -40,6 +41,7 @@ function parseRoute(): AppRoute {
     page === "products" ||
     page === "stock-check" ||
     page === "audit" ||
+    page === "sheet-imports" ||
     page === "notifications" ||
     page === "shopify-availability-sync"
   ) {
@@ -275,6 +277,7 @@ export function App() {
     route.page === "stock-check" ||
     route.page === "vendors" ||
     route.page === "audit" ||
+    route.page === "sheet-imports" ||
     route.page === "notifications"
       ? route.page
       : "products";
@@ -331,6 +334,10 @@ export function App() {
               inventoryAuditResolvedUpdate={inventoryAuditResolvedUpdate}
               onOpenNotes={setSelectedSku}
             />
+          )}
+
+          {route.page === "sheet-imports" && (
+            <InventorySheetImportsPage />
           )}
 
           {route.page === "shopify-availability-sync" && (

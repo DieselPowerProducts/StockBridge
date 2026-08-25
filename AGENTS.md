@@ -417,6 +417,16 @@ mailbox so they live under that Gmail label. If multiple matching emails from
 the same configured sender are present during one cron run, only the newest
 email is imported for that vendor.
 
+Vendor inventory sheets are staged for review instead of changing SKU Nexus as
+soon as Gmail receives them. The separate sidebar page at `#/sheet-imports`
+shows pending sheets, row-level current/proposed availability, missing-header
+column mapping, and summary-level history from imports that predate the review
+workflow. Approving a staged sheet publishes a durable queue job that applies
+only its proposed inventory changes. Failed parsing or apply jobs can be
+retried manually from the page at most three times; queue delivery itself stops
+after five processing attempts. Rejecting a sheet is terminal and writes no
+inventory changes.
+
 ## UI Guidance
 
 Keep the app operational and dense rather than marketing-like. It is a work tool.
