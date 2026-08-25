@@ -42,6 +42,7 @@ test("maps persisted sheet import summaries and proposals", () => {
       totalRows: 20,
       matchedRows: 8,
       changedRows: 3,
+      selectedChangedRows: 0,
       unmatchedRows: 0,
       invalidRows: 0,
       exceptionRows: 0,
@@ -84,6 +85,7 @@ test("maps persisted sheet import summaries and proposals", () => {
       proposedQuantity: 999999,
       sheetQuantity: 12,
       changeRequired: true,
+      selected: true,
       status: "matched",
       errorMessage: ""
     }

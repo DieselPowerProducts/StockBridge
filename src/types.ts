@@ -219,6 +219,7 @@ export type InventorySheetImport = {
   totalRows: number;
   matchedRows: number;
   changedRows: number;
+  selectedChangedRows: number;
   unmatchedRows: number;
   invalidRows: number;
   exceptionRows: number;
@@ -248,6 +249,7 @@ export type InventorySheetImportRow = {
   proposedQuantity: number;
   sheetQuantity: number | null;
   changeRequired: boolean;
+  selected: boolean;
   status: string;
   errorMessage: string;
 };

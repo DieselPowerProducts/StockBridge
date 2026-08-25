@@ -119,7 +119,7 @@ async function updateMapping(req, res, next) {
 
     if (
       sheetImport.isLegacy ||
-      !["needs_mapping", "failed"].includes(sheetImport.status)
+      !["ready_for_review", "needs_mapping", "failed"].includes(sheetImport.status)
     ) {
       const error = new Error("This inventory sheet mapping cannot be changed.");
       error.statusCode = 409;
@@ -153,16 +153,71 @@ async function updateMapping(req, res, next) {
       throw error;
     }
 
-    const currentSettings = await settingsService.getSettings(
-      sheetImport.vendorId
-    );
-    await settingsService.saveSettings(sheetImport.vendorId, {
-      ...currentSettings,
+    const mapping = {
       skuHeader,
       inventoryHeader,
       subtractiveColumn
-    });
-    res.send(await queueManualRetry(sheetImport.id, req.user));
+    };
+    const saveToVendor = req.body?.saveToVendor === true;
+
+    if (saveToVendor) {
+      const currentSettings = await settingsService.getSettings(
+        sheetImport.vendorId
+      );
+      await settingsService.saveSettings(sheetImport.vendorId, {
+        ...currentSettings,
+        ...mapping
+      });
+    }
+
+    const updatedImport = await sheetImportsService.updateAuditMapping(
+      sheetImport.id,
+      mapping
+    );
+
+    try {
+      const wake = await gmailInventoryService.queueGmailMessageRetry(
+        {
+          auditId: updatedImport.id,
+          gmailMessageId: updatedImport.messageUid,
+          rfcMessageId: updatedImport.messageId
+        },
+        `mapping-${Date.now()}`
+      );
+
+      res.send({
+        ...updatedImport,
+        mappingSavedToVendor: saveToVendor,
+        queued: !wake.skipped,
+        retryMode: "parse"
+      });
+    } catch (error) {
+      await sheetImportsService.setStatus(updatedImport.id, "failed", {
+        errorCount: 1,
+        errorMessage: `Unable to queue mapped sheet: ${error.message}`
+      });
+      throw error;
+    }
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updateRowSelection(req, res, next) {
+  try {
+    if (typeof req.body?.selected !== "boolean") {
+      const error = new Error("Choose whether to include or remove this SKU.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    res.send(
+      await sheetImportsService.updateProposalSelection(
+        req.params.importId,
+        req.params.rowNumber,
+        req.body.selected
+      )
+    );
   } catch (error) {
     next(error);
   }
@@ -174,5 +229,6 @@ module.exports = {
   listImports,
   rejectImport,
   retryImport,
-  updateMapping
+  updateMapping,
+  updateRowSelection
 };

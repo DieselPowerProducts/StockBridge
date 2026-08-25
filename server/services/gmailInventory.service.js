@@ -718,7 +718,7 @@ function decodeRawMessage(raw) {
   return Buffer.from(normalizeText(raw), "base64url");
 }
 
-async function processGmailMessage(oauthClient, messageId) {
+async function processGmailMessage(oauthClient, messageId, { auditId = "" } = {}) {
   const message = await getRawMessage(oauthClient, messageId);
   const source = decodeRawMessage(message?.raw);
   const inventoryAudit =
@@ -727,6 +727,7 @@ async function processGmailMessage(oauthClient, messageId) {
       source
     });
   const result = await autoInventoryService.processInventoryMessageSource({
+    auditId,
     messageUid: messageId,
     source
   });
@@ -1132,7 +1133,9 @@ async function processGmailMessageQueueJob(job) {
   const oauthClient = await getAuthorizedClient();
 
   try {
-    return await processGmailMessage(oauthClient, job.gmailMessageId);
+    return await processGmailMessage(oauthClient, job.gmailMessageId, {
+      auditId: job.auditId
+    });
   } catch (error) {
     if (error.gmailStatus !== 404 || !job.rfcMessageId) {
       if (error.gmailStatus === 404) {
@@ -1171,7 +1174,9 @@ async function processGmailMessageQueueJob(job) {
       };
     }
 
-    return processGmailMessage(oauthClient, resolvedMessageId);
+    return processGmailMessage(oauthClient, resolvedMessageId, {
+      auditId: job.auditId
+    });
   }
 }
 

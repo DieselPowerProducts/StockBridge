@@ -61,6 +61,7 @@ function mapAuditRow(row) {
     totalRows: Number(row?.total_rows || 0),
     matchedRows: Number(row?.matched_rows || 0),
     changedRows: Number(row?.changed_rows || 0),
+    selectedChangedRows: Number(row?.selected_changed_rows || 0),
     unmatchedRows: Number(row?.unmatched_rows || 0),
     invalidRows: Number(row?.invalid_rows || 0),
     exceptionRows: Number(row?.exception_rows || 0),
@@ -95,6 +96,7 @@ function mapProposalRow(row) {
         ? null
         : Number(row.sheet_quantity),
     changeRequired: Boolean(row?.change_required),
+    selected: row?.selected !== false,
     status: normalizeText(row?.status),
     errorMessage: normalizeText(row?.error_message)
   };
@@ -125,6 +127,7 @@ async function initializeSchema() {
           total_rows INTEGER NOT NULL DEFAULT 0,
           matched_rows INTEGER NOT NULL DEFAULT 0,
           changed_rows INTEGER NOT NULL DEFAULT 0,
+          selected_changed_rows INTEGER NOT NULL DEFAULT 0,
           unmatched_rows INTEGER NOT NULL DEFAULT 0,
           invalid_rows INTEGER NOT NULL DEFAULT 0,
           exception_rows INTEGER NOT NULL DEFAULT 0,
@@ -157,10 +160,35 @@ async function initializeSchema() {
           proposed_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
           sheet_quantity DOUBLE PRECISION,
           change_required BOOLEAN NOT NULL DEFAULT FALSE,
+          selected BOOLEAN NOT NULL DEFAULT TRUE,
           status TEXT NOT NULL DEFAULT 'matched',
           error_message TEXT NOT NULL DEFAULT '',
           PRIMARY KEY (audit_id, row_number)
         )
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_audits
+        ADD COLUMN IF NOT EXISTS selected_changed_rows INTEGER NOT NULL DEFAULT 0
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_audit_rows
+        ADD COLUMN IF NOT EXISTS selected BOOLEAN NOT NULL DEFAULT TRUE
+      `;
+      await sql`
+        UPDATE vendor_auto_inventory_audits AS audit
+        SET selected_changed_rows = counts.selected_count
+        FROM (
+          SELECT
+            audit_id,
+            COUNT(*) FILTER (
+              WHERE change_required = TRUE AND selected = TRUE
+            )::integer AS selected_count
+          FROM vendor_auto_inventory_audit_rows
+          GROUP BY audit_id
+        ) AS counts
+        WHERE audit.id = counts.audit_id
+          AND audit.is_legacy = FALSE
+          AND audit.status IN ('ready_for_review', 'needs_mapping', 'failed', 'retrying')
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS vendor_auto_inventory_audits_status_idx
@@ -282,6 +310,7 @@ async function stageAudit(input, proposalRows = []) {
       total_rows,
       matched_rows,
       changed_rows,
+      selected_changed_rows,
       unmatched_rows,
       invalid_rows,
       exception_rows,
@@ -304,6 +333,7 @@ async function stageAudit(input, proposalRows = []) {
       ${Math.max(Number(input?.totalRows || 0), 0)},
       ${Math.max(Number(input?.matchedRows || 0), 0)},
       ${Math.max(Number(input?.changedRows || 0), 0)},
+      ${Math.max(Number(input?.selectedChangedRows ?? input?.changedRows ?? 0), 0)},
       ${Math.max(Number(input?.unmatchedRows || 0), 0)},
       ${Math.max(Number(input?.invalidRows || 0), 0)},
       ${Math.max(Number(input?.exceptionRows || 0), 0)},
@@ -324,6 +354,7 @@ async function stageAudit(input, proposalRows = []) {
       total_rows = EXCLUDED.total_rows,
       matched_rows = EXCLUDED.matched_rows,
       changed_rows = EXCLUDED.changed_rows,
+      selected_changed_rows = EXCLUDED.selected_changed_rows,
       unmatched_rows = EXCLUDED.unmatched_rows,
       invalid_rows = EXCLUDED.invalid_rows,
       exception_rows = EXCLUDED.exception_rows,
@@ -353,6 +384,7 @@ async function stageAudit(input, proposalRows = []) {
           ? null
           : Number(row.sheetQuantity),
       change_required: Boolean(row?.changeRequired),
+      selected: row?.selected !== false,
       status: normalizeText(row?.status, 100) || "matched",
       error_message: normalizeText(row?.errorMessage)
     }));
@@ -373,6 +405,7 @@ async function stageAudit(input, proposalRows = []) {
           proposed_quantity,
           sheet_quantity,
           change_required,
+          selected,
           status,
           error_message
         )
@@ -390,6 +423,7 @@ async function stageAudit(input, proposalRows = []) {
           proposal.proposed_quantity,
           proposal.sheet_quantity,
           proposal.change_required,
+          proposal.selected,
           proposal.status,
           proposal.error_message
         FROM jsonb_to_recordset($2::jsonb) AS proposal(
@@ -405,6 +439,7 @@ async function stageAudit(input, proposalRows = []) {
           proposed_quantity double precision,
           sheet_quantity double precision,
           change_required boolean,
+          selected boolean,
           status text,
           error_message text
         )
@@ -499,7 +534,7 @@ async function getAuditDetails(auditId, { rowPage, rowLimit } = {}) {
       SELECT proposal.*, COUNT(*) OVER()::int AS total_count
       FROM vendor_auto_inventory_audit_rows AS proposal
       WHERE proposal.audit_id = $1
-      ORDER BY proposal.change_required DESC, proposal.row_number ASC
+      ORDER BY proposal.change_required DESC, proposal.selected DESC, proposal.row_number ASC
       LIMIT $2 OFFSET $3
     `,
     [audit.id, safeLimit, offset]
@@ -526,6 +561,126 @@ async function getProposalRows(auditId) {
   `;
 
   return rows.map(mapProposalRow);
+}
+
+async function updateAuditMapping(auditId, mapping) {
+  const audit = await getAuditRecord(auditId);
+
+  if (
+    !audit ||
+    audit.isLegacy ||
+    !["ready_for_review", "needs_mapping", "failed"].includes(audit.status)
+  ) {
+    const error = new Error(
+      audit
+        ? "This inventory sheet mapping cannot be changed now."
+        : "Inventory sheet audit not found."
+    );
+    error.statusCode = audit ? 409 : 404;
+    throw error;
+  }
+
+  const nextMapping = {
+    ...audit.mapping,
+    skuHeader: normalizeText(mapping?.skuHeader, 1000),
+    inventoryHeader: normalizeText(mapping?.inventoryHeader, 1000),
+    subtractiveColumn: normalizeText(mapping?.subtractiveColumn, 1000)
+  };
+  const sql = getSql();
+  const rows = await sql`
+    WITH updated AS (
+      UPDATE vendor_auto_inventory_audits
+      SET
+        mapping = ${JSON.stringify(nextMapping)}::jsonb,
+        status = 'retrying',
+        total_rows = 0,
+        matched_rows = 0,
+        changed_rows = 0,
+        selected_changed_rows = 0,
+        unmatched_rows = 0,
+        invalid_rows = 0,
+        exception_rows = 0,
+        applied_count = 0,
+        skipped_count = 0,
+        error_count = 0,
+        error_message = '',
+        updated_at = now()
+      WHERE id = ${audit.id}
+        AND status IN ('ready_for_review', 'needs_mapping', 'failed')
+        AND is_legacy = FALSE
+      RETURNING id
+    ), deleted AS (
+      DELETE FROM vendor_auto_inventory_audit_rows
+      WHERE audit_id IN (SELECT id FROM updated)
+      RETURNING audit_id
+    )
+    SELECT id FROM updated
+  `;
+
+  if (!rows[0]) {
+    const error = new Error("This inventory sheet mapping changed elsewhere.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return getAuditRecord(audit.id);
+}
+
+async function updateProposalSelection(auditId, rowNumber, selected) {
+  await initializeSchema();
+  const safeAuditId = normalizeText(auditId, 500);
+  const safeRowNumber = Number.parseInt(String(rowNumber || ""), 10);
+
+  if (!Number.isFinite(safeRowNumber) || safeRowNumber < 1) {
+    const error = new Error("A valid sheet row is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE vendor_auto_inventory_audit_rows AS proposal
+    SET
+      selected = ${Boolean(selected)},
+      status = ${selected ? "matched" : "excluded"}
+    FROM vendor_auto_inventory_audits AS audit
+    WHERE proposal.audit_id = ${safeAuditId}
+      AND proposal.row_number = ${safeRowNumber}
+      AND audit.id = proposal.audit_id
+      AND audit.status = 'ready_for_review'
+      AND audit.is_legacy = FALSE
+    RETURNING proposal.*
+  `;
+
+  if (!rows[0]) {
+    const audit = await getAuditRecord(safeAuditId);
+    const error = new Error(
+      audit
+        ? "This row cannot be changed after the sheet leaves review."
+        : "Inventory sheet audit not found."
+    );
+    error.statusCode = audit ? 409 : 404;
+    throw error;
+  }
+
+  await sql`
+    UPDATE vendor_auto_inventory_audits
+    SET
+      selected_changed_rows = (
+        SELECT COUNT(*)::integer
+        FROM vendor_auto_inventory_audit_rows
+        WHERE audit_id = ${safeAuditId}
+          AND change_required = TRUE
+          AND selected = TRUE
+      ),
+      updated_at = now()
+    WHERE id = ${safeAuditId}
+  `;
+
+  return {
+    audit: await getAuditRecord(safeAuditId),
+    row: mapProposalRow(rows[0])
+  };
 }
 
 function formatReviewer(user) {
@@ -706,6 +861,8 @@ module.exports = {
   requestManualRetry,
   setStatus,
   stageAudit,
+  updateAuditMapping,
+  updateProposalSelection,
   _test: {
     createAuditId,
     mapAuditRow,

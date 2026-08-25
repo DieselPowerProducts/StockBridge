@@ -1176,12 +1176,46 @@ button:disabled {
   justify-self: end;
 }
 
+.sheet-import-map-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sheet-import-mapping-panel .sheet-import-save-mapping {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.sheet-import-save-mapping input {
+  margin: 0;
+}
+
 .sheet-import-proposals-table {
-  min-width: 720px;
+  min-width: 820px;
 }
 
 .sheet-import-proposals-table tr.unchanged {
   color: #aaaaaa;
+}
+
+.sheet-import-proposals-table tr.excluded {
+  opacity: 0.5;
+}
+
+.sheet-import-row-toggle {
+  background: #39262a;
+  border: 1px solid #74434b;
+  color: #ffd5d8;
+  min-width: 64px;
+  padding: 5px 7px;
+}
+
+.sheet-import-proposals-table tr.excluded .sheet-import-row-toggle {
+  background: #26384c;
+  border-color: #5d7897;
+  color: #d9eaff;
 }
 
 .sheet-import-change {

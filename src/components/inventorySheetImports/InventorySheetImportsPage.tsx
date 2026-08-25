@@ -5,7 +5,8 @@ import {
   getInventorySheetImports,
   rejectInventorySheetImport,
   retryInventorySheetImport,
-  updateInventorySheetImportMapping
+  updateInventorySheetImportMapping,
+  updateInventorySheetImportRowSelection
 } from "../../services/api";
 import type {
   InventorySheetImport,
@@ -15,6 +16,7 @@ import type {
 import { Pagination } from "../products/Pagination";
 
 const pageSize = 25;
+const rowPageSize = 100;
 const maximumManualRetries = 3;
 
 const statusLabels: Record<InventorySheetImportStatus, string> = {
@@ -51,6 +53,7 @@ export function InventorySheetImportsPage() {
   const [selectedId, setSelectedId] = useState("");
   const [details, setDetails] = useState<InventorySheetImportDetails | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [rowPage, setRowPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,6 +66,8 @@ export function InventorySheetImportsPage() {
   const [skuHeader, setSkuHeader] = useState("");
   const [inventoryHeader, setInventoryHeader] = useState("");
   const [subtractiveColumn, setSubtractiveColumn] = useState("");
+  const [saveMappingToVendor, setSaveMappingToVendor] = useState(false);
+  const [isMappingOpen, setIsMappingOpen] = useState(false);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -118,13 +123,18 @@ export function InventorySheetImportsPage() {
     setIsLoadingDetails(true);
     setError("");
 
-    void getInventorySheetImport(selectedId)
+    void getInventorySheetImport(selectedId, rowPage, rowPageSize)
       .then((result) => {
         if (ignore) return;
         setDetails(result);
         setSkuHeader(result.mapping.skuHeader || "");
         setInventoryHeader(result.mapping.inventoryHeader || "");
         setSubtractiveColumn(result.mapping.subtractiveColumn || "");
+        setSaveMappingToVendor(false);
+        setIsMappingOpen(
+          result.status === "needs_mapping" ||
+            (result.status === "failed" && result.rows.length === 0)
+        );
       })
       .catch((loadError) => {
         if (!ignore) {
@@ -142,7 +152,7 @@ export function InventorySheetImportsPage() {
     return () => {
       ignore = true;
     };
-  }, [selectedId, refreshNonce]);
+  }, [selectedId, refreshNonce, rowPage]);
 
   function refreshAfterAction(successMessage: string) {
     setMessage(successMessage);
@@ -172,8 +182,8 @@ export function InventorySheetImportsPage() {
   function handleApprove() {
     if (!details) return;
     const confirmed = window.confirm(
-      `Apply ${details.changedRows} proposed inventory change${
-        details.changedRows === 1 ? "" : "s"
+      `Apply ${details.selectedChangedRows} selected inventory change${
+        details.selectedChangedRows === 1 ? "" : "s"
       } for ${details.vendorName}?`
     );
     if (!confirmed) return;
@@ -218,9 +228,51 @@ export function InventorySheetImportsPage() {
       await updateInventorySheetImportMapping(details.id, {
         skuHeader,
         inventoryHeader,
-        subtractiveColumn
+        subtractiveColumn,
+        saveToVendor: saveMappingToVendor
       });
-      refreshAfterAction("The vendor mapping was saved and the sheet was queued again.");
+      refreshAfterAction(
+        saveMappingToVendor
+          ? "The mapping was applied to this sheet, saved for the vendor, and queued again."
+          : "The mapping was applied to this sheet only and queued again."
+      );
+    });
+  }
+
+  function handleRowSelection(
+    rowNumber: number,
+    productSku: string,
+    selected: boolean
+  ) {
+    if (!details) return;
+
+    void runAction(`row-${rowNumber}`, async () => {
+      const result = await updateInventorySheetImportRowSelection(
+        details.id,
+        rowNumber,
+        selected
+      );
+      setDetails((current) =>
+        current
+          ? {
+              ...current,
+              selectedChangedRows: result.audit.selectedChangedRows,
+              rows: current.rows.map((row) =>
+                row.rowNumber === rowNumber ? result.row : row
+              )
+            }
+          : current
+      );
+      setItems((current) =>
+        current.map((item) =>
+          item.id === result.audit.id ? { ...item, ...result.audit } : item
+        )
+      );
+      setMessage(
+        selected
+          ? `${productSku} was restored to this import.`
+          : `${productSku} was removed from this import.`
+      );
     });
   }
 
@@ -234,6 +286,12 @@ export function InventorySheetImportsPage() {
       !details.isLegacy &&
       details.status === "failed" &&
       details.manualRetryCount < maximumManualRetries
+  );
+  const canMap = Boolean(
+    details &&
+      !details.isLegacy &&
+      details.availableHeaders.length > 0 &&
+      ["ready_for_review", "needs_mapping", "failed"].includes(details.status)
   );
 
   return (
@@ -321,7 +379,10 @@ export function InventorySheetImportsPage() {
               <button
                 type="button"
                 className="sheet-import-list-select"
-                onClick={() => setSelectedId(item.id)}
+                onClick={() => {
+                  setSelectedId(item.id);
+                  setRowPage(1);
+                }}
               >
                 <span className="sheet-import-list-main">
                   <strong>{item.vendorName || item.vendorId}</strong>
@@ -334,7 +395,7 @@ export function InventorySheetImportsPage() {
                   {item.isLegacy
                     ? `${item.appliedCount} applied · Summary only`
                     : item.changedRows > 0
-                    ? `${item.changedRows} proposed change${item.changedRows === 1 ? "" : "s"}`
+                    ? `${item.changedRows} proposed · ${item.selectedChangedRows} selected`
                     : `${item.appliedCount} applied`}
                   <small>{formatDate(item.updatedAt)}</small>
                 </span>
@@ -415,12 +476,22 @@ export function InventorySheetImportsPage() {
                 <p className="sheet-import-error">{details.errorMessage}</p>
               ) : null}
 
-              {details.availableHeaders.length > 0 &&
-              (details.status === "needs_mapping" ||
-                (details.status === "failed" && details.rows.length === 0)) ? (
+              {canMap && !isMappingOpen ? (
+                <div className="sheet-import-map-actions">
+                  <button
+                    type="button"
+                    className="price-audit-refresh"
+                    onClick={() => setIsMappingOpen(true)}
+                  >
+                    Change column mapping
+                  </button>
+                </div>
+              ) : null}
+
+              {canMap && isMappingOpen ? (
                 <div className="sheet-import-mapping-panel">
-                  <h3>Map this vendor’s columns</h3>
-                  <p>The saved mapping will be reused for later sheets from this vendor.</p>
+                  <h3>Map this sheet&apos;s columns</h3>
+                  <p>This mapping applies to this card. Saving it for the vendor is optional.</p>
                   <label>
                     <span>Vendor SKU column</span>
                     <select value={skuHeader} onChange={(event) => setSkuHeader(event.target.value)}>
@@ -442,6 +513,14 @@ export function InventorySheetImportsPage() {
                       {details.availableHeaders.map((header) => <option key={header}>{header}</option>)}
                     </select>
                   </label>
+                  <label className="sheet-import-save-mapping">
+                    <input
+                      type="checkbox"
+                      checked={saveMappingToVendor}
+                      onChange={(event) => setSaveMappingToVendor(event.target.checked)}
+                    />
+                    <span>Save this mapping as the default for future {details.vendorName} sheets</span>
+                  </label>
                   <button
                     type="button"
                     className="price-audit-confirm"
@@ -455,7 +534,7 @@ export function InventorySheetImportsPage() {
                     }
                     onClick={handleSaveMapping}
                   >
-                    Save mapping &amp; retry
+                    Apply mapping to this sheet
                   </button>
                 </div>
               ) : null}
@@ -465,6 +544,7 @@ export function InventorySheetImportsPage() {
                   <table className="sheet-import-proposals-table">
                     <thead>
                       <tr>
+                        <th>Include</th>
                         <th>Product SKU</th>
                         <th>Sheet SKU</th>
                         <th>Availability change</th>
@@ -473,7 +553,32 @@ export function InventorySheetImportsPage() {
                     </thead>
                     <tbody>
                       {details.rows.map((row) => (
-                        <tr className={row.changeRequired ? "changed" : "unchanged"} key={`${row.rowNumber}-${row.vendorProductId}`}>
+                        <tr
+                          className={`${row.changeRequired ? "changed" : "unchanged"}${row.selected ? "" : " excluded"}`}
+                          key={`${row.rowNumber}-${row.vendorProductId}`}
+                        >
+                          <td>
+                            {row.changeRequired && details.status === "ready_for_review" ? (
+                              <button
+                                type="button"
+                                className="sheet-import-row-toggle"
+                                disabled={activeAction !== ""}
+                                onClick={() =>
+                                  handleRowSelection(
+                                    row.rowNumber,
+                                    row.productSku,
+                                    !row.selected
+                                  )
+                                }
+                              >
+                                {row.selected ? "Remove" : "Restore"}
+                              </button>
+                            ) : row.selected ? (
+                              "Included"
+                            ) : (
+                              "Removed"
+                            )}
+                          </td>
                           <td><strong>{row.productSku}</strong></td>
                           <td>{row.sheetSku}</td>
                           <td className="sheet-import-change">
@@ -488,8 +593,16 @@ export function InventorySheetImportsPage() {
                   </table>
                   {details.rowTotal > details.rows.length ? (
                     <p className="sheet-import-row-limit">
-                      Showing the first {details.rows.length} of {details.rowTotal} matched rows.
+                      Showing {details.rows.length} of {details.rowTotal} matched rows.
                     </p>
+                  ) : null}
+                  {details.rowTotalPages > 1 ? (
+                    <Pagination
+                      currentPage={details.rowPage}
+                      limit={rowPageSize}
+                      totalItems={details.rowTotal}
+                      onPageChange={setRowPage}
+                    />
                   ) : null}
                 </div>
               ) : null}
@@ -512,8 +625,16 @@ export function InventorySheetImportsPage() {
                   </button>
                 ) : null}
                 {details.status === "ready_for_review" ? (
-                  <button type="button" className="price-audit-confirm" disabled={activeAction !== ""} onClick={handleApprove}>
-                    Approve {details.changedRows} change{details.changedRows === 1 ? "" : "s"}
+                  <button
+                    type="button"
+                    className="price-audit-confirm"
+                    disabled={
+                      activeAction !== "" ||
+                      (details.changedRows > 0 && details.selectedChangedRows === 0)
+                    }
+                    onClick={handleApprove}
+                  >
+                    Approve {details.selectedChangedRows} selected change{details.selectedChangedRows === 1 ? "" : "s"}
                   </button>
                 ) : null}
               </div>

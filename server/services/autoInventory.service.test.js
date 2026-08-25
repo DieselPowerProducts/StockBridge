@@ -35,6 +35,32 @@ test("keeps numerical sheet quantities unchanged", () => {
   assert.equal(_test.getTrackedSheetQuantity(result, "numerical"), 12);
 });
 
+test("applies a card mapping without changing vendor identity or exceptions", () => {
+  const result = _test.applyAuditMappingToSettings(
+    {
+      vendorId: "vendor-1",
+      senderEmail: "vendor@example.com",
+      skuHeader: "Default SKU",
+      inventoryHeader: "Default Qty",
+      skuExceptions: ["KEEP-MANUAL"]
+    },
+    {
+      mapping: {
+        skuHeader: "Card SKU",
+        inventoryHeader: "Card Qty",
+        subtractiveColumn: "Allocated"
+      }
+    }
+  );
+
+  assert.equal(result.skuHeader, "Card SKU");
+  assert.equal(result.inventoryHeader, "Card Qty");
+  assert.equal(result.subtractiveColumn, "Allocated");
+  assert.equal(result.vendorId, "vendor-1");
+  assert.equal(result.senderEmail, "vendor@example.com");
+  assert.deepEqual(result.skuExceptions, ["KEEP-MANUAL"]);
+});
+
 
 const servicePath = require.resolve("./autoInventory.service");
 const catalogPath = require.resolve("./catalog.service");
@@ -166,4 +192,108 @@ test("stages changed headers as needs mapping", async () => {
       "Qty Available"
     ]);
   });
+});
+
+test("does not apply a row removed from a sheet review", async () => {
+  const productUpdatesPath = require.resolve(
+    "./vendorAutoInventoryProductUpdates.service"
+  );
+  const importsPath = require.resolve("./vendorAutoInventoryImports.service");
+  const paths = [
+    servicePath,
+    catalogPath,
+    auditsPath,
+    productsPath,
+    productUpdatesPath,
+    importsPath
+  ];
+  const originals = new Map(paths.map((path) => [path, require.cache[path]]));
+  const statuses = [];
+  const managedUpdates = [];
+  let quantityWrites = 0;
+
+  require.cache[catalogPath] = {
+    id: catalogPath,
+    filename: catalogPath,
+    loaded: true,
+    exports: {
+      getActiveCatalogVendorProductsByVendorId: async () => [
+        {
+          id: "vendor-product-1",
+          product_id: "product-1",
+          product_sku: "DPP-100",
+          quantity: 0
+        }
+      ]
+    }
+  };
+  require.cache[auditsPath] = {
+    id: auditsPath,
+    filename: auditsPath,
+    loaded: true,
+    exports: {
+      getAuditRecord: async () => ({
+        id: "sheet-1",
+        vendorId: "vendor-1",
+        status: "approved",
+        appliedCount: 0,
+        mapping: { inventoryMode: "numerical" }
+      }),
+      getProposalRows: async () => [
+        {
+          rowNumber: 2,
+          vendorProductId: "vendor-product-1",
+          productId: "product-1",
+          productSku: "DPP-100",
+          sheetSku: "VENDOR-100",
+          currentQuantity: 0,
+          proposedQuantity: 999999,
+          selected: false
+        }
+      ],
+      setStatus: async (_auditId, status) => {
+        statuses.push(status);
+      }
+    }
+  };
+  require.cache[productsPath] = {
+    id: productsPath,
+    filename: productsPath,
+    loaded: true,
+    exports: {
+      setVendorProductQuantity: async () => {
+        quantityWrites += 1;
+      }
+    }
+  };
+  require.cache[productUpdatesPath] = {
+    id: productUpdatesPath,
+    filename: productUpdatesPath,
+    loaded: true,
+    exports: {
+      replaceVendorProductUpdatesForVendor: async (input) => {
+        managedUpdates.push(input);
+      }
+    }
+  };
+  require.cache[importsPath] = {
+    id: importsPath,
+    filename: importsPath,
+    loaded: true,
+    exports: { recordImport: async () => ({ id: "legacy-1" }) }
+  };
+  delete require.cache[servicePath];
+
+  try {
+    const service = require(servicePath);
+    const result = await service.applyStagedInventoryAudit("sheet-1");
+
+    assert.equal(quantityWrites, 0);
+    assert.equal(result.applied, 0);
+    assert.equal(result.skipped, 1);
+    assert.deepEqual(managedUpdates[0].updates, []);
+    assert.deepEqual(statuses, ["applying", "applied"]);
+  } finally {
+    for (const path of paths) restoreModule(path, originals.get(path));
+  }
 });

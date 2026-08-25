@@ -429,9 +429,18 @@ export function getInventorySheetImports({
   );
 }
 
-export function getInventorySheetImport(importId: string) {
+export function getInventorySheetImport(
+  importId: string,
+  rowPage = 1,
+  rowLimit = 100
+) {
+  const params = new URLSearchParams({
+    rowPage: String(rowPage),
+    rowLimit: String(rowLimit)
+  });
+
   return request<InventorySheetImportDetails>(
-    `/inventory-sheet-imports/${encodeURIComponent(importId)}`
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}?${params.toString()}`
   );
 }
 
@@ -462,6 +471,7 @@ export function updateInventorySheetImportMapping(
     skuHeader: string;
     inventoryHeader: string;
     subtractiveColumn: string;
+    saveToVendor: boolean;
   }
 ) {
   return request<InventorySheetImport & { queued: boolean; retryMode: string }>(
@@ -470,6 +480,24 @@ export function updateInventorySheetImportMapping(
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(mapping)
+    }
+  );
+}
+
+export function updateInventorySheetImportRowSelection(
+  importId: string,
+  rowNumber: number,
+  selected: boolean
+) {
+  return request<{
+    audit: InventorySheetImport;
+    row: InventorySheetImportDetails["rows"][number];
+  }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/rows/${rowNumber}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected })
     }
   );
 }

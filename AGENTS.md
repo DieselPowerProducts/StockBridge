@@ -426,6 +426,12 @@ only its proposed inventory changes. Failed parsing or apply jobs can be
 retried manually from the page at most three times; queue delivery itself stops
 after five processing attempts. Rejecting a sheet is terminal and writes no
 inventory changes.
+Column mapping is stored on each sheet-import card. Reviewers can optionally
+save that mapping as the vendor default for future sheets; a vendor can therefore
+send multiple layouts without overwriting its default every time. Proposed
+changed rows are included by default and can be removed or restored individually
+before approval. Approval applies only the selected rows and retains excluded
+rows in the card history for traceability.
 
 ## UI Guidance
 

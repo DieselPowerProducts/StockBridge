@@ -589,6 +589,16 @@ function getAuditMapping(settings) {
   };
 }
 
+function applyAuditMappingToSettings(settings, audit) {
+  return {
+    ...settings,
+    ...(audit?.mapping || {}),
+    vendorId: settings.vendorId,
+    senderEmail: settings.senderEmail,
+    skuExceptions: settings.skuExceptions
+  };
+}
+
 async function stageSheetAttachment({ settings, attachment, message }) {
   const content = attachment.content || Buffer.alloc(0);
   const attachmentHash = getAttachmentHash(content);
@@ -1269,6 +1279,11 @@ async function applyStagedInventoryAudit(auditId) {
   let followUpsSet = 0;
 
   for (const proposal of proposalRows) {
+    if (!proposal.selected) {
+      skipped += 1;
+      continue;
+    }
+
     const vendorProduct = vendorProductsById.get(proposal.vendorProductId);
 
     if (!vendorProduct) {
@@ -1438,8 +1453,23 @@ async function processMessageForSettings({ uid, source }, settings) {
   return processParsedMessageForSettings({ uid, parsed }, settings);
 }
 
-async function processInventoryMessageSource({ messageUid, source }) {
-  const settingsList = await settingsService.getEnabledSettings();
+async function processInventoryMessageSource({ auditId = "", messageUid, source }) {
+  let settingsList = await settingsService.getEnabledSettings();
+
+  if (auditId) {
+    const audit = await auditsService.getAuditRecord(auditId);
+
+    if (!audit || audit.isLegacy) {
+      const error = new Error("Inventory sheet audit not found for remapping.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    settingsList = settingsList
+      .filter((settings) => settings.vendorId === audit.vendorId)
+      .map((settings) => applyAuditMappingToSettings(settings, audit));
+  }
+
   const parsed = await simpleParser(source);
   const totals = {
     imported: 0,
@@ -1735,6 +1765,7 @@ module.exports = {
   processInventoryMessageSource,
   runAutoInventoryImport,
   _test: {
+    applyAuditMappingToSettings,
     getTrackedSheetQuantity,
     parseInventoryResult,
     stageSheetAttachment
