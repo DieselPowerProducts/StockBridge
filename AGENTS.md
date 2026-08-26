@@ -413,6 +413,10 @@ detail because Gmail parse/apply jobs can move through retrying states quickly.
 Proposal rows describe this vendor's stock state, not the product's aggregated
 availability. Show both vendor stock status and the prior-to-proposed sheet
 quantity; the highlighted destination is the value that will be recorded.
+For pending reviews created before the prior-quantity audit column existed,
+backfill from the vendor's tracked auto-inventory quantity, then from the current
+SKU Nexus vendor-product quantity. Do not show an unknown prior value when one
+of those sources exists.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
 Numerical and alphabetical auto-inventory updates are stored in

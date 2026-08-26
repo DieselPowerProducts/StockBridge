@@ -569,6 +569,29 @@ async function getAuditDetails(auditId, { rowPage, rowLimit } = {}) {
   const safeLimit = normalizePositiveInteger(rowLimit, 100, 500);
   const offset = (safePage - 1) * safeLimit;
   const sql = getSql();
+
+  if (
+    !audit.isLegacy &&
+    ["ready_for_review", "needs_mapping", "failed", "retrying"].includes(
+      audit.status
+    )
+  ) {
+    await sql`
+      UPDATE vendor_auto_inventory_audit_rows AS proposal
+      SET previous_sheet_quantity = previous.quantity
+      FROM vendor_auto_inventory_product_updates AS previous
+      WHERE proposal.audit_id = ${audit.id}
+        AND proposal.vendor_product_id = previous.vendor_product_id
+        AND proposal.previous_sheet_quantity IS NULL
+    `;
+    await sql`
+      UPDATE vendor_auto_inventory_audit_rows
+      SET previous_sheet_quantity = current_quantity
+      WHERE audit_id = ${audit.id}
+        AND previous_sheet_quantity IS NULL
+    `;
+  }
+
   const rows = await sql.query(
     `
       SELECT proposal.*, COUNT(*) OVER()::int AS total_count

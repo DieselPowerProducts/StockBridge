@@ -697,8 +697,8 @@ export function InventorySheetImportsPage() {
                         <th>Include</th>
                         <th>Product SKU</th>
                         <th>Sheet SKU</th>
-                        <th>This vendor&apos;s stock</th>
-                        <th>Sheet stock value</th>
+                        <th>{details.vendorName} stock status</th>
+                        <th>{details.vendorName} stock value</th>
                       </tr>
                     </thead>
                     <tbody>
