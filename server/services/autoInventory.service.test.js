@@ -66,6 +66,9 @@ const servicePath = require.resolve("./autoInventory.service");
 const catalogPath = require.resolve("./catalog.service");
 const auditsPath = require.resolve("./vendorAutoInventoryAudits.service");
 const productsPath = require.resolve("./products.service");
+const stagingProductUpdatesPath = require.resolve(
+  "./vendorAutoInventoryProductUpdates.service"
+);
 
 function restoreModule(modulePath, original) {
   if (original) require.cache[modulePath] = original;
@@ -73,7 +76,13 @@ function restoreModule(modulePath, original) {
 }
 
 async function withStagingHarness(callback) {
-  const paths = [servicePath, catalogPath, auditsPath, productsPath];
+  const paths = [
+    servicePath,
+    catalogPath,
+    auditsPath,
+    productsPath,
+    stagingProductUpdatesPath
+  ];
   const originals = new Map(paths.map((path) => [path, require.cache[path]]));
   const staged = [];
   let productUpdateCalls = 0;
@@ -119,6 +128,17 @@ async function withStagingHarness(callback) {
         productUpdateCalls += 1;
         throw new Error("staging must not update inventory");
       }
+    }
+  };
+  require.cache[stagingProductUpdatesPath] = {
+    id: stagingProductUpdatesPath,
+    filename: stagingProductUpdatesPath,
+    loaded: true,
+    exports: {
+      getUpdatesForVendorProductIds: async () =>
+        new Map([
+          ["vendor-product-1", { quantity: 7 }]
+        ])
     }
   };
   delete require.cache[servicePath];
@@ -173,6 +193,7 @@ test("stages matched inventory changes without updating SKU Nexus", async () => 
       ["UNKNOWN", "3"]
     ]);
     assert.equal(staged[0].rows[0].changeRequired, true);
+    assert.equal(staged[0].rows[0].previousSheetQuantity, 7);
     assert.equal(staged[0].rows[0].proposedQuantity, 999999);
   });
 });

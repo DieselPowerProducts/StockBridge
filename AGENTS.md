@@ -410,6 +410,9 @@ must make clear that the inventory field controls stock availability, not price.
 The optional subtractive column represents allocated/committed stock deducted
 from the primary quantity. Keep list-card status synchronized with the selected
 detail because Gmail parse/apply jobs can move through retrying states quickly.
+Proposal rows describe this vendor's stock state, not the product's aggregated
+availability. Show both vendor stock status and the prior-to-proposed sheet
+quantity; the highlighted destination is the value that will be recorded.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
 Numerical and alphabetical auto-inventory updates are stored in

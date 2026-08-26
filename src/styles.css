@@ -939,7 +939,7 @@ button:disabled {
 .sheet-imports-layout {
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(330px, 0.8fr) minmax(540px, 1.5fr);
+  grid-template-columns: minmax(260px, 320px) minmax(680px, 1fr);
   min-height: 520px;
 }
 
@@ -1011,6 +1011,12 @@ button:disabled {
 }
 
 .sheet-import-list-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-import-list-main strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1260,7 +1266,30 @@ button:disabled {
 }
 
 .sheet-import-proposals-table {
-  min-width: 820px;
+  min-width: 900px;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.sheet-import-proposals-table th:nth-child(1) {
+  width: 13%;
+}
+
+.sheet-import-proposals-table th:nth-child(2),
+.sheet-import-proposals-table th:nth-child(3) {
+  width: 18%;
+}
+
+.sheet-import-proposals-table th:nth-child(4) {
+  width: 27%;
+}
+
+.sheet-import-proposals-table th:nth-child(5) {
+  width: 24%;
+}
+
+.sheet-import-proposals-table td {
+  overflow: hidden;
 }
 
 .sheet-import-proposals-table tr.unchanged {
@@ -1285,15 +1314,19 @@ button:disabled {
   color: #d9eaff;
 }
 
-.sheet-import-change {
+.sheet-import-change,
+.sheet-import-value-change {
   align-items: center;
   display: inline-flex;
   gap: 8px;
+  max-width: 100%;
   white-space: nowrap;
 }
 
-.sheet-import-proposals-table tr.changed .sheet-import-change strong {
+.sheet-import-proposals-table .sheet-import-change strong,
+.sheet-import-proposals-table .sheet-import-value-change strong {
   color: #9be7bc;
+  font-weight: 700;
 }
 
 .sheet-import-row-limit,

@@ -733,6 +733,10 @@ async function stageSheetAttachment({ settings, attachment, message }) {
     await catalogService.getActiveCatalogVendorProductsByVendorId(
       settings.vendorId
     );
+  const previousSheetUpdates =
+    await productUpdatesService.getUpdatesForVendorProductIds(
+      vendorProducts.map((vendorProduct) => vendorProduct.id)
+    );
   const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
   const skuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
   const proposalRows = [];
@@ -788,6 +792,7 @@ async function stageSheetAttachment({ settings, attachment, message }) {
 
     const currentQuantity = Number(vendorProduct.quantity || 0);
     const proposedQuantity = Number(inventoryResult.quantity || 0);
+    const previousSheetUpdate = previousSheetUpdates.get(String(vendorProduct.id));
     proposalRows.push({
       rowNumber: index + 2,
       vendorProductId: vendorProduct.id,
@@ -799,6 +804,9 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       subtractiveValue,
       currentQuantity,
       proposedQuantity,
+      previousSheetQuantity: previousSheetUpdate
+        ? Number(previousSheetUpdate.quantity || 0)
+        : null,
       sheetQuantity: getTrackedSheetQuantity(
         inventoryResult,
         settings.inventoryMode

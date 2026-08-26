@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { getSql } = require("../db/neon");
 const catalogService = require("./catalog.service");
 const importsService = require("./vendorAutoInventoryImports.service");
+const productUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 
 const terminalStatuses = new Set(["applied", "rejected"]);
 const maximumManualRetries = 3;
@@ -92,6 +93,11 @@ function mapProposalRow(row) {
     subtractiveValue: normalizeText(row?.subtractive_value),
     currentQuantity: Number(row?.current_quantity || 0),
     proposedQuantity: Number(row?.proposed_quantity || 0),
+    previousSheetQuantity:
+      row?.previous_sheet_quantity === null ||
+      row?.previous_sheet_quantity === undefined
+        ? null
+        : Number(row.previous_sheet_quantity),
     sheetQuantity:
       row?.sheet_quantity === null || row?.sheet_quantity === undefined
         ? null
@@ -108,7 +114,8 @@ async function initializeSchema() {
     schemaReady = (async () => {
       await Promise.all([
         catalogService.initializeCatalogSchema(),
-        importsService.initializeSchema()
+        importsService.initializeSchema(),
+        productUpdatesService.initializeSchema()
       ]);
       const sql = getSql();
 
@@ -160,6 +167,7 @@ async function initializeSchema() {
           subtractive_value TEXT NOT NULL DEFAULT '',
           current_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
           proposed_quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+          previous_sheet_quantity DOUBLE PRECISION,
           sheet_quantity DOUBLE PRECISION,
           change_required BOOLEAN NOT NULL DEFAULT FALSE,
           selected BOOLEAN NOT NULL DEFAULT TRUE,
@@ -179,6 +187,21 @@ async function initializeSchema() {
       await sql`
         ALTER TABLE vendor_auto_inventory_audit_rows
         ADD COLUMN IF NOT EXISTS selected BOOLEAN NOT NULL DEFAULT TRUE
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_audit_rows
+        ADD COLUMN IF NOT EXISTS previous_sheet_quantity DOUBLE PRECISION
+      `;
+      await sql`
+        UPDATE vendor_auto_inventory_audit_rows AS proposal
+        SET previous_sheet_quantity = previous.quantity
+        FROM vendor_auto_inventory_audits AS audit,
+          vendor_auto_inventory_product_updates AS previous
+        WHERE proposal.audit_id = audit.id
+          AND proposal.vendor_product_id = previous.vendor_product_id
+          AND proposal.previous_sheet_quantity IS NULL
+          AND audit.is_legacy = FALSE
+          AND audit.status IN ('ready_for_review', 'needs_mapping', 'failed', 'retrying')
       `;
       await sql`
         UPDATE vendor_auto_inventory_audits AS audit
@@ -388,6 +411,11 @@ async function stageAudit(input, proposalRows = []) {
       subtractive_value: normalizeText(row?.subtractiveValue, 2000),
       current_quantity: Number(row?.currentQuantity || 0),
       proposed_quantity: Number(row?.proposedQuantity || 0),
+      previous_sheet_quantity:
+        row?.previousSheetQuantity === null ||
+        row?.previousSheetQuantity === undefined
+          ? null
+          : Number(row.previousSheetQuantity),
       sheet_quantity:
         row?.sheetQuantity === null || row?.sheetQuantity === undefined
           ? null
@@ -412,6 +440,7 @@ async function stageAudit(input, proposalRows = []) {
           subtractive_value,
           current_quantity,
           proposed_quantity,
+          previous_sheet_quantity,
           sheet_quantity,
           change_required,
           selected,
@@ -430,6 +459,7 @@ async function stageAudit(input, proposalRows = []) {
           proposal.subtractive_value,
           proposal.current_quantity,
           proposal.proposed_quantity,
+          proposal.previous_sheet_quantity,
           proposal.sheet_quantity,
           proposal.change_required,
           proposal.selected,
@@ -446,6 +476,7 @@ async function stageAudit(input, proposalRows = []) {
           subtractive_value text,
           current_quantity double precision,
           proposed_quantity double precision,
+          previous_sheet_quantity double precision,
           sheet_quantity double precision,
           change_required boolean,
           selected boolean,

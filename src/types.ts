@@ -248,6 +248,7 @@ export type InventorySheetImportRow = {
   subtractiveValue: string;
   currentQuantity: number;
   proposedQuantity: number;
+  previousSheetQuantity: number | null;
   sheetQuantity: number | null;
   changeRequired: boolean;
   selected: boolean;

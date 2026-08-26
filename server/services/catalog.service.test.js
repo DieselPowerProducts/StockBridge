@@ -78,6 +78,49 @@ test("uses backorder when an unavailable product has no lower modifier", () => {
   );
 });
 
+test("keeps a product stocked when another active vendor or warehouse has stock", () => {
+  const vendorAvailability = _test.buildProductVendorAvailability([
+    { product_id: "product-1", vendor_id: "vendor-zero", quantity: 0, status: 2 },
+    { product_id: "product-1", vendor_id: "vendor-stocked", quantity: 9, status: 2 }
+  ]);
+  const productsBySku = new Map([
+    [
+      "SKU-1",
+      {
+        id: "product-1",
+        sku: "SKU-1",
+        qty_available: 0,
+        is_kit: false,
+        relatedProduct: []
+      }
+    ]
+  ]);
+
+  assert.equal(
+    _test.getEffectiveQtyAvailable(
+      "SKU-1",
+      productsBySku,
+      new Map(),
+      new Set(),
+      vendorAvailability
+    ),
+    9
+  );
+
+  vendorAvailability.vendorQuantityByProductId.set("product-1", 0);
+  productsBySku.get("SKU-1").qty_available = 4;
+  assert.equal(
+    _test.getEffectiveQtyAvailable(
+      "SKU-1",
+      productsBySku,
+      new Map(),
+      new Set(),
+      vendorAvailability
+    ),
+    4
+  );
+});
+
 test("calculates kit inventory from components instead of parent vendor stock", () => {
   const productsBySku = new Map([
     [

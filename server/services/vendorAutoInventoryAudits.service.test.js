@@ -84,6 +84,7 @@ test("maps persisted sheet import summaries and proposals", () => {
       subtractiveValue: "",
       currentQuantity: 0,
       proposedQuantity: 999999,
+      previousSheetQuantity: null,
       sheetQuantity: 12,
       changeRequired: true,
       selected: true,

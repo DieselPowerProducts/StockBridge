@@ -4147,6 +4147,7 @@ module.exports = {
   updateCatalogVendorProductDetails,
   updateCatalogVendorProductQuantity,
   _test: {
+    buildProductVendorAvailability,
     getEffectiveAvailability,
     getEffectiveQtyAvailable,
     mapProductAvailabilityToShopifyStatus,

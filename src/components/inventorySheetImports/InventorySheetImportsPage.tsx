@@ -42,6 +42,19 @@ function formatAvailability(quantity: number) {
   return quantity > 0 ? "In stock" : "Out of stock";
 }
 
+function formatSheetStockValue(
+  row: InventorySheetImportDetails["rows"][number],
+  inventoryMode: "numerical" | "alphabetical" | undefined,
+  previous: boolean
+) {
+  const quantity = previous ? row.previousSheetQuantity : row.sheetQuantity;
+
+  if (quantity === null) return "Not recorded";
+  return inventoryMode === "alphabetical"
+    ? formatAvailability(quantity)
+    : String(quantity);
+}
+
 function getStatusClass(status: InventorySheetImportStatus) {
   if (status === "applied") return "success";
   if (status === "failed" || status === "rejected") return "danger";
@@ -684,7 +697,7 @@ export function InventorySheetImportsPage() {
                         <th>Include</th>
                         <th>Product SKU</th>
                         <th>Sheet SKU</th>
-                        <th>Availability change</th>
+                        <th>This vendor&apos;s stock</th>
                         <th>Sheet stock value</th>
                       </tr>
                     </thead>
@@ -718,12 +731,32 @@ export function InventorySheetImportsPage() {
                           </td>
                           <td><strong>{row.productSku}</strong></td>
                           <td>{row.sheetSku}</td>
-                          <td className="sheet-import-change">
-                            <span>{formatAvailability(row.currentQuantity)}</span>
-                            <span aria-hidden="true">&rarr;</span>
-                            <strong>{formatAvailability(row.proposedQuantity)}</strong>
+                          <td>
+                            <span className="sheet-import-change">
+                              <span>{formatAvailability(row.currentQuantity)}</span>
+                              <span aria-hidden="true">&rarr;</span>
+                              <strong>{formatAvailability(row.proposedQuantity)}</strong>
+                            </span>
                           </td>
-                          <td>{row.inventoryValue || "Blank"}</td>
+                          <td>
+                            <span className="sheet-import-value-change">
+                              <span>
+                                {formatSheetStockValue(
+                                  row,
+                                  details.mapping.inventoryMode,
+                                  true
+                                )}
+                              </span>
+                              <span aria-hidden="true">&rarr;</span>
+                              <strong>
+                                {formatSheetStockValue(
+                                  row,
+                                  details.mapping.inventoryMode,
+                                  false
+                                )}
+                              </strong>
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
