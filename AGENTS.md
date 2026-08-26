@@ -423,6 +423,17 @@ Numerical and alphabetical auto-inventory updates are stored in
 `vendor_auto_inventory_product_updates` and surfaced in product details only for
 vendor products actively represented by the latest sheet and not listed in SKU
 exceptions. SKU exceptions keep normal manual stock controls.
+Clean inventory sheets are staged and applied automatically. Pending review is
+reserved for parse/mapping errors and active StockBridge vendor products that
+cannot be found on the vendor's sheet. Missing assigned SKUs are stored separately
+from extra vendor-sheet SKUs, which remain harmless and are skipped quietly.
+Adding a missing SKU to the exception list disables auto inventory for that vendor
+product. If a later sheet contains the excepted SKU, the importer automatically
+removes its exception and resumes auto inventory for it.
+Auto-inventory vendor configuration lives on the Sheet Imports Vendors tab, not
+on the general Vendors product page. Pending imports show a searchable rendering
+of the original spreadsheet beside unresolved missing SKUs; Retry always reparses
+the original Gmail attachment.
 The importer adds the Gmail label configured by `AUTO_INVENTORY_GMAIL_LABEL` to
 all matching vendor emails with inventory sheet attachments found during the
 cron run, then archives them from Inbox by moving them to Gmail's All Mail

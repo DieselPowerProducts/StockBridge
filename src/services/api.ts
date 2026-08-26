@@ -8,6 +8,7 @@ import type {
   InventoryAuditResponse,
   InventorySheetImport,
   InventorySheetImportDetails,
+  InventorySheetData,
   InventorySheetImportsResponse,
   Note,
   NotesBootstrapResponse,
@@ -22,6 +23,7 @@ import type {
   ShopifyAvailabilityStatus,
   StockCheckSort,
   VendorAutoInventorySettings,
+  AutoInventoryVendorsResponse,
   VendorContact,
   VendorDetails,
   VendorProductsResponse,
@@ -454,6 +456,45 @@ export function getInventorySheetImportFileUrl(importId: string) {
   return `/inventory-sheet-imports/${encodeURIComponent(importId)}/file`;
 }
 
+export function getInventorySheetData({
+  importId,
+  page,
+  limit,
+  search
+}: {
+  importId: string;
+  page: number;
+  limit: number;
+  search: string;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search
+  });
+
+  return request<InventorySheetData>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/sheet?${params.toString()}`
+  );
+}
+
+export function addInventorySheetMissingSkuException(
+  importId: string,
+  missingSku: { vendorProductId: string; productSku: string }
+) {
+  return request<{
+    audit: InventorySheetImport;
+    missingSku: InventorySheetImportDetails["missingSkus"][number];
+  }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/missing-sku-exception`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(missingSku)
+    }
+  );
+}
+
 export function approveInventorySheetImport(importId: string) {
   return request<InventorySheetImport & { queued: boolean }>(
     `/inventory-sheet-imports/${encodeURIComponent(importId)}/approve`,
@@ -776,6 +817,26 @@ export function updateVendorSettings({
 export function getVendorAutoInventorySettings(vendorId: string) {
   return request<VendorAutoInventorySettings>(
     `/vendors/${encodeURIComponent(vendorId)}/auto-inventory`
+  );
+}
+
+export function getAutoInventoryVendors({
+  page,
+  limit,
+  search
+}: {
+  page: number;
+  limit: number;
+  search: string;
+}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+    search
+  });
+
+  return request<AutoInventoryVendorsResponse>(
+    `/vendors-auto-inventory?${params.toString()}`
   );
 }
 

@@ -45,6 +45,7 @@ test("maps persisted sheet import summaries and proposals", () => {
       changedRows: 3,
       selectedChangedRows: 0,
       unmatchedRows: 0,
+      missingSkuRows: 0,
       invalidRows: 0,
       exceptionRows: 0,
       appliedCount: 0,

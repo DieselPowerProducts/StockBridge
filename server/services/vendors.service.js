@@ -10,6 +10,7 @@ const vendorAutoInventorySettingsService = require("./vendorAutoInventorySetting
 const vendorDefaultContactsService = require("./vendorDefaultContacts.service");
 const vendorSettingsService = require("./vendorSettings.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
+const { getSql } = require("../db/neon");
 
 const ignoredVendorContactEmails = new Set(["shipping@dieselpowerproducts.com"]);
 const vendorReconciliationPageSize = 100;
@@ -85,6 +86,56 @@ async function getVendorAutoInventorySettings(vendorId) {
   return {
     ...settings,
     lastImportedAt
+  };
+}
+
+async function listAutoInventoryVendors(queryParams = {}) {
+  await Promise.all([
+    catalogService.initializeCatalogSchema(),
+    vendorAutoInventorySettingsService.initializeSchema()
+  ]);
+  const page = Math.max(Number.parseInt(queryParams.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(Number.parseInt(queryParams.limit, 10) || 30, 1), 100);
+  const search = String(queryParams.search || "").trim();
+  const pattern = `%${search}%`;
+  const offset = (page - 1) * limit;
+  const sql = getSql();
+  const rows = await sql.query(
+    `
+      SELECT
+        settings.vendor_id,
+        settings.sender_email,
+        settings.inventory_mode,
+        COALESCE(NULLIF(vendor.name, ''), NULLIF(vendor.label, ''), settings.vendor_id) AS vendor_name,
+        COUNT(*) OVER()::int AS total_count
+      FROM vendor_auto_inventory_settings AS settings
+      LEFT JOIN catalog_vendors AS vendor ON vendor.vendor_id = settings.vendor_id
+      WHERE settings.enabled = TRUE
+        AND (
+          $1 = ''
+          OR settings.vendor_id ILIKE $2
+          OR settings.sender_email ILIKE $2
+          OR vendor.name ILIKE $2
+          OR vendor.label ILIKE $2
+        )
+      ORDER BY vendor_name ASC
+      LIMIT $3 OFFSET $4
+    `,
+    [search, pattern, limit, offset]
+  );
+  const total = Number(rows[0]?.total_count || 0);
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  return {
+    data: rows.map((row) => ({
+      vendorId: String(row.vendor_id || ""),
+      vendorName: String(row.vendor_name || row.vendor_id || ""),
+      senderEmail: String(row.sender_email || ""),
+      inventoryMode: String(row.inventory_mode || "numerical")
+    })),
+    total,
+    totalPages,
+    isLastPage: page >= totalPages
   };
 }
 
@@ -324,6 +375,7 @@ async function updateVendorAutoInventorySettings(vendorId, settings) {
 
 module.exports = {
   getVendorAutoInventorySettings,
+  listAutoInventoryVendors,
   listVendorContacts,
   listVendors,
   listVendorProducts,

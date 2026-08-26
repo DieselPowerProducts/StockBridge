@@ -592,8 +592,47 @@ function createSheetPreview(rows, maximumRows = 10) {
   return { availableHeaders, previewRows };
 }
 
+function createSheetData(rows, { page = 1, limit = 100, search = "" } = {}) {
+  const { availableHeaders } = createSheetPreview(rows, 0);
+  const safePage = Math.max(Number.parseInt(page, 10) || 1, 1);
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 250);
+  const normalizedSearch = normalizeComparable(search);
+  const matchingRows = normalizedSearch
+    ? rows.filter((row) =>
+        Object.values(row || {}).some((value) =>
+          normalizeComparable(value).includes(normalizedSearch)
+        )
+      )
+    : rows;
+  const total = matchingRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+  const currentPage = Math.min(safePage, totalPages);
+  const offset = (currentPage - 1) * safeLimit;
+  const data = matchingRows.slice(offset, offset + safeLimit).map((row) =>
+    availableHeaders.map((header) => {
+      const originalHeader = Object.keys(row || {}).find(
+        (item) => item.replace(/^\uFEFF/, "") === header
+      );
+
+      return normalizeText(originalHeader ? row[originalHeader] : "");
+    })
+  );
+
+  return {
+    availableHeaders,
+    data,
+    page: currentPage,
+    total,
+    totalPages
+  };
+}
+
 async function getSheetPreview(content, attachment) {
   return createSheetPreview(await parseSheetRows(content, attachment));
+}
+
+async function getSheetData(content, attachment, query) {
+  return createSheetData(await parseSheetRows(content, attachment), query);
 }
 
 function getAuditMapping(settings) {
@@ -741,6 +780,8 @@ async function stageSheetAttachment({ settings, attachment, message }) {
   const skuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
   const proposalRows = [];
   const invalidSamples = [];
+  const representedVendorProductIds = new Set();
+  const representedExceptionProducts = new Map();
   let unmatchedRows = 0;
   let invalidRows = 0;
   let exceptionRows = 0;
@@ -769,9 +810,9 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       return;
     }
 
+    representedVendorProductIds.add(String(vendorProduct.id));
     if (isVendorProductExcepted(vendorProduct, skuExceptionKeys, [sheetSku])) {
-      exceptionRows += 1;
-      return;
+      representedExceptionProducts.set(String(vendorProduct.id), vendorProduct);
     }
 
     const inventoryResult = parseInventoryResult(
@@ -818,35 +859,73 @@ async function stageSheetAttachment({ settings, attachment, message }) {
     });
   });
 
+  if (representedExceptionProducts.size > 0) {
+    const representedSkuValues = Array.from(representedExceptionProducts.values())
+      .flatMap((vendorProduct) => getVendorProductSkuValues(vendorProduct));
+    await settingsService.setSkuException(
+      settings.vendorId,
+      representedSkuValues,
+      false
+    );
+    exceptionRows = representedExceptionProducts.size;
+  }
+
+  const missingVendorProducts = vendorProducts.filter(
+    (vendorProduct) =>
+      !representedVendorProductIds.has(String(vendorProduct.id)) &&
+      !isVendorProductExcepted(vendorProduct, skuExceptionKeys)
+  );
+  const missingSkuRows = missingVendorProducts.map((vendorProduct) => ({
+    vendorProductId: vendorProduct.id,
+    productId: vendorProduct.product_id || "",
+    productSku: getVendorProductDisplaySku(vendorProduct),
+    vendorSku: normalizeText(vendorProduct.sku || vendorProduct.label)
+  }));
+
   const changedRows = proposalRows.filter((row) => row.changeRequired).length;
   const hasUsableRows = proposalRows.length > 0;
-  const errorMessage = invalidSamples.length > 0
-    ? `Some rows need attention: ${invalidSamples.join("; ")}`
-    : "";
+  const reviewMessages = [];
+
+  if (missingVendorProducts.length > 0) {
+    reviewMessages.push(formatMissingVendorProducts(missingVendorProducts));
+  }
+
+  if (invalidSamples.length > 0) {
+    reviewMessages.push(`Some rows need attention: ${invalidSamples.join("; ")}`);
+  }
+
+  const hasReviewErrors = reviewMessages.length > 0;
   const audit = await auditsService.stageAudit(
     {
       ...baseAudit,
-      status: hasUsableRows ? "ready_for_review" : "failed",
+      status: !hasUsableRows
+        ? "failed"
+        : hasReviewErrors
+          ? "ready_for_review"
+          : "approved",
       availableHeaders,
       previewRows,
       totalRows: rows.length,
       matchedRows: proposalRows.length,
       changedRows,
       unmatchedRows,
+      missingSkuRows: missingSkuRows.length,
       invalidRows,
       exceptionRows,
-      errorCount: hasUsableRows ? 0 : 1,
+      errorCount: hasReviewErrors ? missingSkuRows.length + invalidRows : hasUsableRows ? 0 : 1,
       errorMessage:
-        errorMessage ||
+        reviewMessages.join(" ") ||
         (hasUsableRows
           ? ""
           : "No configured vendor products could be staged from this sheet.")
     },
-    proposalRows
+    proposalRows,
+    missingSkuRows
   );
 
   return {
     auditId: audit.id,
+    autoApply: audit.status === "approved",
     duplicate: false,
     errors: hasUsableRows ? 0 : 1,
     staged: changedRows,
@@ -1472,6 +1551,13 @@ async function processParsedMessageForSettings({ uid, parsed }, settings) {
     totals.skipped += result.skipped;
     totals.errors += result.errors;
     totals.followUpsSet += result.followUpsSet || 0;
+
+    if (result.autoApply && result.auditId) {
+      const appliedResult = await applyStagedInventoryAudit(result.auditId);
+      totals.imported += appliedResult.applied || 0;
+      totals.errors += appliedResult.errors || 0;
+      totals.followUpsSet += appliedResult.followUpsSet || 0;
+    }
   }
 
   return totals;
@@ -1794,9 +1880,11 @@ module.exports = {
   applyStagedInventoryAudit,
   processInventoryMessageSource,
   getSheetPreview,
+  getSheetData,
   runAutoInventoryImport,
   _test: {
     applyAuditMappingToSettings,
+    createSheetData,
     getTrackedSheetQuantity,
     parseInventoryResult,
     stageSheetAttachment

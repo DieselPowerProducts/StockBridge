@@ -65,6 +65,7 @@ function mapAuditRow(row) {
     changedRows: Number(row?.changed_rows || 0),
     selectedChangedRows: Number(row?.selected_changed_rows || 0),
     unmatchedRows: Number(row?.unmatched_rows || 0),
+    missingSkuRows: Number(row?.missing_sku_rows || 0),
     invalidRows: Number(row?.invalid_rows || 0),
     exceptionRows: Number(row?.exception_rows || 0),
     appliedCount: Number(row?.applied_count || 0),
@@ -78,6 +79,17 @@ function mapAuditRow(row) {
     createdAt: row?.created_at || "",
     updatedAt: row?.updated_at || "",
     isLegacy: Boolean(row?.is_legacy)
+  };
+}
+
+function mapMissingSkuRow(row) {
+  return {
+    vendorProductId: normalizeText(row?.vendor_product_id),
+    productId: normalizeText(row?.product_id),
+    productSku: normalizeText(row?.product_sku),
+    vendorSku: normalizeText(row?.vendor_sku),
+    resolved: Boolean(row?.resolved),
+    resolvedAt: row?.resolved_at || ""
   };
 }
 
@@ -138,6 +150,7 @@ async function initializeSchema() {
           changed_rows INTEGER NOT NULL DEFAULT 0,
           selected_changed_rows INTEGER NOT NULL DEFAULT 0,
           unmatched_rows INTEGER NOT NULL DEFAULT 0,
+          missing_sku_rows INTEGER NOT NULL DEFAULT 0,
           invalid_rows INTEGER NOT NULL DEFAULT 0,
           exception_rows INTEGER NOT NULL DEFAULT 0,
           applied_count INTEGER NOT NULL DEFAULT 0,
@@ -152,6 +165,22 @@ async function initializeSchema() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (vendor_id, attachment_hash)
+        )
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_audits
+        ADD COLUMN IF NOT EXISTS missing_sku_rows INTEGER NOT NULL DEFAULT 0
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS vendor_auto_inventory_audit_missing_skus (
+          audit_id TEXT NOT NULL REFERENCES vendor_auto_inventory_audits(id) ON DELETE CASCADE,
+          vendor_product_id TEXT NOT NULL,
+          product_id TEXT NOT NULL DEFAULT '',
+          product_sku TEXT NOT NULL DEFAULT '',
+          vendor_sku TEXT NOT NULL DEFAULT '',
+          resolved BOOLEAN NOT NULL DEFAULT FALSE,
+          resolved_at TIMESTAMPTZ,
+          PRIMARY KEY (audit_id, vendor_product_id)
         )
       `;
       await sql`
@@ -309,7 +338,7 @@ async function getAuditByAttachment(vendorId, attachmentHash) {
   return rows[0] ? mapAuditRow(rows[0]) : null;
 }
 
-async function stageAudit(input, proposalRows = []) {
+async function stageAudit(input, proposalRows = [], missingSkuRows = []) {
   await initializeSchema();
   const sql = getSql();
   const vendorId = normalizeText(input?.vendorId, 500);
@@ -342,6 +371,7 @@ async function stageAudit(input, proposalRows = []) {
       changed_rows,
       selected_changed_rows,
       unmatched_rows,
+      missing_sku_rows,
       invalid_rows,
       exception_rows,
       error_count,
@@ -366,6 +396,7 @@ async function stageAudit(input, proposalRows = []) {
       ${Math.max(Number(input?.changedRows || 0), 0)},
       ${Math.max(Number(input?.selectedChangedRows ?? input?.changedRows ?? 0), 0)},
       ${Math.max(Number(input?.unmatchedRows || 0), 0)},
+      ${Math.max(Number(input?.missingSkuRows ?? missingSkuRows.length), 0)},
       ${Math.max(Number(input?.invalidRows || 0), 0)},
       ${Math.max(Number(input?.exceptionRows || 0), 0)},
       ${Math.max(Number(input?.errorCount || 0), 0)},
@@ -388,6 +419,7 @@ async function stageAudit(input, proposalRows = []) {
       changed_rows = EXCLUDED.changed_rows,
       selected_changed_rows = EXCLUDED.selected_changed_rows,
       unmatched_rows = EXCLUDED.unmatched_rows,
+      missing_sku_rows = EXCLUDED.missing_sku_rows,
       invalid_rows = EXCLUDED.invalid_rows,
       exception_rows = EXCLUDED.exception_rows,
       error_count = EXCLUDED.error_count,
@@ -398,6 +430,7 @@ async function stageAudit(input, proposalRows = []) {
   `;
 
   await sql`DELETE FROM vendor_auto_inventory_audit_rows WHERE audit_id = ${auditId}`;
+  await sql`DELETE FROM vendor_auto_inventory_audit_missing_skus WHERE audit_id = ${auditId}`;
 
   if (proposalRows.length > 0) {
     const normalizedRows = proposalRows.map((row, index) => ({
@@ -485,6 +518,40 @@ async function stageAudit(input, proposalRows = []) {
         )
       `,
       [auditId, JSON.stringify(normalizedRows)]
+    );
+  }
+
+  if (missingSkuRows.length > 0) {
+    const normalizedMissingRows = missingSkuRows.map((row) => ({
+      vendor_product_id: normalizeText(row?.vendorProductId, 1000),
+      product_id: normalizeText(row?.productId, 1000),
+      product_sku: normalizeText(row?.productSku, 1000),
+      vendor_sku: normalizeText(row?.vendorSku, 1000)
+    }));
+
+    await sql.query(
+      `
+        INSERT INTO vendor_auto_inventory_audit_missing_skus (
+          audit_id,
+          vendor_product_id,
+          product_id,
+          product_sku,
+          vendor_sku
+        )
+        SELECT
+          $1,
+          missing.vendor_product_id,
+          missing.product_id,
+          missing.product_sku,
+          missing.vendor_sku
+        FROM jsonb_to_recordset($2::jsonb) AS missing(
+          vendor_product_id text,
+          product_id text,
+          product_sku text,
+          vendor_sku text
+        )
+      `,
+      [auditId, JSON.stringify(normalizedMissingRows)]
     );
   }
 
@@ -603,9 +670,19 @@ async function getAuditDetails(auditId, { rowPage, rowLimit } = {}) {
     [audit.id, safeLimit, offset]
   );
   const totalRows = Number(rows[0]?.total_count || 0);
+  const missingSkuRows = audit.isLegacy
+    ? []
+    : await sql`
+        SELECT *
+        FROM vendor_auto_inventory_audit_missing_skus
+        WHERE audit_id = ${audit.id}
+          AND resolved = FALSE
+        ORDER BY product_sku ASC, vendor_sku ASC
+      `;
 
   return {
     ...audit,
+    missingSkus: missingSkuRows.map(mapMissingSkuRow),
     rows: rows.map(mapProposalRow),
     rowPage: safePage,
     rowTotal: totalRows,
@@ -683,6 +760,7 @@ async function updateAuditMapping(auditId, mapping) {
         changed_rows = 0,
         selected_changed_rows = 0,
         unmatched_rows = 0,
+        missing_sku_rows = 0,
         invalid_rows = 0,
         exception_rows = 0,
         applied_count = 0,
@@ -698,6 +776,10 @@ async function updateAuditMapping(auditId, mapping) {
       DELETE FROM vendor_auto_inventory_audit_rows
       WHERE audit_id IN (SELECT id FROM updated)
       RETURNING audit_id
+    ), deleted_missing AS (
+      DELETE FROM vendor_auto_inventory_audit_missing_skus
+      WHERE audit_id IN (SELECT id FROM updated)
+      RETURNING audit_id
     )
     SELECT id FROM updated
   `;
@@ -709,6 +791,45 @@ async function updateAuditMapping(auditId, mapping) {
   }
 
   return getAuditRecord(audit.id);
+}
+
+async function resolveMissingSku(auditId, vendorProductId) {
+  await initializeSchema();
+  const sql = getSql();
+  const safeAuditId = normalizeText(auditId, 500);
+  const safeVendorProductId = normalizeText(vendorProductId, 1000);
+  const rows = await sql`
+    UPDATE vendor_auto_inventory_audit_missing_skus AS missing
+    SET resolved = TRUE, resolved_at = now()
+    FROM vendor_auto_inventory_audits AS audit
+    WHERE missing.audit_id = ${safeAuditId}
+      AND missing.vendor_product_id = ${safeVendorProductId}
+      AND audit.id = missing.audit_id
+      AND audit.status = 'ready_for_review'
+      AND audit.is_legacy = FALSE
+    RETURNING missing.*
+  `;
+
+  if (!rows[0]) {
+    const error = new Error("This missing SKU is no longer available for review.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await sql`
+    UPDATE vendor_auto_inventory_audits
+    SET
+      missing_sku_rows = (
+        SELECT COUNT(*)::integer
+        FROM vendor_auto_inventory_audit_missing_skus
+        WHERE audit_id = ${safeAuditId}
+          AND resolved = FALSE
+      ),
+      updated_at = now()
+    WHERE id = ${safeAuditId}
+  `;
+
+  return mapMissingSkuRow(rows[0]);
 }
 
 async function updateProposalSelection(auditId, rowNumber, selected) {
@@ -912,7 +1033,7 @@ async function requestManualRetry(auditId) {
       error_message = '',
       updated_at = now()
     WHERE id = ${normalizeText(auditId, 500)}
-      AND status IN ('needs_mapping', 'failed')
+      AND status IN ('ready_for_review', 'needs_mapping', 'failed')
       AND is_legacy = FALSE
       AND manual_retry_count < ${maximumManualRetries}
     RETURNING *
@@ -944,6 +1065,7 @@ module.exports = {
   maximumManualRetries,
   rejectAudit,
   requestManualRetry,
+  resolveMissingSku,
   saveAuditPreview,
   setStatus,
   stageAudit,
@@ -952,6 +1074,7 @@ module.exports = {
   _test: {
     createAuditId,
     mapAuditRow,
+    mapMissingSkuRow,
     mapProposalRow
   }
 };

@@ -2,6 +2,7 @@ const sheetImportsService = require("../services/vendorAutoInventoryAudits.servi
 const settingsService = require("../services/vendorAutoInventorySettings.service");
 const gmailInventoryService = require("../services/gmailInventory.service");
 const autoInventoryService = require("../services/autoInventory.service");
+const productsService = require("../services/products.service");
 
 async function listImports(req, res, next) {
   try {
@@ -59,6 +60,33 @@ async function getImportPreview(req, res, next) {
   }
 }
 
+async function getImportSheet(req, res, next) {
+  try {
+    const sheetImport = await sheetImportsService.getAuditRecord(
+      req.params.importId
+    );
+
+    if (!sheetImport || sheetImport.isLegacy) {
+      const error = new Error("The original spreadsheet is not available.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const attachment = await gmailInventoryService.getInventorySheetAttachment(
+      sheetImport.id
+    );
+    res.send(
+      await autoInventoryService.getSheetData(
+        attachment.content,
+        attachment,
+        req.query
+      )
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getImportFile(req, res, next) {
   try {
     const attachment = await gmailInventoryService.getInventorySheetAttachment(
@@ -68,7 +96,7 @@ async function getImportFile(req, res, next) {
 
     res.set({
       "Cache-Control": "private, no-store",
-      "Content-Disposition": `inline; filename*=UTF-8''${encodedFilename}`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodedFilename}`,
       "Content-Type": attachment.contentType,
       "X-Content-Type-Options": "nosniff"
     });
@@ -114,40 +142,26 @@ async function rejectImport(req, res, next) {
 
 async function retryImport(req, res, next) {
   try {
-    res.send(await queueManualRetry(req.params.importId, req.user));
+    res.send(await queueManualRetry(req.params.importId));
   } catch (error) {
     next(error);
   }
 }
 
-async function queueManualRetry(importId, reviewer) {
+async function queueManualRetry(importId) {
   const sheetImport = await sheetImportsService.requestManualRetry(importId);
-  const proposalRows = await sheetImportsService.getProposalRows(sheetImport.id);
   const retryToken = `manual-${sheetImport.manualRetryCount}`;
   let wake;
 
   try {
-    if (proposalRows.length > 0) {
-      await sheetImportsService.setStatus(sheetImport.id, "approved", {
-        errorCount: 0,
-        errorMessage: "",
-        reviewer,
-        reviewed: true
-      });
-      wake = await gmailInventoryService.queueInventoryAuditApply(
-        sheetImport.id,
-        retryToken
-      );
-    } else {
-      wake = await gmailInventoryService.queueGmailMessageRetry(
-        {
-          auditId: sheetImport.id,
-          gmailMessageId: sheetImport.messageUid,
-          rfcMessageId: sheetImport.messageId
-        },
-        retryToken
-      );
-    }
+    wake = await gmailInventoryService.queueGmailMessageRetry(
+      {
+        auditId: sheetImport.id,
+        gmailMessageId: sheetImport.messageUid,
+        rfcMessageId: sheetImport.messageId
+      },
+      retryToken
+    );
   } catch (error) {
     await sheetImportsService.setStatus(sheetImport.id, "failed", {
       errorCount: 1,
@@ -159,8 +173,48 @@ async function queueManualRetry(importId, reviewer) {
   return {
     ...sheetImport,
     queued: !wake.skipped,
-    retryMode: proposalRows.length > 0 ? "apply" : "parse"
+    retryMode: "parse"
   };
+}
+
+async function addMissingSkuException(req, res, next) {
+  try {
+    const sheetImport = await sheetImportsService.getAuditRecord(
+      req.params.importId
+    );
+    const vendorProductId = String(req.body?.vendorProductId || "").trim();
+    const productSku = String(req.body?.productSku || "").trim();
+
+    if (!sheetImport || sheetImport.isLegacy) {
+      const error = new Error("Inventory sheet import not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (!vendorProductId || !productSku) {
+      const error = new Error("A missing product SKU is required.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await productsService.setProductVendorAutoInventory({
+      sku: productSku,
+      vendorId: sheetImport.vendorId,
+      vendorProductId,
+      enabled: false
+    });
+    const missingSku = await sheetImportsService.resolveMissingSku(
+      sheetImport.id,
+      vendorProductId
+    );
+
+    res.send({
+      audit: await sheetImportsService.getAuditRecord(sheetImport.id),
+      missingSku
+    });
+  } catch (error) {
+    next(error);
+  }
 }
 
 async function updateMapping(req, res, next) {
@@ -284,11 +338,13 @@ async function updateRowSelection(req, res, next) {
 module.exports = {
   approveImport,
   getImportFile,
+  getImportSheet,
   getImportPreview,
   getImport,
   listImports,
   rejectImport,
   retryImport,
+  addMissingSkuException,
   updateMapping,
   updateRowSelection
 };

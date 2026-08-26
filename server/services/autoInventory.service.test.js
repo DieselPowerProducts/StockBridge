@@ -69,30 +69,33 @@ const productsPath = require.resolve("./products.service");
 const stagingProductUpdatesPath = require.resolve(
   "./vendorAutoInventoryProductUpdates.service"
 );
+const settingsPath = require.resolve("./vendorAutoInventorySettings.service");
 
 function restoreModule(modulePath, original) {
   if (original) require.cache[modulePath] = original;
   else delete require.cache[modulePath];
 }
 
-async function withStagingHarness(callback) {
+async function withStagingHarness(callback, vendorProducts = null) {
   const paths = [
     servicePath,
     catalogPath,
     auditsPath,
     productsPath,
-    stagingProductUpdatesPath
+    stagingProductUpdatesPath,
+    settingsPath
   ];
   const originals = new Map(paths.map((path) => [path, require.cache[path]]));
   const staged = [];
   let productUpdateCalls = 0;
+  const exceptionUpdates = [];
 
   require.cache[catalogPath] = {
     id: catalogPath,
     filename: catalogPath,
     loaded: true,
     exports: {
-      getActiveCatalogVendorProductsByVendorId: async () => [
+      getActiveCatalogVendorProductsByVendorId: async () => vendorProducts || [
         {
           id: "vendor-product-1",
           vendor_id: "vendor-1",
@@ -113,9 +116,9 @@ async function withStagingHarness(callback) {
     loaded: true,
     exports: {
       getAuditByAttachment: async () => null,
-      stageAudit: async (summary, rows) => {
-        staged.push({ summary, rows });
-        return { id: "sheet-1" };
+      stageAudit: async (summary, rows, missingSkus) => {
+        staged.push({ summary, rows, missingSkus });
+        return { id: "sheet-1", status: summary.status };
       }
     }
   };
@@ -141,12 +144,21 @@ async function withStagingHarness(callback) {
         ])
     }
   };
+  require.cache[settingsPath] = {
+    id: settingsPath,
+    filename: settingsPath,
+    loaded: true,
+    exports: {
+      setSkuException: async (...args) => exceptionUpdates.push(args)
+    }
+  };
   delete require.cache[servicePath];
 
   try {
     const service = require(servicePath);
     await callback({
       productUpdateCalls: () => productUpdateCalls,
+      exceptionUpdates,
       staged,
       stageSheetAttachment: service._test.stageSheetAttachment
     });
@@ -167,7 +179,7 @@ const stagingSettings = {
   outOfStockPhrases: []
 };
 
-test("stages matched inventory changes without updating SKU Nexus", async () => {
+test("stages clean inventory sheets for automatic application", async () => {
   await withStagingHarness(async ({ productUpdateCalls, staged, stageSheetAttachment }) => {
     const result = await stageSheetAttachment({
       settings: stagingSettings,
@@ -186,7 +198,8 @@ test("stages matched inventory changes without updating SKU Nexus", async () => 
     assert.equal(productUpdateCalls(), 0);
     assert.equal(result.staged, 1);
     assert.equal(staged.length, 1);
-    assert.equal(staged[0].summary.status, "ready_for_review");
+    assert.equal(staged[0].summary.status, "approved");
+    assert.equal(result.autoApply, true);
     assert.equal(staged[0].summary.unmatchedRows, 1);
     assert.deepEqual(staged[0].summary.previewRows, [
       ["VENDOR-100", "12"],
@@ -217,6 +230,87 @@ test("stages changed headers as needs mapping", async () => {
       "Qty Available"
     ]);
     assert.deepEqual(staged[0].summary.previewRows, [["VENDOR-100", "12"]]);
+  });
+});
+
+test("searches every original spreadsheet column before paging", () => {
+  const result = _test.createSheetData(
+    [
+      { SKU: "ONE", Stock: "0", Note: "ordinary" },
+      { SKU: "TWO", Stock: "4", Note: "Find this value" }
+    ],
+    { page: 1, limit: 100, search: "find THIS" }
+  );
+
+  assert.deepEqual(result.availableHeaders, ["SKU", "Stock", "Note"]);
+  assert.deepEqual(result.data, [["TWO", "4", "Find this value"]]);
+  assert.equal(result.total, 1);
+});
+
+test("holds sheets with assigned StockBridge SKUs missing for review", async () => {
+  const vendorProducts = [
+    {
+      id: "vendor-product-1",
+      vendor_id: "vendor-1",
+      product_id: "product-1",
+      product_sku: "DPP-100",
+      sku: "VENDOR-100",
+      label: "VENDOR-100",
+      quantity: 0
+    },
+    {
+      id: "vendor-product-2",
+      vendor_id: "vendor-1",
+      product_id: "product-2",
+      product_sku: "DPP-200",
+      sku: "VENDOR-200",
+      label: "VENDOR-200",
+      quantity: 0
+    }
+  ];
+
+  await withStagingHarness(async ({ staged, stageSheetAttachment }) => {
+    const result = await stageSheetAttachment({
+      settings: stagingSettings,
+      attachment: {
+        filename: "inventory.csv",
+        contentType: "text/csv",
+        content: Buffer.from("Item,Available\nVENDOR-100,12\n")
+      },
+      message: { uid: "gmail-3", messageId: "message-3" }
+    });
+
+    assert.equal(result.autoApply, false);
+    assert.equal(staged[0].summary.status, "ready_for_review");
+    assert.equal(staged[0].summary.missingSkuRows, 1);
+    assert.deepEqual(staged[0].missingSkus, [
+      {
+        vendorProductId: "vendor-product-2",
+        productId: "product-2",
+        productSku: "DPP-200",
+        vendorSku: "VENDOR-200"
+      }
+    ]);
+  }, vendorProducts);
+});
+
+test("reactivates an excepted SKU when it appears on a later sheet", async () => {
+  await withStagingHarness(async ({ exceptionUpdates, staged, stageSheetAttachment }) => {
+    const result = await stageSheetAttachment({
+      settings: { ...stagingSettings, skuExceptions: ["DPP-100"] },
+      attachment: {
+        filename: "inventory.csv",
+        contentType: "text/csv",
+        content: Buffer.from("Item,Available\nVENDOR-100,12\n")
+      },
+      message: { uid: "gmail-4", messageId: "message-4" }
+    });
+
+    assert.equal(result.autoApply, true);
+    assert.equal(staged[0].rows.length, 1);
+    assert.equal(exceptionUpdates.length, 1);
+    assert.equal(exceptionUpdates[0][0], "vendor-1");
+    assert.equal(exceptionUpdates[0][2], false);
   });
 });
 

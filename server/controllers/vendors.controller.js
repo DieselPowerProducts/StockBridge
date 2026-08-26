@@ -41,6 +41,14 @@ async function getVendorAutoInventorySettings(req, res, next) {
   }
 }
 
+async function listAutoInventoryVendors(req, res, next) {
+  try {
+    res.send(await vendorsService.listAutoInventoryVendors(req.query));
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function setVendorDefaultContact(req, res, next) {
   try {
     const contact = await vendorsService.setVendorDefaultContact(
@@ -84,6 +92,7 @@ async function updateVendorSettings(req, res, next) {
 module.exports = {
   getVendorAutoInventorySettings,
   listVendorContacts,
+  listAutoInventoryVendors,
   listVendors,
   listVendorProducts,
   setVendorDefaultContact,

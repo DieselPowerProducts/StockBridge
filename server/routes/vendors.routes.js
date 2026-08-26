@@ -4,6 +4,10 @@ const vendorsController = require("../controllers/vendors.controller");
 const router = express.Router();
 
 router.get("/vendors", vendorsController.listVendors);
+router.get(
+  "/vendors-auto-inventory",
+  vendorsController.listAutoInventoryVendors
+);
 router.get("/vendors/:vendorId/contacts", vendorsController.listVendorContacts);
 router.get(
   "/vendors/:vendorId/auto-inventory",

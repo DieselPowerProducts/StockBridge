@@ -222,6 +222,7 @@ export type InventorySheetImport = {
   changedRows: number;
   selectedChangedRows: number;
   unmatchedRows: number;
+  missingSkuRows: number;
   invalidRows: number;
   exceptionRows: number;
   appliedCount: number;
@@ -264,10 +265,28 @@ export type InventorySheetImportsResponse = {
 };
 
 export type InventorySheetImportDetails = InventorySheetImport & {
+  missingSkus: InventorySheetMissingSku[];
   rows: InventorySheetImportRow[];
   rowPage: number;
   rowTotal: number;
   rowTotalPages: number;
+};
+
+export type InventorySheetMissingSku = {
+  vendorProductId: string;
+  productId: string;
+  productSku: string;
+  vendorSku: string;
+  resolved: boolean;
+  resolvedAt: string;
+};
+
+export type InventorySheetData = {
+  availableHeaders: string[];
+  data: string[][];
+  page: number;
+  total: number;
+  totalPages: number;
 };
 
 export type ShopifyAvailabilityResponse = {
@@ -416,6 +435,20 @@ export type VendorAutoInventorySettings = {
   inStockPhrases: string[];
   outOfStockPhrases: string[];
   lastImportedAt: string;
+};
+
+export type AutoInventoryVendor = {
+  vendorId: string;
+  vendorName: string;
+  senderEmail: string;
+  inventoryMode: VendorAutoInventoryMode;
+};
+
+export type AutoInventoryVendorsResponse = {
+  data: AutoInventoryVendor[];
+  total: number;
+  totalPages: number;
+  isLastPage: boolean;
 };
 
 export type VendorsResponse = {

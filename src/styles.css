@@ -930,6 +930,16 @@ button:disabled {
   color: #ffffff;
 }
 
+.sheet-imports-view-tabs .sheet-import-add-vendor {
+  border: 1px solid #596f88;
+  border-radius: 4px;
+  color: #dcecff;
+  font-size: 20px;
+  line-height: 1;
+  margin-left: 4px;
+  padding: 4px 10px;
+}
+
 .sheet-imports-view-tabs > span {
   color: #aaaaaa;
   font-size: 12px;
@@ -1338,6 +1348,201 @@ button:disabled {
   border-top: 1px solid #444444;
   justify-content: flex-end;
   padding-top: 12px;
+}
+
+.sheet-import-file-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.sheet-import-file-actions a {
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.sheet-import-file-actions .sheet-import-retry {
+  margin-left: auto;
+}
+
+.sheet-import-review-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  min-height: 420px;
+}
+
+.sheet-import-original,
+.sheet-import-missing-skus,
+.auto-inventory-vendors-list {
+  background: #252525;
+  border: 1px solid #4b4b4b;
+  border-radius: 4px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.sheet-import-original {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+}
+
+.sheet-import-original .search-bar {
+  margin: 0;
+  max-width: none;
+  width: 100%;
+}
+
+.sheet-import-original-table-wrap {
+  max-height: 560px;
+  overflow: auto;
+}
+
+.sheet-import-original table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+  white-space: nowrap;
+}
+
+.sheet-import-original th,
+.sheet-import-original td {
+  border: 1px solid #4b4b4b;
+  max-width: 280px;
+  overflow: hidden;
+  padding: 6px 8px;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.sheet-import-original th {
+  background: #343434;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sheet-import-missing-skus {
+  align-content: start;
+  display: grid;
+  gap: 7px;
+  max-height: 650px;
+  overflow: auto;
+}
+
+.sheet-import-missing-skus header {
+  align-items: center;
+  border-bottom: 1px solid #444444;
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 8px;
+}
+
+.sheet-import-missing-skus h3,
+.sheet-import-missing-skus p {
+  margin: 0;
+}
+
+.sheet-import-missing-skus header span {
+  background: #493817;
+  border: 1px solid #977a39;
+  border-radius: 999px;
+  color: #ffe09a;
+  font-size: 11px;
+  padding: 3px 7px;
+}
+
+.sheet-import-missing-skus label {
+  align-items: start;
+  background: #2d2d2d;
+  border: 1px solid #484848;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+.sheet-import-missing-skus label > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sheet-import-missing-skus small {
+  color: #aaaaaa;
+  overflow-wrap: anywhere;
+}
+
+.auto-inventory-vendors-list {
+  align-content: start;
+  display: grid;
+  gap: 7px;
+}
+
+.auto-inventory-vendor-row {
+  align-items: center;
+  background: #2d2d2d;
+  border: 1px solid #484848;
+  color: #ffffff;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) minmax(240px, 1fr) 120px;
+  padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.auto-inventory-vendor-row:hover {
+  background: #313f4f;
+  border-color: #5d7897;
+}
+
+.auto-inventory-vendor-row span {
+  color: #bbbbbb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-inventory-modal-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.auto-inventory-modal-header > div span {
+  color: #bdbdbd;
+  font-size: 12px;
+}
+
+.auto-inventory-vendor-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.auto-inventory-vendor-picker .search-bar {
+  margin: 0;
+  max-width: none;
+  width: 100%;
+}
+
+.auto-inventory-vendor-results {
+  display: grid;
+  gap: 5px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.auto-inventory-vendor-results button {
+  background: #2d2d2d;
+  border: 1px solid #4b4b4b;
+  color: #ffffff;
+  padding: 9px;
+  text-align: left;
+}
+
+.auto-inventory-vendor-results button:hover {
+  background: #313f4f;
+  border-color: #5d7897;
 }
 
 .shopify-sync-page {
@@ -3173,6 +3378,11 @@ body:has(.notes-popup-page),
   }
 
   .sheet-imports-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sheet-import-review-grid,
+  .auto-inventory-vendor-row {
     grid-template-columns: 1fr;
   }
 
