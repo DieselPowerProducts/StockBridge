@@ -39,6 +39,7 @@ test("maps persisted sheet import summaries and proposals", () => {
       status: "ready_for_review",
       mapping: { skuHeader: "Item" },
       availableHeaders: ["Item", "Available"],
+      previewRows: [],
       totalRows: 20,
       matchedRows: 8,
       changedRows: 3,

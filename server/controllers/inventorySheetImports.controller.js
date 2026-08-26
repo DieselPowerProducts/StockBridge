@@ -1,6 +1,7 @@
 const sheetImportsService = require("../services/vendorAutoInventoryAudits.service");
 const settingsService = require("../services/vendorAutoInventorySettings.service");
 const gmailInventoryService = require("../services/gmailInventory.service");
+const autoInventoryService = require("../services/autoInventory.service");
 
 async function listImports(req, res, next) {
   try {
@@ -15,6 +16,63 @@ async function getImport(req, res, next) {
     res.send(
       await sheetImportsService.getAuditDetails(req.params.importId, req.query)
     );
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getImportPreview(req, res, next) {
+  try {
+    const sheetImport = await sheetImportsService.getAuditRecord(
+      req.params.importId
+    );
+
+    if (!sheetImport || sheetImport.isLegacy) {
+      const error = new Error("A spreadsheet preview is not available for this import.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (sheetImport.previewRows.length > 0) {
+      res.send({
+        availableHeaders: sheetImport.availableHeaders,
+        previewRows: sheetImport.previewRows
+      });
+      return;
+    }
+
+    const attachment = await gmailInventoryService.getInventorySheetAttachment(
+      sheetImport.id
+    );
+    const preview = await autoInventoryService.getSheetPreview(
+      attachment.content,
+      attachment
+    );
+    await sheetImportsService.saveAuditPreview(
+      sheetImport.id,
+      preview.availableHeaders,
+      preview.previewRows
+    );
+    res.send(preview);
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getImportFile(req, res, next) {
+  try {
+    const attachment = await gmailInventoryService.getInventorySheetAttachment(
+      req.params.importId
+    );
+    const encodedFilename = encodeURIComponent(attachment.filename);
+
+    res.set({
+      "Cache-Control": "private, no-store",
+      "Content-Disposition": `inline; filename*=UTF-8''${encodedFilename}`,
+      "Content-Type": attachment.contentType,
+      "X-Content-Type-Options": "nosniff"
+    });
+    res.send(attachment.content);
   } catch (error) {
     next(error);
   }
@@ -132,7 +190,7 @@ async function updateMapping(req, res, next) {
     const subtractiveColumn = String(req.body?.subtractiveColumn || "").trim();
 
     if (!availableHeaders.has(skuHeader) || !availableHeaders.has(inventoryHeader)) {
-      const error = new Error("Choose SKU and inventory columns from this sheet.");
+      const error = new Error("Choose SKU and stock-value columns from this sheet.");
       error.statusCode = 400;
       throw error;
     }
@@ -148,7 +206,7 @@ async function updateMapping(req, res, next) {
     }
 
     if (subtractiveColumn && !availableHeaders.has(subtractiveColumn)) {
-      const error = new Error("Choose a subtractive column from this sheet.");
+      const error = new Error("Choose a quantity-to-subtract column from this sheet.");
       error.statusCode = 400;
       throw error;
     }
@@ -225,6 +283,8 @@ async function updateRowSelection(req, res, next) {
 
 module.exports = {
   approveImport,
+  getImportFile,
+  getImportPreview,
   getImport,
   listImports,
   rejectImport,

@@ -444,6 +444,16 @@ export function getInventorySheetImport(
   );
 }
 
+export function getInventorySheetImportPreview(importId: string) {
+  return request<{ availableHeaders: string[]; previewRows: string[][] }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/preview`
+  );
+}
+
+export function getInventorySheetImportFileUrl(importId: string) {
+  return `/inventory-sheet-imports/${encodeURIComponent(importId)}/file`;
+}
+
 export function approveInventorySheetImport(importId: string) {
   return request<InventorySheetImport & { queued: boolean }>(
     `/inventory-sheet-imports/${encodeURIComponent(importId)}/approve`,

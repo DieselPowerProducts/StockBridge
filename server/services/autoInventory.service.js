@@ -574,6 +574,28 @@ async function parseSheetRows(content, attachment) {
   throw error;
 }
 
+function createSheetPreview(rows, maximumRows = 10) {
+  const firstRow = rows[0] || {};
+  const availableHeaders = Object.keys(firstRow)
+    .map((header) => header.replace(/^\uFEFF/, ""))
+    .filter(Boolean);
+  const previewRows = rows.slice(0, maximumRows).map((row) =>
+    availableHeaders.map((header) => {
+      const originalHeader = Object.keys(row || {}).find(
+        (item) => item.replace(/^\uFEFF/, "") === header
+      );
+
+      return normalizeText(originalHeader ? row[originalHeader] : "").slice(0, 500);
+    })
+  );
+
+  return { availableHeaders, previewRows };
+}
+
+async function getSheetPreview(content, attachment) {
+  return createSheetPreview(await parseSheetRows(content, attachment));
+}
+
 function getAuditMapping(settings) {
   return {
     skuHeader: normalizeText(settings?.skuHeader),
@@ -675,9 +697,7 @@ async function stageSheetAttachment({ settings, attachment, message }) {
   }
 
   const firstRow = rows[0] || {};
-  const availableHeaders = Object.keys(firstRow)
-    .map((header) => header.replace(/^\uFEFF/, ""))
-    .filter(Boolean);
+  const { availableHeaders, previewRows } = createSheetPreview(rows);
   const missingHeaders = [
     !hasHeader(firstRow, settings.skuHeader) ? settings.skuHeader : "",
     !hasHeader(firstRow, settings.inventoryHeader) ? settings.inventoryHeader : "",
@@ -693,6 +713,7 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       ...baseAudit,
       status: "needs_mapping",
       availableHeaders,
+      previewRows,
       totalRows: rows.length,
       invalidRows: rows.length,
       errorCount: 1,
@@ -799,6 +820,7 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       ...baseAudit,
       status: hasUsableRows ? "ready_for_review" : "failed",
       availableHeaders,
+      previewRows,
       totalRows: rows.length,
       matchedRows: proposalRows.length,
       changedRows,
@@ -1763,6 +1785,7 @@ async function runAutoInventoryImport() {
 module.exports = {
   applyStagedInventoryAudit,
   processInventoryMessageSource,
+  getSheetPreview,
   runAutoInventoryImport,
   _test: {
     applyAuditMappingToSettings,

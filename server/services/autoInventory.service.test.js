@@ -168,6 +168,10 @@ test("stages matched inventory changes without updating SKU Nexus", async () => 
     assert.equal(staged.length, 1);
     assert.equal(staged[0].summary.status, "ready_for_review");
     assert.equal(staged[0].summary.unmatchedRows, 1);
+    assert.deepEqual(staged[0].summary.previewRows, [
+      ["VENDOR-100", "12"],
+      ["UNKNOWN", "3"]
+    ]);
     assert.equal(staged[0].rows[0].changeRequired, true);
     assert.equal(staged[0].rows[0].proposedQuantity, 999999);
   });
@@ -191,6 +195,7 @@ test("stages changed headers as needs mapping", async () => {
       "Part Number",
       "Qty Available"
     ]);
+    assert.deepEqual(staged[0].summary.previewRows, [["VENDOR-100", "12"]]);
   });
 });
 

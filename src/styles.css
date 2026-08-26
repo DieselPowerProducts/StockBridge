@@ -1131,6 +1131,67 @@ button:disabled {
   line-height: 1.45;
 }
 
+.sheet-import-preview {
+  background: #252525;
+  border: 1px solid #555555;
+  border-radius: 4px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.sheet-import-preview > header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.sheet-import-preview h3 {
+  margin: 0;
+}
+
+.sheet-import-preview header span,
+.sheet-import-preview-error {
+  color: #bbbbbb;
+  font-size: 12px;
+}
+
+.sheet-import-preview .price-audit-refresh {
+  color: #ffffff;
+  flex: 0 0 auto;
+  text-decoration: none;
+}
+
+.sheet-import-preview-table-wrap {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.sheet-import-preview table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+  white-space: nowrap;
+}
+
+.sheet-import-preview th,
+.sheet-import-preview td {
+  border: 1px solid #4b4b4b;
+  max-width: 280px;
+  overflow: hidden;
+  padding: 5px 7px;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.sheet-import-preview th {
+  background: #343434;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .sheet-import-mapping-panel {
   background: #2d2d2d;
   border: 1px solid #555555;
@@ -1160,6 +1221,12 @@ button:disabled {
   color: #cccccc;
   font-size: 12px;
   font-weight: 700;
+}
+
+.sheet-import-mapping-panel label small {
+  color: #aaaaaa;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .sheet-import-mapping-panel select {

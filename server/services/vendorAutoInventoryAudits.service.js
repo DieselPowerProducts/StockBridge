@@ -58,6 +58,7 @@ function mapAuditRow(row) {
     status: normalizeText(row?.status),
     mapping: parseJson(row?.mapping, {}),
     availableHeaders: parseJson(row?.available_headers, []),
+    previewRows: parseJson(row?.preview_rows, []),
     totalRows: Number(row?.total_rows || 0),
     matchedRows: Number(row?.matched_rows || 0),
     changedRows: Number(row?.changed_rows || 0),
@@ -124,6 +125,7 @@ async function initializeSchema() {
           status TEXT NOT NULL DEFAULT 'ready_for_review',
           mapping JSONB NOT NULL DEFAULT '{}'::jsonb,
           available_headers JSONB NOT NULL DEFAULT '[]'::jsonb,
+          preview_rows JSONB NOT NULL DEFAULT '[]'::jsonb,
           total_rows INTEGER NOT NULL DEFAULT 0,
           matched_rows INTEGER NOT NULL DEFAULT 0,
           changed_rows INTEGER NOT NULL DEFAULT 0,
@@ -169,6 +171,10 @@ async function initializeSchema() {
       await sql`
         ALTER TABLE vendor_auto_inventory_audits
         ADD COLUMN IF NOT EXISTS selected_changed_rows INTEGER NOT NULL DEFAULT 0
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_audits
+        ADD COLUMN IF NOT EXISTS preview_rows JSONB NOT NULL DEFAULT '[]'::jsonb
       `;
       await sql`
         ALTER TABLE vendor_auto_inventory_audit_rows
@@ -307,6 +313,7 @@ async function stageAudit(input, proposalRows = []) {
       status,
       mapping,
       available_headers,
+      preview_rows,
       total_rows,
       matched_rows,
       changed_rows,
@@ -330,6 +337,7 @@ async function stageAudit(input, proposalRows = []) {
       ${status},
       ${JSON.stringify(input?.mapping || {})}::jsonb,
       ${JSON.stringify(input?.availableHeaders || [])}::jsonb,
+      ${JSON.stringify(input?.previewRows || [])}::jsonb,
       ${Math.max(Number(input?.totalRows || 0), 0)},
       ${Math.max(Number(input?.matchedRows || 0), 0)},
       ${Math.max(Number(input?.changedRows || 0), 0)},
@@ -351,6 +359,7 @@ async function stageAudit(input, proposalRows = []) {
       status = EXCLUDED.status,
       mapping = EXCLUDED.mapping,
       available_headers = EXCLUDED.available_headers,
+      preview_rows = EXCLUDED.preview_rows,
       total_rows = EXCLUDED.total_rows,
       matched_rows = EXCLUDED.matched_rows,
       changed_rows = EXCLUDED.changed_rows,
@@ -561,6 +570,28 @@ async function getProposalRows(auditId) {
   `;
 
   return rows.map(mapProposalRow);
+}
+
+async function saveAuditPreview(auditId, availableHeaders, previewRows) {
+  await initializeSchema();
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE vendor_auto_inventory_audits
+    SET
+      available_headers = ${JSON.stringify(availableHeaders || [])}::jsonb,
+      preview_rows = ${JSON.stringify(previewRows || [])}::jsonb
+    WHERE id = ${normalizeText(auditId, 500)}
+      AND is_legacy = FALSE
+    RETURNING *
+  `;
+
+  if (!rows[0]) {
+    const error = new Error("Inventory sheet audit not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return mapAuditRow(rows[0]);
 }
 
 async function updateAuditMapping(auditId, mapping) {
@@ -859,6 +890,7 @@ module.exports = {
   maximumManualRetries,
   rejectAudit,
   requestManualRetry,
+  saveAuditPreview,
   setStatus,
   stageAudit,
   updateAuditMapping,

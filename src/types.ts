@@ -216,6 +216,7 @@ export type InventorySheetImport = {
   status: InventorySheetImportStatus;
   mapping: InventorySheetMapping;
   availableHeaders: string[];
+  previewRows: string[][];
   totalRows: number;
   matchedRows: number;
   changedRows: number;

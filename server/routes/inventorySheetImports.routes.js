@@ -4,6 +4,8 @@ const controller = require("../controllers/inventorySheetImports.controller");
 const router = express.Router();
 
 router.get("/inventory-sheet-imports", controller.listImports);
+router.get("/inventory-sheet-imports/:importId/file", controller.getImportFile);
+router.get("/inventory-sheet-imports/:importId/preview", controller.getImportPreview);
 router.get("/inventory-sheet-imports/:importId", controller.getImport);
 router.post("/inventory-sheet-imports/:importId/approve", controller.approveImport);
 router.post("/inventory-sheet-imports/:importId/reject", controller.rejectImport);

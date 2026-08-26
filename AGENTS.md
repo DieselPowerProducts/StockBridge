@@ -404,6 +404,12 @@ Parser/import failures notify the configured failure recipient in StockBridge.
 Failures include missing configured headers, empty/unreadable inventory sheets,
 unrecognized alphabetical stock phrases, rows with missing SKUs, and SKU Nexus
 update errors.
+Sheet Import review cards retain a compact header/sample-row preview and can
+open the original attachment from the archived Gmail message. Mapping labels
+must make clear that the inventory field controls stock availability, not price.
+The optional subtractive column represents allocated/committed stock deducted
+from the primary quantity. Keep list-card status synchronized with the selected
+detail because Gmail parse/apply jobs can move through retrying states quickly.
 Vendor sheets often include SKUs DPP does not sell; unmatched vendor SKUs should
 be skipped quietly and should not notify as failures.
 Numerical and alphabetical auto-inventory updates are stored in

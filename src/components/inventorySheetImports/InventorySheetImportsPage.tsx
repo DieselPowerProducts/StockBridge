@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import {
   approveInventorySheetImport,
   getInventorySheetImport,
+  getInventorySheetImportFileUrl,
+  getInventorySheetImportPreview,
   getInventorySheetImports,
   rejectInventorySheetImport,
   retryInventorySheetImport,
@@ -60,6 +62,8 @@ export function InventorySheetImportsPage() {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState("");
   const [activeAction, setActiveAction] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -114,6 +118,20 @@ export function InventorySheetImportsPage() {
   }, [currentPage, refreshNonce, searchQuery, view]);
 
   useEffect(() => {
+    const hasProcessingImport = items.some((item) =>
+      ["retrying", "approved", "applying"].includes(item.status)
+    );
+
+    if (!hasProcessingImport) return;
+
+    const interval = window.setInterval(() => {
+      setRefreshNonce((current) => current + 1);
+    }, 4000);
+
+    return () => window.clearInterval(interval);
+  }, [items]);
+
+  useEffect(() => {
     if (!selectedId) {
       setDetails(null);
       return;
@@ -121,12 +139,19 @@ export function InventorySheetImportsPage() {
 
     let ignore = false;
     setIsLoadingDetails(true);
+    setIsLoadingPreview(false);
+    setPreviewError("");
     setError("");
 
     void getInventorySheetImport(selectedId, rowPage, rowPageSize)
       .then((result) => {
         if (ignore) return;
         setDetails(result);
+        setItems((current) =>
+          current.map((item) =>
+            item.id === result.id ? { ...item, ...result } : item
+          )
+        );
         setSkuHeader(result.mapping.skuHeader || "");
         setInventoryHeader(result.mapping.inventoryHeader || "");
         setSubtractiveColumn(result.mapping.subtractiveColumn || "");
@@ -135,6 +160,35 @@ export function InventorySheetImportsPage() {
           result.status === "needs_mapping" ||
             (result.status === "failed" && result.rows.length === 0)
         );
+
+        if (!result.isLegacy && result.previewRows.length === 0) {
+          setIsLoadingPreview(true);
+          void getInventorySheetImportPreview(result.id)
+            .then((preview) => {
+              if (ignore) return;
+              setDetails((current) =>
+                current?.id === result.id
+                  ? {
+                      ...current,
+                      availableHeaders: preview.availableHeaders,
+                      previewRows: preview.previewRows
+                    }
+                  : current
+              );
+            })
+            .catch((previewLoadError) => {
+              if (!ignore) {
+                setPreviewError(
+                  previewLoadError instanceof Error
+                    ? previewLoadError.message
+                    : "Unable to load the spreadsheet preview."
+                );
+              }
+            })
+            .finally(() => {
+              if (!ignore) setIsLoadingPreview(false);
+            });
+        }
       })
       .catch((loadError) => {
         if (!ignore) {
@@ -293,6 +347,18 @@ export function InventorySheetImportsPage() {
       details.availableHeaders.length > 0 &&
       ["ready_for_review", "needs_mapping", "failed"].includes(details.status)
   );
+
+  function getColumnLabel(header: string, index: number) {
+    const samples = Array.from(
+      new Set(
+        (details?.previewRows || [])
+          .map((row) => row[index])
+          .filter(Boolean)
+      )
+    ).slice(0, 2);
+
+    return samples.length > 0 ? `${header} — e.g. ${samples.join(", ")}` : header;
+  }
 
   return (
     <section className="page sheet-imports-page" aria-labelledby="sheetImportsHeading">
@@ -476,6 +542,58 @@ export function InventorySheetImportsPage() {
                 <p className="sheet-import-error">{details.errorMessage}</p>
               ) : null}
 
+              {!details.isLegacy ? (
+                <section className="sheet-import-preview" aria-label="Original spreadsheet preview">
+                  <header>
+                    <div>
+                      <h3>Original spreadsheet preview</h3>
+                      <span>
+                        Detected column labels and the first 10 parsed rows. If a label looks like
+                        data, the file may not contain a header row.
+                      </span>
+                    </div>
+                    <a
+                      className="price-audit-refresh"
+                      href={getInventorySheetImportFileUrl(details.id)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open original spreadsheet
+                    </a>
+                  </header>
+                  {isLoadingPreview ? (
+                    <p className="status-message">Loading spreadsheet preview...</p>
+                  ) : null}
+                  {previewError ? (
+                    <p className="sheet-import-preview-error">{previewError}</p>
+                  ) : null}
+                  {details.availableHeaders.length > 0 && details.previewRows.length > 0 ? (
+                    <div className="sheet-import-preview-table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            {details.availableHeaders.map((header, index) => (
+                              <th key={`${header}-${index}`}>{header}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {details.previewRows.map((row, rowIndex) => (
+                            <tr key={rowIndex}>
+                              {details.availableHeaders.map((header, columnIndex) => (
+                                <td key={`${header}-${columnIndex}`}>
+                                  {row[columnIndex] || "Blank"}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
               {canMap && !isMappingOpen ? (
                 <div className="sheet-import-map-actions">
                   <button
@@ -491,27 +609,46 @@ export function InventorySheetImportsPage() {
               {canMap && isMappingOpen ? (
                 <div className="sheet-import-mapping-panel">
                   <h3>Map this sheet&apos;s columns</h3>
-                  <p>This mapping applies to this card. Saving it for the vendor is optional.</p>
+                  <p>
+                    This mapping controls vendor stock availability, not product pricing. It applies
+                    to this card unless you choose to save it as the vendor default.
+                  </p>
                   <label>
-                    <span>Vendor SKU column</span>
+                    <span>Sheet SKU column</span>
                     <select value={skuHeader} onChange={(event) => setSkuHeader(event.target.value)}>
                       <option value="">Select a column</option>
-                      {details.availableHeaders.map((header) => <option key={header}>{header}</option>)}
+                      {details.availableHeaders.map((header, index) => (
+                        <option value={header} key={`${header}-${index}`}>
+                          {getColumnLabel(header, index)}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label>
-                    <span>Inventory column</span>
+                    <span>Sheet stock value column</span>
                     <select value={inventoryHeader} onChange={(event) => setInventoryHeader(event.target.value)}>
                       <option value="">Select a column</option>
-                      {details.availableHeaders.map((header) => <option key={header}>{header}</option>)}
+                      {details.availableHeaders.map((header, index) => (
+                        <option value={header} key={`${header}-${index}`}>
+                          {getColumnLabel(header, index)}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label>
-                    <span>Subtractive column (optional)</span>
+                    <span>Quantity to subtract (optional)</span>
                     <select value={subtractiveColumn} onChange={(event) => setSubtractiveColumn(event.target.value)}>
                       <option value="">None</option>
-                      {details.availableHeaders.map((header) => <option key={header}>{header}</option>)}
+                      {details.availableHeaders.map((header, index) => (
+                        <option value={header} key={`${header}-${index}`}>
+                          {getColumnLabel(header, index)}
+                        </option>
+                      ))}
                     </select>
+                    <small>
+                      Use only when available stock equals the stock value minus an allocated,
+                      committed, or reserved quantity.
+                    </small>
                   </label>
                   <label className="sheet-import-save-mapping">
                     <input
@@ -548,7 +685,7 @@ export function InventorySheetImportsPage() {
                         <th>Product SKU</th>
                         <th>Sheet SKU</th>
                         <th>Availability change</th>
-                        <th>Sheet value</th>
+                        <th>Sheet stock value</th>
                       </tr>
                     </thead>
                     <tbody>

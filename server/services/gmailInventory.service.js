@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
+const { simpleParser } = require("mailparser");
 const { getSql } = require("../db/neon");
 const { loadLocalEnv } = require("../config/env");
 const autoInventoryService = require("./autoInventory.service");
@@ -718,6 +719,84 @@ function decodeRawMessage(raw) {
   return Buffer.from(normalizeText(raw), "base64url");
 }
 
+function findInventorySheetAttachment(attachments, audit) {
+  const expectedHash = normalizeText(audit?.attachmentHash);
+  const expectedFilename = normalizeText(audit?.attachmentFilename);
+  const candidates = (attachments || []).filter((attachment) =>
+    Buffer.isBuffer(attachment?.content)
+  );
+
+  return (
+    candidates.find(
+      (attachment) =>
+        expectedHash &&
+        crypto.createHash("sha256").update(attachment.content).digest("hex") ===
+          expectedHash
+    ) ||
+    candidates.find(
+      (attachment) => normalizeText(attachment?.filename) === expectedFilename
+    ) ||
+    null
+  );
+}
+
+async function getRawMessageWithFallback(oauthClient, gmailMessageId, rfcMessageId) {
+  try {
+    return await getRawMessage(oauthClient, gmailMessageId);
+  } catch (error) {
+    if (error.gmailStatus !== 404 || !rfcMessageId) {
+      throw error;
+    }
+  }
+
+  const searchableRfcMessageId = rfcMessageId.replace(/^<|>$/g, "");
+  const params = new URLSearchParams({
+    maxResults: "1",
+    q: `rfc822msgid:${searchableRfcMessageId}`
+  });
+  const searchResult = await gmailRequest(
+    oauthClient,
+    `/users/me/messages?${params.toString()}`
+  );
+  const resolvedMessageId = normalizeText(searchResult?.messages?.[0]?.id);
+
+  if (!resolvedMessageId) {
+    throw createHttpError(404, "The original Gmail message could not be found.");
+  }
+
+  return getRawMessage(oauthClient, resolvedMessageId);
+}
+
+async function getInventorySheetAttachment(auditId) {
+  const audit = await autoInventoryAuditsService.getAuditRecord(auditId);
+
+  if (!audit || audit.isLegacy) {
+    throw createHttpError(404, "The original spreadsheet is not available.");
+  }
+
+  const oauthClient = await getAuthorizedClient();
+  const message = await getRawMessageWithFallback(
+    oauthClient,
+    audit.messageUid,
+    audit.messageId
+  );
+  const parsed = await simpleParser(decodeRawMessage(message?.raw));
+  const attachment = findInventorySheetAttachment(parsed.attachments, audit);
+
+  if (!attachment) {
+    throw createHttpError(404, "The original spreadsheet attachment could not be found.");
+  }
+
+  return {
+    content: attachment.content,
+    contentType: normalizeText(attachment.contentType) || "application/octet-stream",
+    filename:
+      normalizeText(attachment.filename) ||
+      audit.attachmentFilename ||
+      "vendor-inventory-sheet"
+  };
+}
+
 async function processGmailMessage(oauthClient, messageId, { auditId = "" } = {}) {
   const message = await getRawMessage(oauthClient, messageId);
   const source = decodeRawMessage(message?.raw);
@@ -1290,6 +1369,7 @@ async function getConnectionStatus() {
 
 module.exports = {
   completeOAuth,
+  getInventorySheetAttachment,
   getAuthorizationUrl,
   getConnectionStatus,
   completeQueueJob,
@@ -1304,6 +1384,7 @@ module.exports = {
     decodePushMessage,
     decryptRefreshToken,
     encryptRefreshToken,
+    findInventorySheetAttachment,
     getMessageLabelNames,
     getLatestHistoryId,
     gmailHistoryIdSqlPattern,

@@ -99,6 +99,26 @@ test("uses a SQL-safe numeric Gmail history ID pattern", () => {
   assert.equal(_test.gmailHistoryIdSqlPattern, "^[0-9]+$");
 });
 
+test("finds the original inventory attachment by content hash", () => {
+  const wantedContent = Buffer.from("Item,Available\nABC,4\n");
+  const otherContent = Buffer.from("other");
+  const attachment = _test.findInventorySheetAttachment(
+    [
+      { filename: "inventory.csv", content: otherContent },
+      { filename: "renamed.csv", content: wantedContent }
+    ],
+    {
+      attachmentFilename: "inventory.csv",
+      attachmentHash: require("crypto")
+        .createHash("sha256")
+        .update(wantedContent)
+        .digest("hex")
+    }
+  );
+
+  assert.equal(attachment.filename, "renamed.csv");
+});
+
 test("normalizes Gmail queue jobs", () => {
   assert.deepEqual(
     _test.normalizeQueueJob({
