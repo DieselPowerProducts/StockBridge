@@ -11,6 +11,7 @@ const vendorAutoInventorySettingsService = require("./vendorAutoInventorySetting
 const vendorSettingsService = require("./vendorSettings.service");
 const {
   buildSkuExceptionKeys,
+  getEffectiveSkuExceptions,
   isVendorProductExcepted
 } = require("./autoInventorySkuMatcher");
 
@@ -65,11 +66,13 @@ function isVendorProductAutoInventoryExcepted(
   settings,
   autoInventoryUpdate
 ) {
-  if (!settings?.skuExceptions?.length) {
+  const effectiveExceptions = getEffectiveSkuExceptions(settings);
+
+  if (effectiveExceptions.length === 0) {
     return false;
   }
 
-  const exceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const exceptionKeys = buildSkuExceptionKeys(effectiveExceptions);
 
   if (exceptionKeys.size === 0) {
     return false;

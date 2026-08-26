@@ -431,6 +431,7 @@ export type VendorAutoInventorySettings = {
   inventoryHeader: string;
   subtractiveColumn: string;
   skuExceptions: string[];
+  missingSheetSkuExceptions: string[];
   inventoryMode: VendorAutoInventoryMode;
   inStockPhrases: string[];
   outOfStockPhrases: string[];

@@ -104,6 +104,7 @@ export function AutoInventorySettingsModal({
           inventoryHeader: settings.inventoryHeader,
           subtractiveColumn: settings.subtractiveColumn,
           skuExceptions: settings.skuExceptions,
+          missingSheetSkuExceptions: settings.missingSheetSkuExceptions,
           inventoryMode: settings.inventoryMode,
           inStockPhrases: parsePhraseText(inStockPhrases),
           outOfStockPhrases: parsePhraseText(outOfStockPhrases)
@@ -266,6 +267,13 @@ export function AutoInventorySettingsModal({
                 </label>
               </div>
             ) : null}
+
+            <div className="auto-inventory-exception-summary">
+              <span>Manual exceptions: {settings.skuExceptions.length}</span>
+              <span>
+                Missing from sheet: {settings.missingSheetSkuExceptions.length}
+              </span>
+            </div>
 
             <footer className="auto-inventory-modal-actions">
               <button type="button" className="secondary-action" disabled={isSaving} onClick={onClose}>

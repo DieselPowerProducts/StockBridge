@@ -604,6 +604,17 @@ async function setProductVendorAutoInventory({
     !enabled
   );
 
+  await vendorAutoInventorySettingsService.setMissingSheetSkuException(
+    safeVendorId,
+    [
+      product.sku || safeSku,
+      vendorProduct.product_sku,
+      vendorProduct.sku,
+      vendorProduct.label
+    ],
+    false
+  );
+
   if (!enabled) {
     await vendorAutoInventoryProductUpdatesService.deleteUpdatesForVendorProductIds([
       safeVendorProductId
@@ -613,6 +624,59 @@ async function setProductVendorAutoInventory({
   clearProductCaches();
 
   return catalogService.getProductDetails(product.sku || safeSku);
+}
+
+async function setProductVendorMissingSheetException({
+  sku,
+  vendorId,
+  vendorProductId
+}) {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const safeVendorProductId = normalizeRequiredString(
+    vendorProductId,
+    "Vendor product ID is required."
+  );
+  const [product, vendorProduct] = await Promise.all([
+    catalogService.getCatalogProductBySku(safeSku),
+    catalogService.getCatalogVendorProductById(safeVendorProductId)
+  ]);
+
+  if (!product || !vendorProduct) {
+    const error = new Error(product ? "Vendor product not found." : "Product not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (
+    vendorProduct.vendor_id !== safeVendorId ||
+    vendorProduct.product_id !== product.id
+  ) {
+    const error = new Error("Vendor product does not match this product.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const skuValues = [
+    product.sku || safeSku,
+    vendorProduct.product_sku,
+    vendorProduct.sku,
+    vendorProduct.label
+  ];
+  await vendorAutoInventorySettingsService.setSkuException(
+    safeVendorId,
+    skuValues,
+    false
+  );
+  await vendorAutoInventorySettingsService.setMissingSheetSkuException(
+    safeVendorId,
+    skuValues,
+    true
+  );
+  await vendorAutoInventoryProductUpdatesService.deleteUpdatesForVendorProductIds([
+    safeVendorProductId
+  ]);
+  clearProductCaches();
 }
 
 async function setVendorProductQuantity({
@@ -730,6 +794,7 @@ module.exports = {
   setProductBuiltToOrderLeadTime,
   setProductFollowUp,
   setProductVendorAutoInventory,
+  setProductVendorMissingSheetException,
   setProductVendorDetails,
   setProductVendorStock,
   setVendorProductQuantity,

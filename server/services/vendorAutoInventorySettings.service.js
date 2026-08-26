@@ -60,6 +60,9 @@ function assertSettingsInput(input = {}) {
   const inventoryHeader = normalizeText(input.inventoryHeader);
   const subtractiveColumn = normalizeText(input.subtractiveColumn);
   const skuExceptions = parseSkuExceptions(input.skuExceptions);
+  const missingSheetSkuExceptions = parseSkuExceptions(
+    input.missingSheetSkuExceptions
+  );
   const inventoryMode = normalizeMode(input.inventoryMode);
   const inStockPhrases = parsePhraseList(input.inStockPhrases);
   const outOfStockPhrases = parsePhraseList(input.outOfStockPhrases);
@@ -105,6 +108,7 @@ function assertSettingsInput(input = {}) {
     inventoryHeader,
     subtractiveColumn,
     skuExceptions,
+    missingSheetSkuExceptions,
     inventoryMode,
     inStockPhrases,
     outOfStockPhrases
@@ -120,6 +124,9 @@ function formatSettings(row) {
     inventoryHeader: normalizeText(row?.inventory_header),
     subtractiveColumn: normalizeText(row?.subtractive_column),
     skuExceptions: formatPhraseList(row?.sku_exceptions),
+    missingSheetSkuExceptions: formatPhraseList(
+      row?.missing_sheet_sku_exceptions
+    ),
     inventoryMode: normalizeMode(row?.inventory_mode),
     inStockPhrases: formatPhraseList(row?.in_stock_phrases),
     outOfStockPhrases: formatPhraseList(row?.out_of_stock_phrases)
@@ -140,6 +147,7 @@ async function initializeSchema() {
           inventory_header TEXT NOT NULL DEFAULT '',
           subtractive_column TEXT NOT NULL DEFAULT '',
           sku_exceptions JSONB NOT NULL DEFAULT '[]'::jsonb,
+          missing_sheet_sku_exceptions JSONB NOT NULL DEFAULT '[]'::jsonb,
           inventory_mode TEXT NOT NULL DEFAULT 'numerical',
           in_stock_phrases JSONB NOT NULL DEFAULT '[]'::jsonb,
           out_of_stock_phrases JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -154,6 +162,10 @@ async function initializeSchema() {
       await sql`
         ALTER TABLE vendor_auto_inventory_settings
         ADD COLUMN IF NOT EXISTS sku_exceptions JSONB NOT NULL DEFAULT '[]'::jsonb
+      `;
+      await sql`
+        ALTER TABLE vendor_auto_inventory_settings
+        ADD COLUMN IF NOT EXISTS missing_sheet_sku_exceptions JSONB NOT NULL DEFAULT '[]'::jsonb
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS vendor_auto_inventory_settings_enabled_idx
@@ -191,6 +203,7 @@ async function getSettingsByVendorIds(vendorIds) {
       inventory_header,
       subtractive_column,
       sku_exceptions::text AS sku_exceptions,
+      missing_sheet_sku_exceptions::text AS missing_sheet_sku_exceptions,
       inventory_mode,
       in_stock_phrases::text AS in_stock_phrases,
       out_of_stock_phrases::text AS out_of_stock_phrases
@@ -250,6 +263,19 @@ function updateSkuExceptions(skuExceptions, skuValues, excepted) {
 }
 
 async function setSkuException(vendorId, skuValues, excepted) {
+  return setSkuExceptionType(vendorId, skuValues, excepted, "skuExceptions");
+}
+
+async function setMissingSheetSkuException(vendorId, skuValues, excepted) {
+  return setSkuExceptionType(
+    vendorId,
+    skuValues,
+    excepted,
+    "missingSheetSkuExceptions"
+  );
+}
+
+async function setSkuExceptionType(vendorId, skuValues, excepted, fieldName) {
   const safeVendorId = normalizeText(vendorId);
 
   if (!safeVendorId) {
@@ -268,8 +294,8 @@ async function setSkuException(vendorId, skuValues, excepted) {
 
   return saveSettings(safeVendorId, {
     ...currentSettings,
-    skuExceptions: updateSkuExceptions(
-      currentSettings.skuExceptions,
+    [fieldName]: updateSkuExceptions(
+      currentSettings[fieldName],
       skuValues,
       excepted
     )
@@ -289,6 +315,7 @@ async function getEnabledSettings() {
       inventory_header,
       subtractive_column,
       sku_exceptions::text AS sku_exceptions,
+      missing_sheet_sku_exceptions::text AS missing_sheet_sku_exceptions,
       inventory_mode,
       in_stock_phrases::text AS in_stock_phrases,
       out_of_stock_phrases::text AS out_of_stock_phrases
@@ -326,6 +353,7 @@ async function saveSettings(vendorId, input = {}) {
       inventory_header,
       subtractive_column,
       sku_exceptions,
+      missing_sheet_sku_exceptions,
       inventory_mode,
       in_stock_phrases,
       out_of_stock_phrases
@@ -338,6 +366,7 @@ async function saveSettings(vendorId, input = {}) {
       ${settings.inventoryHeader},
       ${settings.subtractiveColumn},
       ${JSON.stringify(settings.skuExceptions)}::jsonb,
+      ${JSON.stringify(settings.missingSheetSkuExceptions)}::jsonb,
       ${settings.inventoryMode},
       ${JSON.stringify(settings.inStockPhrases)}::jsonb,
       ${JSON.stringify(settings.outOfStockPhrases)}::jsonb
@@ -349,6 +378,7 @@ async function saveSettings(vendorId, input = {}) {
         inventory_header = EXCLUDED.inventory_header,
         subtractive_column = EXCLUDED.subtractive_column,
         sku_exceptions = EXCLUDED.sku_exceptions,
+        missing_sheet_sku_exceptions = EXCLUDED.missing_sheet_sku_exceptions,
         inventory_mode = EXCLUDED.inventory_mode,
         in_stock_phrases = EXCLUDED.in_stock_phrases,
         out_of_stock_phrases = EXCLUDED.out_of_stock_phrases,
@@ -361,6 +391,7 @@ async function saveSettings(vendorId, input = {}) {
       inventory_header,
       subtractive_column,
       sku_exceptions::text AS sku_exceptions,
+      missing_sheet_sku_exceptions::text AS missing_sheet_sku_exceptions,
       inventory_mode,
       in_stock_phrases::text AS in_stock_phrases,
       out_of_stock_phrases::text AS out_of_stock_phrases
@@ -375,6 +406,7 @@ module.exports = {
   getSettingsByVendorIds,
   initializeSchema,
   saveSettings,
+  setMissingSheetSkuException,
   setSkuException,
   _test: {
     updateSkuExceptions

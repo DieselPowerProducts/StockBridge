@@ -422,7 +422,12 @@ be skipped quietly and should not notify as failures.
 Numerical and alphabetical auto-inventory updates are stored in
 `vendor_auto_inventory_product_updates` and surfaced in product details only for
 vendor products actively represented by the latest sheet and not listed in SKU
-exceptions. SKU exceptions keep normal manual stock controls.
+exceptions. SKU exceptions keep normal manual stock controls. Manual exceptions
+remain disabled until a user explicitly re-enables auto inventory. Missing-sheet
+exceptions are created from Pending sheet reviews and remove themselves only
+when that exact product or vendor SKU appears on a later sheet. Matching accepts
+vendor grouping dashes, such as `1039093278` and `103-909-3278`, while retaining
+collision checks before assigning a row.
 Clean inventory sheets are staged and applied automatically. Pending review is
 reserved for parse/mapping errors and active StockBridge vendor products that
 cannot be found on the vendor's sheet. Missing assigned SKUs are stored separately

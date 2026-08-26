@@ -2,6 +2,7 @@ const catalogService = require("./catalog.service");
 const skunexus = require("./skunexus.service");
 const {
   buildSkuExceptionKeys,
+  getEffectiveSkuExceptions,
   isVendorProductExcepted
 } = require("./autoInventorySkuMatcher");
 const vendorAutoInventoryImportsService = require("./vendorAutoInventoryImports.service");
@@ -319,7 +320,9 @@ async function reconcileBackorderedProductsForBuiltToOrderVendor({
 }
 
 async function removeAutoInventoryUpdatesForSkuExceptions(vendorId, settings) {
-  if (!settings?.skuExceptions?.length) {
+  const effectiveExceptions = getEffectiveSkuExceptions(settings);
+
+  if (effectiveExceptions.length === 0) {
     return 0;
   }
 
@@ -336,7 +339,7 @@ async function removeAutoInventoryUpdatesForSkuExceptions(vendorId, settings) {
       vendorProductIds
     )
   ]);
-  const exceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const exceptionKeys = buildSkuExceptionKeys(effectiveExceptions);
   const exceptedVendorProductIds = vendorProducts
     .filter((vendorProduct) => {
       const update = updatesByVendorProductId.get(vendorProduct.id);

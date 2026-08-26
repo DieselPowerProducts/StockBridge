@@ -3271,6 +3271,14 @@ body:has(.notes-popup-page),
   justify-content: flex-end;
 }
 
+.auto-inventory-exception-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: #c8c8c8;
+  font-size: 0.85rem;
+}
+
 .auto-inventory-modal-actions .secondary-action {
   margin-bottom: 0;
 }

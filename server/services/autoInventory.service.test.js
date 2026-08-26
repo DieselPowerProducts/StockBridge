@@ -42,7 +42,8 @@ test("applies a card mapping without changing vendor identity or exceptions", ()
       senderEmail: "vendor@example.com",
       skuHeader: "Default SKU",
       inventoryHeader: "Default Qty",
-      skuExceptions: ["KEEP-MANUAL"]
+      skuExceptions: ["KEEP-MANUAL"],
+      missingSheetSkuExceptions: ["MISSING-LATER"]
     },
     {
       mapping: {
@@ -59,6 +60,7 @@ test("applies a card mapping without changing vendor identity or exceptions", ()
   assert.equal(result.vendorId, "vendor-1");
   assert.equal(result.senderEmail, "vendor@example.com");
   assert.deepEqual(result.skuExceptions, ["KEEP-MANUAL"]);
+  assert.deepEqual(result.missingSheetSkuExceptions, ["MISSING-LATER"]);
 });
 
 
@@ -89,6 +91,7 @@ async function withStagingHarness(callback, vendorProducts = null) {
   const staged = [];
   let productUpdateCalls = 0;
   const exceptionUpdates = [];
+  const missingSheetExceptionUpdates = [];
 
   require.cache[catalogPath] = {
     id: catalogPath,
@@ -149,7 +152,9 @@ async function withStagingHarness(callback, vendorProducts = null) {
     filename: settingsPath,
     loaded: true,
     exports: {
-      setSkuException: async (...args) => exceptionUpdates.push(args)
+      setSkuException: async (...args) => exceptionUpdates.push(args),
+      setMissingSheetSkuException: async (...args) =>
+        missingSheetExceptionUpdates.push(args)
     }
   };
   delete require.cache[servicePath];
@@ -159,6 +164,7 @@ async function withStagingHarness(callback, vendorProducts = null) {
     await callback({
       productUpdateCalls: () => productUpdateCalls,
       exceptionUpdates,
+      missingSheetExceptionUpdates,
       staged,
       stageSheetAttachment: service._test.stageSheetAttachment
     });
@@ -174,6 +180,7 @@ const stagingSettings = {
   inventoryHeader: "Available",
   subtractiveColumn: "",
   skuExceptions: [],
+  missingSheetSkuExceptions: [],
   inventoryMode: "numerical",
   inStockPhrases: [],
   outOfStockPhrases: []
@@ -294,10 +301,13 @@ test("holds sheets with assigned StockBridge SKUs missing for review", async () 
   }, vendorProducts);
 });
 
-test("reactivates an excepted SKU when it appears on a later sheet", async () => {
-  await withStagingHarness(async ({ exceptionUpdates, staged, stageSheetAttachment }) => {
+test("reactivates a missing-sheet exception when it appears later", async () => {
+  await withStagingHarness(async ({ missingSheetExceptionUpdates, staged, stageSheetAttachment }) => {
     const result = await stageSheetAttachment({
-      settings: { ...stagingSettings, skuExceptions: ["DPP-100"] },
+      settings: {
+        ...stagingSettings,
+        missingSheetSkuExceptions: ["DPP-100"]
+      },
       attachment: {
         filename: "inventory.csv",
         contentType: "text/csv",
@@ -308,9 +318,28 @@ test("reactivates an excepted SKU when it appears on a later sheet", async () =>
 
     assert.equal(result.autoApply, true);
     assert.equal(staged[0].rows.length, 1);
-    assert.equal(exceptionUpdates.length, 1);
-    assert.equal(exceptionUpdates[0][0], "vendor-1");
-    assert.equal(exceptionUpdates[0][2], false);
+    assert.equal(missingSheetExceptionUpdates.length, 1);
+    assert.equal(missingSheetExceptionUpdates[0][0], "vendor-1");
+    assert.equal(missingSheetExceptionUpdates[0][2], false);
+  });
+});
+
+test("keeps manual exceptions disabled when they appear on a later sheet", async () => {
+  await withStagingHarness(async ({ missingSheetExceptionUpdates, staged, stageSheetAttachment }) => {
+    const result = await stageSheetAttachment({
+      settings: { ...stagingSettings, skuExceptions: ["DPP-100"] },
+      attachment: {
+        filename: "inventory.csv",
+        contentType: "text/csv",
+        content: Buffer.from("Item,Available\nVENDOR-100,12\n")
+      },
+      message: { uid: "gmail-5", messageId: "message-5" }
+    });
+
+    assert.equal(result.autoApply, true);
+    assert.equal(staged[0].rows.length, 0);
+    assert.equal(staged[0].summary.exceptionRows, 1);
+    assert.equal(missingSheetExceptionUpdates.length, 0);
   });
 });
 

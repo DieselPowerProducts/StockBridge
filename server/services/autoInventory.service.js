@@ -14,6 +14,7 @@ const importsService = require("./vendorAutoInventoryImports.service");
 const {
   addSkuMatchKeys,
   buildSkuExceptionKeys,
+  getEffectiveSkuExceptions,
   getSkuMatchKeys,
   getVendorProductSkuValues,
   isVendorProductExcepted,
@@ -656,7 +657,8 @@ function applyAuditMappingToSettings(settings, audit) {
     ...(audit?.mapping || {}),
     vendorId: settings.vendorId,
     senderEmail: settings.senderEmail,
-    skuExceptions: settings.skuExceptions
+    skuExceptions: settings.skuExceptions,
+    missingSheetSkuExceptions: settings.missingSheetSkuExceptions
   };
 }
 
@@ -777,11 +779,17 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       vendorProducts.map((vendorProduct) => vendorProduct.id)
     );
   const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
-  const skuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const manualSkuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const missingSheetSkuExceptionKeys = buildSkuExceptionKeys(
+    settings.missingSheetSkuExceptions
+  );
+  const skuExceptionKeys = buildSkuExceptionKeys(
+    getEffectiveSkuExceptions(settings)
+  );
   const proposalRows = [];
   const invalidSamples = [];
   const representedVendorProductIds = new Set();
-  const representedExceptionProducts = new Map();
+  const representedMissingSheetExceptionProducts = new Map();
   let unmatchedRows = 0;
   let invalidRows = 0;
   let exceptionRows = 0;
@@ -811,8 +819,24 @@ async function stageSheetAttachment({ settings, attachment, message }) {
     }
 
     representedVendorProductIds.add(String(vendorProduct.id));
-    if (isVendorProductExcepted(vendorProduct, skuExceptionKeys, [sheetSku])) {
-      representedExceptionProducts.set(String(vendorProduct.id), vendorProduct);
+    if (
+      isVendorProductExcepted(vendorProduct, manualSkuExceptionKeys, [sheetSku])
+    ) {
+      exceptionRows += 1;
+      return;
+    }
+
+    if (
+      isVendorProductExcepted(
+        vendorProduct,
+        missingSheetSkuExceptionKeys,
+        [sheetSku]
+      )
+    ) {
+      representedMissingSheetExceptionProducts.set(
+        String(vendorProduct.id),
+        vendorProduct
+      );
     }
 
     const inventoryResult = parseInventoryResult(
@@ -859,15 +883,16 @@ async function stageSheetAttachment({ settings, attachment, message }) {
     });
   });
 
-  if (representedExceptionProducts.size > 0) {
-    const representedSkuValues = Array.from(representedExceptionProducts.values())
+  if (representedMissingSheetExceptionProducts.size > 0) {
+    const representedSkuValues = Array.from(
+      representedMissingSheetExceptionProducts.values()
+    )
       .flatMap((vendorProduct) => getVendorProductSkuValues(vendorProduct));
-    await settingsService.setSkuException(
+    await settingsService.setMissingSheetSkuException(
       settings.vendorId,
       representedSkuValues,
       false
     );
-    exceptionRows = representedExceptionProducts.size;
   }
 
   const missingVendorProducts = vendorProducts.filter(
@@ -883,7 +908,7 @@ async function stageSheetAttachment({ settings, attachment, message }) {
   }));
 
   const changedRows = proposalRows.filter((row) => row.changeRequired).length;
-  const hasUsableRows = proposalRows.length > 0;
+  const hasUsableRows = proposalRows.length > 0 || exceptionRows > 0;
   const reviewMessages = [];
 
   if (missingVendorProducts.length > 0) {
@@ -1078,7 +1103,9 @@ async function importSheetAttachment({ settings, attachment, message }) {
       settings.vendorId
     );
   const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
-  const skuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const skuExceptionKeys = buildSkuExceptionKeys(
+    getEffectiveSkuExceptions(settings)
+  );
   const sheetManagedProductUpdates = new Map();
 
   for (const row of rows) {

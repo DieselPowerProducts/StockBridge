@@ -31,6 +31,16 @@ function getSkuMatchKeys(value) {
     addKey(parts.slice(1).join("-"));
   }
 
+  for (const key of Array.from(keys)) {
+    const compactKey = key.replace(/-/g, "");
+
+    // Vendor sheets sometimes add grouping dashes that SKU Nexus omits.
+    // Keep short keys unchanged to avoid broad matches such as 100-1 / 10-01.
+    if (compactKey.length >= 6) {
+      keys.add(compactKey);
+    }
+  }
+
   return Array.from(keys);
 }
 
@@ -59,6 +69,15 @@ function buildSkuExceptionKeys(skuExceptions) {
   return keys;
 }
 
+function getEffectiveSkuExceptions(settings) {
+  return Array.from(
+    new Set([
+      ...(settings?.skuExceptions || []),
+      ...(settings?.missingSheetSkuExceptions || [])
+    ])
+  );
+}
+
 function isVendorProductExcepted(vendorProduct, exceptionKeys, extraValues = []) {
   if (!exceptionKeys || exceptionKeys.size === 0) {
     return false;
@@ -72,6 +91,7 @@ function isVendorProductExcepted(vendorProduct, exceptionKeys, extraValues = [])
 module.exports = {
   addSkuMatchKeys,
   buildSkuExceptionKeys,
+  getEffectiveSkuExceptions,
   getSkuMatchKeys,
   getVendorProductSkuValues,
   isVendorProductExcepted,

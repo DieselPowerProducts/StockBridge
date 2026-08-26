@@ -197,11 +197,10 @@ async function addMissingSkuException(req, res, next) {
       throw error;
     }
 
-    await productsService.setProductVendorAutoInventory({
+    await productsService.setProductVendorMissingSheetException({
       sku: productSku,
       vendorId: sheetImport.vendorId,
-      vendorProductId,
-      enabled: false
+      vendorProductId
     });
     const missingSku = await sheetImportsService.resolveMissingSku(
       sheetImport.id,
