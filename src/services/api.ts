@@ -484,7 +484,9 @@ export function addInventorySheetMissingSkuException(
 ) {
   return request<{
     audit: InventorySheetImport;
+    autoApply: boolean;
     missingSku: InventorySheetImportDetails["missingSkus"][number];
+    queued: boolean;
   }>(
     `/inventory-sheet-imports/${encodeURIComponent(importId)}/missing-sku-exception`,
     {

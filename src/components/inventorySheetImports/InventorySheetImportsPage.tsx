@@ -279,9 +279,17 @@ export function InventorySheetImportsPage() {
         vendorProductId: missingSku.vendorProductId,
         productSku: missingSku.productSku
       });
+
+      if (result.autoApply) {
+        refreshAfterAction(
+          `${missingSku.productSku} was added to the exceptions. The spreadsheet is applying now.`
+        );
+        return;
+      }
+
       setDetails((current) => current ? {
         ...current,
-        missingSkuRows: result.audit.missingSkuRows,
+        ...result.audit,
         missingSkus: current.missingSkus.filter((item) => item.vendorProductId !== missingSku.vendorProductId)
       } : current);
       setMessage(`${missingSku.productSku} was added to this vendor's SKU exceptions.`);

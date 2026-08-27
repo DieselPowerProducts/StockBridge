@@ -436,6 +436,8 @@ from extra vendor-sheet SKUs, which remain harmless and are skipped quietly.
 Adding a missing SKU to the exception list disables auto inventory for that vendor
 product. If a later sheet contains the excepted SKU, the importer automatically
 removes its exception and resumes auto inventory for it.
+Resolving the final missing SKU automatically approves and queues the staged
+sheet when no invalid rows remain; users should not need to retry the parser.
 Auto-inventory vendor configuration lives on the Sheet Imports Vendors tab, not
 on the general Vendors product page. Pending imports show a searchable rendering
 of the original spreadsheet beside unresolved missing SKUs; Retry always reparses

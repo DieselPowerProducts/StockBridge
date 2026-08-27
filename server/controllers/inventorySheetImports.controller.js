@@ -108,26 +108,36 @@ async function getImportFile(req, res, next) {
 
 async function approveImport(req, res, next) {
   try {
-    const sheetImport = await sheetImportsService.approveAudit(
-      req.params.importId,
-      req.user
-    );
-
-    try {
-      const wake = await gmailInventoryService.queueInventoryAuditApply(
-        sheetImport.id
-      );
-      res.send({ ...sheetImport, queued: !wake.skipped });
-    } catch (error) {
-      await sheetImportsService.setStatus(sheetImport.id, "ready_for_review", {
-        errorCount: 1,
-        errorMessage: `Unable to queue approved import: ${error.message}`
-      });
-      throw error;
-    }
+    res.send(await approveAndQueueImport(req.params.importId, req.user));
   } catch (error) {
     next(error);
   }
+}
+
+async function approveAndQueueImport(importId, reviewer) {
+  const sheetImport = await sheetImportsService.approveAudit(importId, reviewer);
+
+  try {
+    const wake = await gmailInventoryService.queueInventoryAuditApply(
+      sheetImport.id
+    );
+    return { ...sheetImport, queued: !wake.skipped };
+  } catch (error) {
+    await sheetImportsService.setStatus(sheetImport.id, "ready_for_review", {
+      errorCount: 1,
+      errorMessage: `Unable to queue approved import: ${error.message}`
+    });
+    throw error;
+  }
+}
+
+function canAutoApplyResolvedAudit(audit) {
+  return Boolean(
+    audit &&
+    audit.status === "ready_for_review" &&
+    Number(audit.missingSkuRows || 0) === 0 &&
+    Number(audit.invalidRows || 0) === 0
+  );
 }
 
 async function rejectImport(req, res, next) {
@@ -206,10 +216,30 @@ async function addMissingSkuException(req, res, next) {
       sheetImport.id,
       vendorProductId
     );
+    const resolvedAudit = await sheetImportsService.getAuditRecord(
+      sheetImport.id
+    );
+
+    if (canAutoApplyResolvedAudit(resolvedAudit)) {
+      const approvedImport = await approveAndQueueImport(
+        sheetImport.id,
+        req.user
+      );
+
+      res.send({
+        audit: approvedImport,
+        autoApply: true,
+        missingSku,
+        queued: approvedImport.queued
+      });
+      return;
+    }
 
     res.send({
-      audit: await sheetImportsService.getAuditRecord(sheetImport.id),
-      missingSku
+      audit: resolvedAudit,
+      autoApply: false,
+      missingSku,
+      queued: false
     });
   } catch (error) {
     next(error);
@@ -345,5 +375,8 @@ module.exports = {
   retryImport,
   addMissingSkuException,
   updateMapping,
-  updateRowSelection
+  updateRowSelection,
+  _test: {
+    canAutoApplyResolvedAudit
+  }
 };

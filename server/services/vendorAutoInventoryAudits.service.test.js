@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { _test } = require("./vendorAutoInventoryAudits.service");
+const inventorySheetImportsController = require(
+  "../controllers/inventorySheetImports.controller"
+);
 
 test("creates stable inventory sheet IDs per vendor and attachment", () => {
   const first = _test.createAuditId("vendor-1", "attachment-hash");
@@ -92,5 +95,35 @@ test("maps persisted sheet import summaries and proposals", () => {
       status: "matched",
       errorMessage: ""
     }
+  );
+});
+
+test("auto applies after the final missing SKU is resolved", () => {
+  assert.equal(
+    inventorySheetImportsController._test.canAutoApplyResolvedAudit({
+      status: "ready_for_review",
+      missingSkuRows: 0,
+      invalidRows: 0
+    }),
+    true
+  );
+});
+
+test("keeps an audit pending while another review error remains", () => {
+  assert.equal(
+    inventorySheetImportsController._test.canAutoApplyResolvedAudit({
+      status: "ready_for_review",
+      missingSkuRows: 1,
+      invalidRows: 0
+    }),
+    false
+  );
+  assert.equal(
+    inventorySheetImportsController._test.canAutoApplyResolvedAudit({
+      status: "ready_for_review",
+      missingSkuRows: 0,
+      invalidRows: 1
+    }),
+    false
   );
 });
