@@ -49,6 +49,30 @@ function getStatusClass(status: InventorySheetImportStatus) {
   return "processing";
 }
 
+function getDisplayedSheetColumns(
+  sheetData: InventorySheetData,
+  skuHeader: string,
+  inventoryHeader: string
+) {
+  const normalizedHeaders = sheetData.availableHeaders.map((header) =>
+    header.trim().toLowerCase()
+  );
+  const requestedHeaders = [skuHeader, inventoryHeader]
+    .map((header) => header.trim().toLowerCase())
+    .filter(Boolean);
+  const indexes = requestedHeaders
+    .map((header) => normalizedHeaders.indexOf(header))
+    .filter((index, position, values) => index >= 0 && values.indexOf(index) === position);
+  const displayedIndexes = indexes.length > 0
+    ? indexes
+    : sheetData.availableHeaders.slice(0, 2).map((_, index) => index);
+
+  return displayedIndexes.map((index) => ({
+    header: sheetData.availableHeaders[index],
+    index
+  }));
+}
+
 type ImportsView = "pending" | "history" | "vendors";
 
 export function InventorySheetImportsPage() {
@@ -266,6 +290,9 @@ export function InventorySheetImportsPage() {
 
   const canMap = Boolean(details && !details.isLegacy && details.availableHeaders.length > 0 && ["ready_for_review", "needs_mapping", "failed"].includes(details.status));
   const canRetry = Boolean(details && !details.isLegacy && ["ready_for_review", "needs_mapping", "failed"].includes(details.status) && details.manualRetryCount < maximumManualRetries);
+  const displayedSheetColumns = sheetData
+    ? getDisplayedSheetColumns(sheetData, skuHeader, inventoryHeader)
+    : [];
 
   return (
     <section className="page sheet-imports-page" aria-labelledby="sheetImportsHeading">
@@ -392,7 +419,7 @@ export function InventorySheetImportsPage() {
                         {sheetData ? (
                           <>
                             <div className="sheet-import-original-table-wrap">
-                              <table><thead><tr>{sheetData.availableHeaders.map((header, index) => <th key={`${header}-${index}`}>{header}</th>)}</tr></thead><tbody>{sheetData.data.map((row, rowIndex) => <tr key={rowIndex}>{row.map((value, columnIndex) => <td key={columnIndex}>{value || ""}</td>)}</tr>)}</tbody></table>
+                              <table><thead><tr>{displayedSheetColumns.map(({ header, index }) => <th key={`${header}-${index}`}>{header}</th>)}</tr></thead><tbody>{sheetData.data.map((row, rowIndex) => <tr key={rowIndex}>{displayedSheetColumns.map(({ index }) => <td key={index}>{row[index] || ""}</td>)}</tr>)}</tbody></table>
                             </div>
                             <Pagination currentPage={sheetData.page} limit={sheetPageSize} totalItems={sheetData.total} onPageChange={setSheetPage} />
                           </>
@@ -403,10 +430,19 @@ export function InventorySheetImportsPage() {
                         <header><h3>Missing SKUs</h3><span>{details.missingSkus.length}</span></header>
                         {details.missingSkus.length === 0 ? <p>No unresolved missing SKUs.</p> : null}
                         {details.missingSkus.map((missingSku) => (
-                          <label key={missingSku.vendorProductId}>
-                            <input type="checkbox" disabled={activeAction !== ""} onChange={() => handleMissingSkuException(missingSku)} />
+                          <div className="sheet-import-missing-sku-row" key={missingSku.vendorProductId}>
                             <span><strong>{missingSku.productSku}</strong>{missingSku.vendorSku && missingSku.vendorSku !== missingSku.productSku ? <small>Vendor SKU: {missingSku.vendorSku}</small> : null}</span>
-                          </label>
+                            <button
+                              type="button"
+                              className="sheet-import-missing-approve"
+                              title="Add to missing-sheet exceptions"
+                              aria-label={`Add ${missingSku.productSku} to missing-sheet exceptions`}
+                              disabled={activeAction !== ""}
+                              onClick={() => handleMissingSkuException(missingSku)}
+                            >
+                              &#10003;
+                            </button>
+                          </div>
                         ))}
                       </aside>
                     </div>

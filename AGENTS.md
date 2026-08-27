@@ -400,10 +400,11 @@ in-stock and out-of-stock messages; matching in-stock phrases write `999999`,
 out-of-stock phrases write `0`. Commas are tolerated by the parser for
 convenience, but the UI should show colon-separated examples.
 
-Parser/import failures notify the configured failure recipient in StockBridge.
-Failures include missing configured headers, empty/unreadable inventory sheets,
-unrecognized alphabetical stock phrases, rows with missing SKUs, and SKU Nexus
-update errors.
+Sheet-specific parser/import issues appear in the Sheet Imports Pending tab and
+must not create StockBridge notifications. These include missing configured
+headers, empty/unreadable inventory sheets, unrecognized alphabetical stock
+phrases, rows with missing SKUs, and SKU Nexus update errors. Keep unexpected
+mailbox or queue runtime failures visible through operational logging.
 Sheet Import review cards retain a compact header/sample-row preview and can
 open the original attachment from the archived Gmail message. Mapping labels
 must make clear that the inventory field controls stock availability, not price.

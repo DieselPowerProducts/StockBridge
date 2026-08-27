@@ -218,6 +218,51 @@ test("stages clean inventory sheets for automatic application", async () => {
   });
 });
 
+test("matches one vendor sheet SKU to every assigned product using that SKU", async () => {
+  const vendorProducts = [
+    {
+      id: "vendor-product-prefixed",
+      vendor_id: "vendor-1",
+      product_id: "product-prefixed",
+      product_sku: "MISH-MMHOSE-RAM-98DBK",
+      sku: "MISH-MMHOSE-RAM-98DBK",
+      label: "MISH-MMHOSE-RAM-98DBK",
+      quantity: 0,
+      status: 1
+    },
+    {
+      id: "vendor-product-direct",
+      vendor_id: "vendor-1",
+      product_id: "product-direct",
+      product_sku: "MMHOSE-RAM-98DBK",
+      sku: "MMHOSE-RAM-98DBK",
+      label: "MMHOSE-RAM-98DBK",
+      quantity: 0,
+      status: 1
+    }
+  ];
+
+  await withStagingHarness(async ({ staged, stageSheetAttachment }) => {
+    const result = await stageSheetAttachment({
+      settings: stagingSettings,
+      attachment: {
+        filename: "Mishimoto_US_Inventory.csv",
+        contentType: "text/csv",
+        content: Buffer.from("Item,Available\nMMHOSE-RAM-98DBK,25\n")
+      },
+      message: { uid: "gmail-mish", messageId: "message-mish" }
+    });
+
+    assert.equal(result.staged, 2);
+    assert.equal(staged[0].summary.missingSkuRows, 0);
+    assert.deepEqual(
+      staged[0].rows.map((row) => row.productSku).sort(),
+      ["MISH-MMHOSE-RAM-98DBK", "MMHOSE-RAM-98DBK"]
+    );
+    assert.deepEqual(staged[0].missingSkus, []);
+  }, vendorProducts);
+});
+
 test("stages changed headers as needs mapping", async () => {
   await withStagingHarness(async ({ staged, stageSheetAttachment }) => {
     const result = await stageSheetAttachment({

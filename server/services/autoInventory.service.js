@@ -5,7 +5,6 @@ const ExcelJS = require("exceljs");
 const { ImapFlow } = require("imapflow");
 const { simpleParser } = require("mailparser");
 const catalogService = require("./catalog.service");
-const notificationsService = require("./notifications.service");
 const productsService = require("./products.service");
 const productUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 const settingsService = require("./vendorAutoInventorySettings.service");
@@ -27,8 +26,6 @@ loadLocalEnv();
 const enabledVendorStockQuantity = 999999;
 const disabledVendorStockQuantity = 0;
 const defaultLookbackDays = 14;
-const autoInventoryFailureRecipient =
-  process.env.AUTO_INVENTORY_FAILURE_RECIPIENT || "cade@dieselpowerproducts.com";
 const vendorInventoryLabel =
   process.env.AUTO_INVENTORY_GMAIL_LABEL || "Vendor Inventory";
 const gmailInboxLabels = ["\\Inbox", "INBOX"];
@@ -71,15 +68,19 @@ function buildVendorProductSkuLookup(vendorProducts) {
   return lookup;
 }
 
-function findVendorProductForSheetSku(lookup, sku) {
+function findVendorProductsForSheetSku(lookup, sku) {
   const keys = getSkuMatchKeys(sku);
   const exactKey = normalizeSkuKey(sku);
 
   for (const key of keys) {
     const candidates = lookup.get(key) || [];
 
+    if (key === exactKey && candidates.length > 0) {
+      return candidates;
+    }
+
     if (candidates.length === 1) {
-      return candidates[0];
+      return candidates;
     }
 
     if (candidates.length > 1) {
@@ -89,13 +90,17 @@ function findVendorProductForSheetSku(lookup, sku) {
         )
       );
 
-      if (exactCandidates.length === 1) {
-        return exactCandidates[0];
+      if (exactCandidates.length > 0) {
+        return exactCandidates;
       }
     }
   }
 
-  return null;
+  return [];
+}
+
+function findVendorProductForSheetSku(lookup, sku) {
+  return findVendorProductsForSheetSku(lookup, sku)[0] || null;
 }
 
 function isVendorProductRepresentedInSheet(vendorProduct, sheetSkuKeys) {
@@ -191,51 +196,6 @@ function getLookbackDate() {
 
 function getAttachmentHash(content) {
   return crypto.createHash("sha256").update(content).digest("hex");
-}
-
-function buildFailureNoteId({ vendorId, attachmentHash, reason }) {
-  const hash = crypto
-    .createHash("sha1")
-    .update(`${vendorId}:${attachmentHash}:${reason}`)
-    .digest("hex");
-
-  return `auto-inventory:${hash}`;
-}
-
-async function notifyAutoInventoryFailure({
-  settings,
-  attachment,
-  attachmentHash,
-  reason,
-  details = ""
-}) {
-  const vendorId = normalizeText(settings?.vendorId);
-  const filename = normalizeText(attachment?.filename) || "sheet attachment";
-  const senderEmail = normalizeEmail(settings?.senderEmail);
-  const safeReason = normalizeText(reason);
-  const safeDetails = normalizeText(details);
-  const notePreview = [
-    `Auto inventory import issue for vendor ${vendorId || "unknown vendor"}.`,
-    `File: ${filename}.`,
-    senderEmail ? `Sender: ${senderEmail}.` : "",
-    safeReason ? `Issue: ${safeReason}.` : "",
-    safeDetails ? `Details: ${safeDetails}` : ""
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  await notificationsService.createSystemNotification({
-    recipientEmail: autoInventoryFailureRecipient,
-    recipientName: "Cade Carlson",
-    sku: "AUTO-INVENTORY",
-    noteId: buildFailureNoteId({
-      vendorId,
-      attachmentHash: attachmentHash || filename,
-      reason: safeReason || "unknown"
-    }),
-    notePreview,
-    senderName: "StockBridge Auto Inventory"
-  });
 }
 
 function getAttachmentExtension(attachment) {
@@ -808,36 +768,43 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       return;
     }
 
-    const vendorProduct = findVendorProductForSheetSku(
+    const matchingVendorProducts = findVendorProductsForSheetSku(
       vendorProductLookup,
       sheetSku
     );
 
-    if (!vendorProduct) {
+    if (matchingVendorProducts.length === 0) {
       unmatchedRows += 1;
       return;
     }
 
-    representedVendorProductIds.add(String(vendorProduct.id));
-    if (
-      isVendorProductExcepted(vendorProduct, manualSkuExceptionKeys, [sheetSku])
-    ) {
-      exceptionRows += 1;
-      return;
-    }
+    const manageableVendorProducts = matchingVendorProducts.filter(
+      (vendorProduct) => {
+        representedVendorProductIds.add(String(vendorProduct.id));
+        if (
+          isVendorProductExcepted(vendorProduct, manualSkuExceptionKeys, [sheetSku])
+        ) {
+          exceptionRows += 1;
+          return false;
+        }
 
-    if (
-      isVendorProductExcepted(
-        vendorProduct,
-        missingSheetSkuExceptionKeys,
-        [sheetSku]
-      )
-    ) {
-      representedMissingSheetExceptionProducts.set(
-        String(vendorProduct.id),
-        vendorProduct
-      );
-    }
+        if (
+          isVendorProductExcepted(
+            vendorProduct,
+            missingSheetSkuExceptionKeys,
+            [sheetSku]
+          )
+        ) {
+          representedMissingSheetExceptionProducts.set(
+            String(vendorProduct.id),
+            vendorProduct
+          );
+        }
+        return true;
+      }
+    );
+
+    if (manageableVendorProducts.length === 0) return;
 
     const inventoryResult = parseInventoryResult(
       inventoryValue,
@@ -855,31 +822,33 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       return;
     }
 
-    const currentQuantity = Number(vendorProduct.quantity || 0);
     const proposedQuantity = Number(inventoryResult.quantity || 0);
-    const previousSheetUpdate = previousSheetUpdates.get(String(vendorProduct.id));
-    proposalRows.push({
-      rowNumber: index + 2,
-      vendorProductId: vendorProduct.id,
-      productId: vendorProduct.product_id || "",
-      productSku: getVendorProductDisplaySku(vendorProduct),
-      vendorSku: vendorProduct.sku || vendorProduct.label || sheetSku,
-      sheetSku,
-      inventoryValue,
-      subtractiveValue,
-      currentQuantity,
-      proposedQuantity,
-      previousSheetQuantity: previousSheetUpdate
-        ? Number(previousSheetUpdate.quantity || 0)
-        : null,
-      sheetQuantity: getTrackedSheetQuantity(
-        inventoryResult,
-        settings.inventoryMode
-      ),
-      changeRequired:
-        (currentQuantity > 0) !== (proposedQuantity > 0),
-      status: "matched",
-      errorMessage: ""
+    manageableVendorProducts.forEach((vendorProduct) => {
+      const currentQuantity = Number(vendorProduct.quantity || 0);
+      const previousSheetUpdate = previousSheetUpdates.get(String(vendorProduct.id));
+      proposalRows.push({
+        rowNumber: proposalRows.length + 1,
+        vendorProductId: vendorProduct.id,
+        productId: vendorProduct.product_id || "",
+        productSku: getVendorProductDisplaySku(vendorProduct),
+        vendorSku: vendorProduct.sku || vendorProduct.label || sheetSku,
+        sheetSku,
+        inventoryValue,
+        subtractiveValue,
+        currentQuantity,
+        proposedQuantity,
+        previousSheetQuantity: previousSheetUpdate
+          ? Number(previousSheetUpdate.quantity || 0)
+          : null,
+        sheetQuantity: getTrackedSheetQuantity(
+          inventoryResult,
+          settings.inventoryMode
+        ),
+        changeRequired:
+          (currentQuantity > 0) !== (proposedQuantity > 0),
+        status: "matched",
+        errorMessage: ""
+      });
     });
   });
 
@@ -988,13 +957,6 @@ async function importSheetAttachment({ settings, attachment, message }) {
   try {
     rows = await parseSheetRows(content, attachment);
   } catch (error) {
-    await notifyAutoInventoryFailure({
-      settings,
-      attachment,
-      attachmentHash,
-      reason: "Inventory sheet could not be parsed",
-      details: error.message
-    });
     await importsService.recordImport({
       vendorId: settings.vendorId,
       messageUid: message.uid,
@@ -1017,12 +979,6 @@ async function importSheetAttachment({ settings, attachment, message }) {
   }
 
   if (rows.length === 0) {
-    await notifyAutoInventoryFailure({
-      settings,
-      attachment,
-      attachmentHash,
-      reason: "Inventory sheet did not contain any rows"
-    });
     await importsService.recordImport({
       vendorId: settings.vendorId,
       messageUid: message.uid,
@@ -1061,13 +1017,6 @@ async function importSheetAttachment({ settings, attachment, message }) {
       .filter(Boolean)
       .join(", ");
 
-    await notifyAutoInventoryFailure({
-      settings,
-      attachment,
-      attachmentHash,
-      reason: "Configured inventory sheet header was not found",
-      details: `Missing: ${missingHeaders.join(", ")}. Available headers: ${availableHeaders || "none"}.`
-    });
     await importsService.recordImport({
       vendorId: settings.vendorId,
       messageUid: message.uid,
@@ -1297,16 +1246,6 @@ async function importSheetAttachment({ settings, attachment, message }) {
 
   if (missingVendorProducts.length > 0) {
     failureDetails.push(formatMissingVendorProducts(missingVendorProducts));
-  }
-
-  if (failureDetails.length > 0) {
-    await notifyAutoInventoryFailure({
-      settings,
-      attachment,
-      attachmentHash,
-      reason: "Some inventory rows could not be imported",
-      details: failureDetails.join(" ")
-    });
   }
 
   await importsService.recordImport({
