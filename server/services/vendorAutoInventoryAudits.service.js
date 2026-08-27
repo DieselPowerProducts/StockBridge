@@ -584,7 +584,7 @@ async function listAudits({ page, limit, search, view = "pending" } = {}) {
           $1 = 'pending'
           AND audit.is_legacy = FALSE
           AND (
-            audit.status IN ('ready_for_review', 'needs_mapping', 'retrying', 'approved', 'applying')
+            audit.status IN ('ready_for_review', 'needs_mapping', 'retrying')
             OR (audit.status = 'failed' AND audit.manual_retry_count < ${maximumManualRetries})
           )
         )

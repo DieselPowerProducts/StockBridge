@@ -355,7 +355,7 @@ export function InventorySheetImportsPage() {
       ) : (
         <div className="sheet-imports-layout">
           <div className="sheet-imports-list" aria-busy={isLoading}>
-            {isLoading ? <p className="status-message">Loading sheet imports...</p> : null}
+            {isLoading && items.length === 0 ? <p className="status-message">Loading sheet imports...</p> : null}
             {!isLoading && items.length === 0 ? <p className="sheet-imports-empty">{view === "pending" ? "No vendor sheets need attention." : "No completed sheet history is available."}</p> : null}
             {items.map((item) => (
               <button
@@ -383,8 +383,8 @@ export function InventorySheetImportsPage() {
 
           <div className="sheet-import-details">
             {!selectedId ? <p className="sheet-imports-empty">Select an import to view it.</p> : null}
-            {isLoadingDetails ? <p className="status-message">Loading import details...</p> : null}
-            {details && !isLoadingDetails ? (
+            {isLoadingDetails && !details ? <p className="status-message">Loading import details...</p> : null}
+            {details ? (
               <>
                 <div className="sheet-import-details-header">
                   <div><h2>{details.vendorName || details.vendorId}</h2><span>{details.attachmentFilename || "Historical import"}</span></div>
