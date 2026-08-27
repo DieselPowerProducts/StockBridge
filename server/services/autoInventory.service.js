@@ -68,12 +68,38 @@ function buildVendorProductSkuLookup(vendorProducts) {
   return lookup;
 }
 
-function findVendorProductsForSheetSku(lookup, sku) {
+function getStronglyRepresentedVendorProductIds(lookup, rows, skuHeader) {
+  const representedIds = new Set();
+
+  for (const row of rows) {
+    const sku = findHeaderValue(row, skuHeader);
+
+    if (!sku) continue;
+
+    const candidates = lookup.get(normalizeSkuKey(sku)) || [];
+
+    for (const candidate of candidates) {
+      representedIds.add(String(candidate.id));
+    }
+  }
+
+  return representedIds;
+}
+
+function findVendorProductsForSheetSku(
+  lookup,
+  sku,
+  stronglyRepresentedVendorProductIds = new Set()
+) {
   const keys = getSkuMatchKeys(sku);
   const exactKey = normalizeSkuKey(sku);
 
   for (const key of keys) {
-    const candidates = lookup.get(key) || [];
+    const candidates = (lookup.get(key) || []).filter(
+      (candidate) =>
+        key === exactKey ||
+        !stronglyRepresentedVendorProductIds.has(String(candidate.id))
+    );
 
     if (key === exactKey && candidates.length > 0) {
       return candidates;
@@ -99,8 +125,16 @@ function findVendorProductsForSheetSku(lookup, sku) {
   return [];
 }
 
-function findVendorProductForSheetSku(lookup, sku) {
-  return findVendorProductsForSheetSku(lookup, sku)[0] || null;
+function findVendorProductForSheetSku(
+  lookup,
+  sku,
+  stronglyRepresentedVendorProductIds = new Set()
+) {
+  return findVendorProductsForSheetSku(
+    lookup,
+    sku,
+    stronglyRepresentedVendorProductIds
+  )[0] || null;
 }
 
 function isVendorProductRepresentedInSheet(vendorProduct, sheetSkuKeys) {
@@ -739,6 +773,12 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       vendorProducts.map((vendorProduct) => vendorProduct.id)
     );
   const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
+  const stronglyRepresentedVendorProductIds =
+    getStronglyRepresentedVendorProductIds(
+      vendorProductLookup,
+      rows,
+      settings.skuHeader
+    );
   const manualSkuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
   const missingSheetSkuExceptionKeys = buildSkuExceptionKeys(
     settings.missingSheetSkuExceptions
@@ -770,7 +810,8 @@ async function stageSheetAttachment({ settings, attachment, message }) {
 
     const matchingVendorProducts = findVendorProductsForSheetSku(
       vendorProductLookup,
-      sheetSku
+      sheetSku,
+      stronglyRepresentedVendorProductIds
     );
 
     if (matchingVendorProducts.length === 0) {
@@ -1052,6 +1093,12 @@ async function importSheetAttachment({ settings, attachment, message }) {
       settings.vendorId
     );
   const vendorProductLookup = buildVendorProductSkuLookup(vendorProducts);
+  const stronglyRepresentedVendorProductIds =
+    getStronglyRepresentedVendorProductIds(
+      vendorProductLookup,
+      rows,
+      settings.skuHeader
+    );
   const skuExceptionKeys = buildSkuExceptionKeys(
     getEffectiveSkuExceptions(settings)
   );
@@ -1079,7 +1126,11 @@ async function importSheetAttachment({ settings, attachment, message }) {
       continue;
     }
 
-    const vendorProduct = findVendorProductForSheetSku(vendorProductLookup, sku);
+    const vendorProduct = findVendorProductForSheetSku(
+      vendorProductLookup,
+      sku,
+      stronglyRepresentedVendorProductIds
+    );
 
     if (!vendorProduct) {
       skipped += 1;

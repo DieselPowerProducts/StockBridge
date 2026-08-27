@@ -263,6 +263,40 @@ test("matches one vendor sheet SKU to every assigned product using that SKU", as
   }, vendorProducts);
 });
 
+test("prefers an exact sheet SKU over a fuzzy lookalike row", async () => {
+  const vendorProducts = [
+    {
+      id: "vendor-product-oil-cooler",
+      vendor_id: "vendor-1",
+      product_id: "product-oil-cooler",
+      product_sku: "MISH-MMOC-RAM-07",
+      sku: "MMOC-RAM-07",
+      label: "MMOC-RAM-07",
+      quantity: 999999,
+      status: 1
+    }
+  ];
+
+  await withStagingHarness(async ({ staged, stageSheetAttachment }) => {
+    await stageSheetAttachment({
+      settings: stagingSettings,
+      attachment: {
+        filename: "Mishimoto_US_Inventory.csv",
+        contentType: "text/csv",
+        content: Buffer.from(
+          "Item,Available\nMMAF-RAM-07,0\nMMOC-RAM-07,25\n"
+        )
+      },
+      message: { uid: "gmail-mish", messageId: "message-mish" }
+    });
+
+    assert.equal(staged[0].rows.length, 1);
+    assert.equal(staged[0].rows[0].sheetSku, "MMOC-RAM-07");
+    assert.equal(staged[0].rows[0].inventoryValue, "25");
+    assert.equal(staged[0].rows[0].proposedQuantity, 999999);
+  }, vendorProducts);
+});
+
 test("stages changed headers as needs mapping", async () => {
   await withStagingHarness(async ({ staged, stageSheetAttachment }) => {
     const result = await stageSheetAttachment({
