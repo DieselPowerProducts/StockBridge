@@ -497,8 +497,17 @@ function getEffectiveAvailability(
   }
 
   visiting.add(safeSku);
-  const childAvailabilities = product.relatedProduct.map((child) =>
-    getEffectiveAvailability(
+  const childAvailabilities = product.relatedProduct.map((child) => {
+    const childProduct = productsBySku.get(child.sku);
+    const requiredQty = Math.max(Number(child.qty || 0), 1);
+    const childQtyAvailable = getEffectiveQtyAvailable(
+      child.sku,
+      productsBySku,
+      new Map(),
+      new Set(),
+      productVendorAvailability
+    );
+    const childAvailability = getEffectiveAvailability(
       child.sku,
       productsBySku,
       productVendorAvailability,
@@ -506,8 +515,31 @@ function getEffectiveAvailability(
       visiting,
       shopifyAvailabilityBySku,
       buildToOrderLeadTimeBySku
-    )
-  );
+    );
+
+    if (childQtyAvailable >= requiredQty) {
+      return "Available";
+    }
+
+    if (
+      childAvailability === "Built to Order" ||
+      hasBuiltToOrderVendor(childProduct, productVendorAvailability) ||
+      String(buildToOrderLeadTimeBySku.get(child.sku) || "").trim()
+    ) {
+      return "Built to Order";
+    }
+
+    // A component with no inventory source remains informational. Once any
+    // stock is known, an insufficient quantity is an actionable shortage.
+    if (
+      childQtyAvailable <= 0 &&
+      !hasActiveVendor(childProduct, productVendorAvailability)
+    ) {
+      return "Available";
+    }
+
+    return "Backorder";
+  });
   visiting.delete(safeSku);
 
   const availability = childAvailabilities.includes("Built to Order")

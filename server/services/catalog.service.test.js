@@ -188,3 +188,95 @@ test("calculates kit inventory from components instead of parent vendor stock", 
     "Backorder"
   );
 });
+
+test("backorders a kit when known child stock cannot fulfill one kit", () => {
+  const productsBySku = new Map([
+    [
+      "CASE-12",
+      {
+        id: "case-12",
+        sku: "CASE-12",
+        qty_available: 0,
+        is_kit: true,
+        relatedProduct: [{ sku: "SINGLE", qty: 12 }]
+      }
+    ],
+    [
+      "SINGLE",
+      {
+        id: "single",
+        sku: "SINGLE",
+        qty_available: 3,
+        is_kit: false,
+        relatedProduct: []
+      }
+    ]
+  ]);
+  const productVendorAvailability = {
+    builtToOrderBuildTimeByProductId: new Map(),
+    collectiveQuantityByProductId: new Map(),
+    productIdsWithActiveVendors: new Set(),
+    productIdsWithBuiltToOrderVendors: new Set(),
+    vendorQuantityByProductId: new Map()
+  };
+
+  assert.equal(
+    _test.getEffectiveQtyAvailable(
+      "CASE-12",
+      productsBySku,
+      new Map(),
+      new Set(),
+      productVendorAvailability
+    ),
+    0
+  );
+  assert.equal(
+    _test.getEffectiveAvailability(
+      "CASE-12",
+      productsBySku,
+      productVendorAvailability
+    ),
+    "Backorder"
+  );
+});
+
+test("keeps a kit available when an unassigned component has no stock source", () => {
+  const productsBySku = new Map([
+    [
+      "KIT-UNKNOWN",
+      {
+        id: "kit-unknown",
+        sku: "KIT-UNKNOWN",
+        qty_available: 0,
+        is_kit: true,
+        relatedProduct: [{ sku: "UNASSIGNED", qty: 2 }]
+      }
+    ],
+    [
+      "UNASSIGNED",
+      {
+        id: "unassigned",
+        sku: "UNASSIGNED",
+        qty_available: 0,
+        is_kit: false,
+        relatedProduct: []
+      }
+    ]
+  ]);
+  const productVendorAvailability = {
+    builtToOrderBuildTimeByProductId: new Map(),
+    collectiveQuantityByProductId: new Map(),
+    productIdsWithActiveVendors: new Set(),
+    productIdsWithBuiltToOrderVendors: new Set(),
+    vendorQuantityByProductId: new Map()
+  };
+
+  assert.equal(
+    _test.getEffectiveAvailability(
+      "KIT-UNKNOWN",
+      productsBySku,
+      productVendorAvailability
+    ),
+    "Available"
+  );
+});
