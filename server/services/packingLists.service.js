@@ -11,7 +11,9 @@ const closedDropShipStates = new Set(["finalized", "cancelled"]);
 const maximumPurchaseOrders = 50;
 const skuChunkSize = 40;
 const queryPageSize = 250;
-const detailsConcurrency = 4;
+const purchaseOrderDetailsBatchSize = 10;
+const orderDetailsBatchSize = 50;
+const fulfillmentOrderChunkSize = 80;
 
 function createHttpError(statusCode, message) {
   const error = new Error(message);
@@ -51,28 +53,6 @@ function chunk(values, size) {
   }
 
   return chunks;
-}
-
-async function mapWithConcurrency(values, concurrency, mapper) {
-  const results = new Array(values.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < values.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(values[index], index);
-    }
-  }
-
-  await Promise.all(
-    Array.from(
-      { length: Math.min(Math.max(concurrency, 1), values.length) },
-      worker
-    )
-  );
-
-  return results;
 }
 
 function parsePurchaseOrderInput(value) {
@@ -264,11 +244,16 @@ async function fetchPurchaseOrders(poNumbers) {
 }
 
 async function fetchPurchaseOrderDetails(purchaseOrders) {
-  return mapWithConcurrency(purchaseOrders, detailsConcurrency, async (purchaseOrder) => {
-    const data = await skunexus.query(`
-      query PackingListPurchaseOrderDetails {
-        purchaseOrder {
-          details(id: ${graphqlString(purchaseOrder.id)}) {
+  const details = [];
+
+  for (const purchaseOrderChunk of chunk(
+    purchaseOrders,
+    purchaseOrderDetailsBatchSize
+  )) {
+    const aliases = purchaseOrderChunk
+      .map(
+        (purchaseOrder, index) => `
+          item${index}: details(id: ${graphqlString(purchaseOrder.id)}) {
             id
             label
             state
@@ -285,12 +270,23 @@ async function fetchPurchaseOrderDetails(purchaseOrders) {
               }
             }
           }
+        `
+      )
+      .join("\n");
+    const data = await skunexus.query(`
+      query PackingListPurchaseOrderDetails {
+        purchaseOrder {
+          ${aliases}
         }
       }
     `);
 
-    return data?.purchaseOrder?.details;
-  });
+    for (let index = 0; index < purchaseOrderChunk.length; index += 1) {
+      details.push(data?.purchaseOrder?.[`item${index}`]);
+    }
+  }
+
+  return details;
 }
 
 async function fetchPagedRows(createQuery, getGrid) {
@@ -380,62 +376,151 @@ async function fetchBackorders(skus) {
   return rows;
 }
 
-async function fetchOrderDetails(order) {
-  const data = await skunexus.query(`
-    query PackingListOrderDetails {
-      order {
-        details(id: ${graphqlString(order.id)}) {
-          id
-          label
-          state
-          created_at
-          customer_name
-          items {
+async function fetchOrderDetails(orders) {
+  const details = [];
+
+  for (const orderChunk of chunk(orders, orderDetailsBatchSize)) {
+    const aliases = orderChunk
+      .map(
+        (order, index) => `
+          item${index}: details(id: ${graphqlString(order.id)}) {
             id
-            product_id
-            qty
-            decidable_qty
-            relatedProduct { id sku name }
-            decidedItems {
-              name
-              decisions {
-                qty
-                label
-                relatedFulfillment { id label state group_id }
-                relatedPurchaseOrder { id label }
+            label
+            state
+            created_at
+            customer_name
+            items {
+              id
+              product_id
+              qty
+              decidable_qty
+              relatedProduct { id sku name }
+              decidedItems {
+                name
+                decisions {
+                  qty
+                  label
+                  relatedFulfillment { id label state group_id }
+                  relatedPurchaseOrder {
+                    id
+                    label
+                  }
+                }
               }
             }
           }
-          shipmentFulfillmentsGrid(limit: { size: 500, page: 1 }) {
-            rows {
-              id
-              current_state
-              label
-              fulfillFrom { id label }
-              relatedShipment { id tracking_code status }
-            }
-          }
-          dropShipFulfillmentsGrid(limit: { size: 500, page: 1 }) {
-            rows {
-              id
-              current_state
-              label
-              fulfillFrom { id label }
-              relatedPurchaseOrder {
-                id
-                label
-                tracking_code
-                state
-                status_label
-              }
-            }
-          }
+        `
+      )
+      .join("\n");
+    const data = await skunexus.query(`
+      query PackingListOrderDetails {
+        order {
+          ${aliases}
         }
       }
-    }
-  `);
+    `);
 
-  return data?.order?.details;
+    for (let index = 0; index < orderChunk.length; index += 1) {
+      details.push(data?.order?.[`item${index}`]);
+    }
+  }
+
+  return details;
+}
+
+async function fetchFulfillmentRows(rootName, orders, rowFields) {
+  const rows = [];
+  const labels = unique(orders.map((order) => normalizeText(order.label)).filter(Boolean));
+
+  for (const labelChunk of chunk(labels, fulfillmentOrderChunkSize)) {
+    rows.push(
+      ...(await fetchPagedRows(
+        (page) => `
+          query PackingListFulfillments {
+            ${rootName} {
+              grid(
+                filter: {
+                  relatedOrder: {
+                    label: { operator: in, value: [${graphqlStringList(labelChunk)}] }
+                  }
+                }
+                limit: { size: ${queryPageSize}, page: ${page} }
+              ) {
+                totalPages
+                rows {
+                  ${rowFields}
+                }
+              }
+            }
+          }
+        `,
+        (data) => data?.[rootName]?.grid
+      ))
+    );
+  }
+
+  return rows;
+}
+
+async function addFulfillmentsToOrders(orderDetails, orders) {
+  const shipmentRows = await fetchFulfillmentRows(
+    "shipmentFulfillment",
+    orders,
+    `
+      id
+      current_state
+      label
+      fulfillFrom { id label }
+      relatedShipment { id tracking_code status }
+      relatedOrder { id label state }
+    `
+  );
+  const dropShipRows = await fetchFulfillmentRows(
+    "dropShipFulfillment",
+    orders,
+    `
+      id
+      current_state
+      label
+      fulfillFrom { id label }
+      relatedPurchaseOrder { id label tracking_code }
+      relatedOrder { id label state }
+    `
+  );
+  const shipmentRowsByOrder = new Map();
+  const dropShipRowsByOrder = new Map();
+
+  for (const row of shipmentRows) {
+    const orderId = normalizeText(row?.relatedOrder?.id);
+
+    if (orderId) {
+      shipmentRowsByOrder.set(orderId, [
+        ...(shipmentRowsByOrder.get(orderId) || []),
+        row
+      ]);
+    }
+  }
+
+  for (const row of dropShipRows) {
+    const orderId = normalizeText(row?.relatedOrder?.id);
+
+    if (orderId) {
+      dropShipRowsByOrder.set(orderId, [
+        ...(dropShipRowsByOrder.get(orderId) || []),
+        row
+      ]);
+    }
+  }
+
+  return orderDetails.map((order) => ({
+    ...order,
+    shipmentFulfillmentsGrid: {
+      rows: shipmentRowsByOrder.get(normalizeText(order?.id)) || []
+    },
+    dropShipFulfillmentsGrid: {
+      rows: dropShipRowsByOrder.get(normalizeText(order?.id)) || []
+    }
+  }));
 }
 
 function getItemDecisions(item) {
@@ -721,10 +806,9 @@ async function createPackingListReport(input = {}) {
     fetchActiveOrders(skus),
     fetchBackorders(skus)
   ]);
-  const orderDetails = await mapWithConcurrency(
-    orders,
-    detailsConcurrency,
-    fetchOrderDetails
+  const orderDetails = await addFulfillmentsToOrders(
+    await fetchOrderDetails(orders),
+    orders
   );
 
   return {

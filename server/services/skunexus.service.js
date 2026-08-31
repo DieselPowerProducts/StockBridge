@@ -4,6 +4,7 @@ loadLocalEnv();
 
 const defaultBaseUrl = "https://dpp.skunexus.com";
 const sessionTtlMs = 15 * 60 * 1000;
+const maximumRateLimitRetries = 4;
 
 let sessionCookie = "";
 let sessionCreatedAt = 0;
@@ -120,7 +121,9 @@ async function readJson(response) {
   try {
     return JSON.parse(text);
   } catch (err) {
-    throw new Error("SKU Nexus returned an invalid JSON response.");
+    const error = new Error("SKU Nexus returned an invalid JSON response.");
+    error.responseText = text;
+    throw error;
   }
 }
 
@@ -156,6 +159,29 @@ function formatErrorDetails(value) {
   }
 
   return "";
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isRateLimitError(message) {
+  return /too many (?:attempts|requests)/i.test(String(message || ""));
+}
+
+async function retryRateLimitedQuery(queryText, options, message) {
+  const rateLimitAttempt = Number(options.rateLimitAttempt || 0);
+
+  if (!isRateLimitError(message) || rateLimitAttempt >= maximumRateLimitRetries) {
+    return null;
+  }
+
+  const delay = 750 * 2 ** rateLimitAttempt + Math.floor(Math.random() * 250);
+  await wait(delay);
+  return query(queryText, {
+    retry: options.retry,
+    rateLimitAttempt: rateLimitAttempt + 1
+  });
 }
 
 async function login(force = false) {
@@ -207,7 +233,10 @@ async function login(force = false) {
   }
 }
 
-async function query(queryText, { retry = true } = {}) {
+async function query(
+  queryText,
+  { retry = true, rateLimitAttempt = 0 } = {}
+) {
   const { baseUrl } = getConfig();
   const cookie = await login();
   const response = await fetch(`${baseUrl}/api/query`, {
@@ -219,18 +248,63 @@ async function query(queryText, { retry = true } = {}) {
   if (response.status === 401 && retry) {
     sessionCookie = "";
     await login(true);
-    return query(queryText, { retry: false });
+    return query(queryText, { retry: false, rateLimitAttempt });
   }
 
-  const payload = await readJson(response);
+  let payload;
+
+  try {
+    payload = await readJson(response);
+  } catch (error) {
+    const retryResult = await retryRateLimitedQuery(
+      queryText,
+      { retry, rateLimitAttempt },
+      response.status === 429
+        ? "Too many requests"
+        : error.responseText
+    );
+
+    if (retryResult) {
+      return retryResult;
+    }
+
+    throw error;
+  }
 
   if (!response.ok) {
-    const error = new Error(`SKU Nexus query failed with status ${response.status}.`);
+    const details =
+      payload.message ||
+      payload.error ||
+      formatErrorDetails(payload.errors);
+    const retryResult = await retryRateLimitedQuery(
+      queryText,
+      { retry, rateLimitAttempt },
+      details
+    );
+
+    if (retryResult) {
+      return retryResult;
+    }
+
+    const error = new Error(
+      details || `SKU Nexus query failed with status ${response.status}.`
+    );
     error.statusCode = 502;
     throw error;
   }
 
   if (payload.errors?.length) {
+    const details = formatErrorDetails(payload.errors);
+    const retryResult = await retryRateLimitedQuery(
+      queryText,
+      { retry, rateLimitAttempt },
+      details
+    );
+
+    if (retryResult) {
+      return retryResult;
+    }
+
     const error = new Error(
       payload.errors[0]?.message || "SKU Nexus GraphQL query failed."
     );
