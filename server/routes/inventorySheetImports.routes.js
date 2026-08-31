@@ -15,6 +15,10 @@ router.post(
   "/inventory-sheet-imports/:importId/missing-sku-exception",
   controller.addMissingSkuException
 );
+router.post(
+  "/inventory-sheet-imports/:importId/missing-sku-exceptions",
+  controller.addAllMissingSkuExceptions
+);
 router.put("/inventory-sheet-imports/:importId/mapping", controller.updateMapping);
 router.put(
   "/inventory-sheet-imports/:importId/rows/:rowNumber",

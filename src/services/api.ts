@@ -497,6 +497,18 @@ export function addInventorySheetMissingSkuException(
   );
 }
 
+export function addAllInventorySheetMissingSkuExceptions(importId: string) {
+  return request<{
+    audit: InventorySheetImport;
+    autoApply: boolean;
+    resolvedCount: number;
+    queued: boolean;
+  }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/missing-sku-exceptions`,
+    { method: "POST" }
+  );
+}
+
 export function approveInventorySheetImport(importId: string) {
   return request<InventorySheetImport & { queued: boolean }>(
     `/inventory-sheet-imports/${encodeURIComponent(importId)}/approve`,

@@ -832,6 +832,54 @@ async function resolveMissingSku(auditId, vendorProductId) {
   return mapMissingSkuRow(rows[0]);
 }
 
+async function getUnresolvedMissingSkus(auditId) {
+  await initializeSchema();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT missing.*
+    FROM vendor_auto_inventory_audit_missing_skus AS missing
+    JOIN vendor_auto_inventory_audits AS audit ON audit.id = missing.audit_id
+    WHERE missing.audit_id = ${normalizeText(auditId, 500)}
+      AND missing.resolved = FALSE
+      AND audit.status = 'ready_for_review'
+      AND audit.is_legacy = FALSE
+    ORDER BY missing.product_sku ASC, missing.vendor_sku ASC
+  `;
+
+  return rows.map(mapMissingSkuRow);
+}
+
+async function resolveAllMissingSkus(auditId) {
+  await initializeSchema();
+  const sql = getSql();
+  const safeAuditId = normalizeText(auditId, 500);
+  const rows = await sql`
+    UPDATE vendor_auto_inventory_audit_missing_skus AS missing
+    SET resolved = TRUE, resolved_at = now()
+    FROM vendor_auto_inventory_audits AS audit
+    WHERE missing.audit_id = ${safeAuditId}
+      AND missing.resolved = FALSE
+      AND audit.id = missing.audit_id
+      AND audit.status = 'ready_for_review'
+      AND audit.is_legacy = FALSE
+    RETURNING missing.*
+  `;
+
+  if (rows.length === 0) {
+    const error = new Error("There are no unresolved missing SKUs to approve.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await sql`
+    UPDATE vendor_auto_inventory_audits
+    SET missing_sku_rows = 0, updated_at = now()
+    WHERE id = ${safeAuditId}
+  `;
+
+  return rows.map(mapMissingSkuRow);
+}
+
 async function updateProposalSelection(auditId, rowNumber, selected) {
   await initializeSchema();
   const safeAuditId = normalizeText(auditId, 500);
@@ -1060,11 +1108,13 @@ module.exports = {
   getAuditByAttachment,
   getAuditRecord,
   getProposalRows,
+  getUnresolvedMissingSkus,
   initializeSchema,
   listAudits,
   maximumManualRetries,
   rejectAudit,
   requestManualRetry,
+  resolveAllMissingSkus,
   resolveMissingSku,
   saveAuditPreview,
   setStatus,

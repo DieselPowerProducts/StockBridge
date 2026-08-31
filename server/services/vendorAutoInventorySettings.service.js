@@ -262,6 +262,13 @@ function updateSkuExceptions(skuExceptions, skuValues, excepted) {
   return [...retainedExceptions, normalizedValues[0]];
 }
 
+function updateSkuExceptionGroups(skuExceptions, skuValueGroups, excepted) {
+  return (skuValueGroups || []).reduce(
+    (current, skuValues) => updateSkuExceptions(current, skuValues, excepted),
+    skuExceptions || []
+  );
+}
+
 async function setSkuException(vendorId, skuValues, excepted) {
   return setSkuExceptionType(vendorId, skuValues, excepted, "skuExceptions");
 }
@@ -273,6 +280,47 @@ async function setMissingSheetSkuException(vendorId, skuValues, excepted) {
     excepted,
     "missingSheetSkuExceptions"
   );
+}
+
+async function setMissingSheetSkuExceptions(vendorId, skuValueGroups, excepted) {
+  const safeVendorId = normalizeText(vendorId);
+  const normalizedGroups = (skuValueGroups || [])
+    .map((values) => (values || []).map(normalizeText).filter(Boolean))
+    .filter((values) => values.length > 0);
+
+  if (!safeVendorId) {
+    const error = new Error("Vendor ID is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (normalizedGroups.length === 0) {
+    return getSettings(safeVendorId);
+  }
+
+  const currentSettings = await getSettings(safeVendorId);
+
+  if (!currentSettings.enabled) {
+    const error = new Error("Auto inventory is not enabled for this vendor.");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return saveSettings(safeVendorId, {
+    ...currentSettings,
+    skuExceptions: excepted
+      ? updateSkuExceptionGroups(
+          currentSettings.skuExceptions,
+          normalizedGroups,
+          false
+        )
+      : currentSettings.skuExceptions,
+    missingSheetSkuExceptions: updateSkuExceptionGroups(
+      currentSettings.missingSheetSkuExceptions,
+      normalizedGroups,
+      excepted
+    )
+  });
 }
 
 async function setSkuExceptionType(vendorId, skuValues, excepted, fieldName) {
@@ -407,8 +455,10 @@ module.exports = {
   initializeSchema,
   saveSettings,
   setMissingSheetSkuException,
+  setMissingSheetSkuExceptions,
   setSkuException,
   _test: {
+    updateSkuExceptionGroups,
     updateSkuExceptions
   }
 };

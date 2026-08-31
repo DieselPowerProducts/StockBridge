@@ -246,6 +246,63 @@ async function addMissingSkuException(req, res, next) {
   }
 }
 
+async function addAllMissingSkuExceptions(req, res, next) {
+  try {
+    const sheetImport = await sheetImportsService.getAuditRecord(
+      req.params.importId
+    );
+
+    if (!sheetImport || sheetImport.isLegacy) {
+      const error = new Error("Inventory sheet import not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const missingSkus = await sheetImportsService.getUnresolvedMissingSkus(
+      sheetImport.id
+    );
+
+    if (missingSkus.length === 0) {
+      const error = new Error("There are no unresolved missing SKUs to approve.");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    await productsService.setProductVendorMissingSheetExceptions({
+      vendorId: sheetImport.vendorId,
+      missingSkus
+    });
+    const resolvedMissingSkus = await sheetImportsService.resolveAllMissingSkus(
+      sheetImport.id
+    );
+    const resolvedAudit = await sheetImportsService.getAuditRecord(sheetImport.id);
+
+    if (canAutoApplyResolvedAudit(resolvedAudit)) {
+      const approvedImport = await approveAndQueueImport(
+        sheetImport.id,
+        req.user
+      );
+
+      res.send({
+        audit: approvedImport,
+        autoApply: true,
+        resolvedCount: resolvedMissingSkus.length,
+        queued: approvedImport.queued
+      });
+      return;
+    }
+
+    res.send({
+      audit: resolvedAudit,
+      autoApply: false,
+      resolvedCount: resolvedMissingSkus.length,
+      queued: false
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function updateMapping(req, res, next) {
   try {
     const sheetImport = await sheetImportsService.getAuditRecord(
@@ -373,6 +430,7 @@ module.exports = {
   listImports,
   rejectImport,
   retryImport,
+  addAllMissingSkuExceptions,
   addMissingSkuException,
   updateMapping,
   updateRowSelection,

@@ -679,6 +679,38 @@ async function setProductVendorMissingSheetException({
   clearProductCaches();
 }
 
+async function setProductVendorMissingSheetExceptions({ vendorId, missingSkus }) {
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const normalizedMissingSkus = (missingSkus || [])
+    .map((missingSku) => ({
+      vendorProductId: String(missingSku?.vendorProductId || "").trim(),
+      productSku: String(missingSku?.productSku || "").trim(),
+      vendorSku: String(missingSku?.vendorSku || "").trim()
+    }))
+    .filter((missingSku) => missingSku.vendorProductId && missingSku.productSku);
+
+  if (normalizedMissingSkus.length === 0) {
+    const error = new Error("At least one missing product SKU is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await vendorAutoInventorySettingsService.setMissingSheetSkuExceptions(
+    safeVendorId,
+    normalizedMissingSkus.map((missingSku) => [
+      missingSku.productSku,
+      missingSku.vendorSku
+    ]),
+    true
+  );
+  await vendorAutoInventoryProductUpdatesService.deleteUpdatesForVendorProductIds(
+    normalizedMissingSkus.map((missingSku) => missingSku.vendorProductId)
+  );
+  clearProductCaches();
+
+  return normalizedMissingSkus.length;
+}
+
 async function setVendorProductQuantity({
   vendorId,
   vendorProductId,
@@ -795,6 +827,7 @@ module.exports = {
   setProductFollowUp,
   setProductVendorAutoInventory,
   setProductVendorMissingSheetException,
+  setProductVendorMissingSheetExceptions,
   setProductVendorDetails,
   setProductVendorStock,
   setVendorProductQuantity,

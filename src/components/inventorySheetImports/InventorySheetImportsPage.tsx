@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  addAllInventorySheetMissingSkuExceptions,
   addInventorySheetMissingSkuException,
   getAutoInventoryVendors,
   getInventorySheetData,
@@ -296,6 +297,34 @@ export function InventorySheetImportsPage() {
     });
   }
 
+  function handleAllMissingSkuExceptions() {
+    if (
+      !details ||
+      details.missingSkus.length === 0 ||
+      !window.confirm(
+        `Add all ${details.missingSkus.length} missing SKUs to this vendor's exceptions?`
+      )
+    ) return;
+
+    void runAction("missing-all", async () => {
+      const result = await addAllInventorySheetMissingSkuExceptions(details.id);
+
+      if (result.autoApply) {
+        refreshAfterAction(
+          `${result.resolvedCount} missing SKUs were added to the exceptions. The spreadsheet is applying now.`
+        );
+        return;
+      }
+
+      setDetails((current) => current ? {
+        ...current,
+        ...result.audit,
+        missingSkus: []
+      } : current);
+      setMessage(`${result.resolvedCount} missing SKUs were added to this vendor's exceptions.`);
+    });
+  }
+
   const canMap = Boolean(details && !details.isLegacy && details.availableHeaders.length > 0 && ["ready_for_review", "needs_mapping", "failed"].includes(details.status));
   const canRetry = Boolean(details && !details.isLegacy && ["ready_for_review", "needs_mapping", "failed"].includes(details.status) && details.manualRetryCount < maximumManualRetries);
   const displayedSheetColumns = sheetData
@@ -452,6 +481,16 @@ export function InventorySheetImportsPage() {
                             </button>
                           </div>
                         ))}
+                        {details.missingSkus.length > 0 ? (
+                          <button
+                            type="button"
+                            className="sheet-import-missing-approve-all"
+                            disabled={activeAction !== ""}
+                            onClick={handleAllMissingSkuExceptions}
+                          >
+                            {activeAction === "missing-all" ? "Adding exceptions..." : "OK to all"}
+                          </button>
+                        ) : null}
                       </aside>
                     </div>
                   </>

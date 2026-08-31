@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
-  _test: { updateSkuExceptions }
+  _test: { updateSkuExceptionGroups, updateSkuExceptions }
 } = require("./vendorAutoInventorySettings.service");
 const { getSkuMatchKeys } = require("./autoInventorySkuMatcher");
 
@@ -25,6 +25,20 @@ test("updateSkuExceptions removes matching product and vendor SKU aliases", () =
       false
     ),
     ["OTHER-100"]
+  );
+});
+
+test("updateSkuExceptionGroups adds one canonical exception for every missing product", () => {
+  assert.deepEqual(
+    updateSkuExceptionGroups(
+      ["OTHER-100"],
+      [
+        ["ATS-1039093278", "103-909-3278"],
+        ["ATS-2029302164", "2029302164"]
+      ],
+      true
+    ),
+    ["OTHER-100", "ATS-1039093278", "ATS-2029302164"]
   );
 });
 
