@@ -1860,6 +1860,36 @@ th {
   margin-bottom: 0;
 }
 
+.packing-list-report-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.packing-list-report-actions button {
+  align-items: center;
+  background: #26384c;
+  border: 1px solid #5d7897;
+  color: #f0f6ff;
+  display: inline-flex;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 12px;
+}
+
+.packing-list-report-actions button:hover {
+  background: #314760;
+}
+
+.packing-list-report-actions svg {
+  fill: none;
+  height: 17px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 17px;
+}
+
 .packing-list-receipts,
 .packing-list-group {
   display: grid;

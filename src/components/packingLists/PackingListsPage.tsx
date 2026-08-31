@@ -69,6 +69,68 @@ function formatState(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function escapeCsvValue(value: string | number) {
+  const text = String(value ?? "");
+  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replaceAll('"', '""')}"`;
+}
+
+function downloadReportCsv(report: PackingListReport) {
+  const headers = [
+    "Category",
+    "Order",
+    "Order Date",
+    "Customer",
+    "Order State",
+    "SKU",
+    "Product",
+    "Ordered Qty",
+    "Packing List Qty",
+    "Source POs",
+    "Fulfillment State",
+    "Tracking",
+    "Status",
+    "Order URL"
+  ];
+  const rows = reportGroups.flatMap((group) =>
+    report.groups[group.key].flatMap((order) =>
+      order.items.map((item) => [
+        group.label,
+        order.orderNumber,
+        formatDate(order.createdAt),
+        order.customerName || "Unknown",
+        formatState(order.orderState),
+        item.sku,
+        item.name,
+        item.orderedQuantity,
+        item.packingListQuantity,
+        item.poNumbers.join(", "),
+        formatState(item.fulfillmentState),
+        item.trackingCode,
+        item.reason,
+        order.orderUrl
+      ])
+    )
+  );
+  const csv = [headers, ...rows]
+    .map((row) => row.map(escapeCsvValue).join(","))
+    .join("\r\n");
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const vendor = report.manufacturer
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "vendor";
+
+  link.href = url;
+  link.download = `packing-list-report-${vendor}-${report.receivedFrom}-${report.receivedTo}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function OrderRows({ orders }: { orders: PackingListOrder[] }) {
   return (
     <>
@@ -310,6 +372,15 @@ export function PackingListsPage() {
 
       {report ? (
         <div className="packing-list-report">
+          <div className="packing-list-report-actions">
+            <button type="button" onClick={() => downloadReportCsv(report)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14" />
+              </svg>
+              Download CSV
+            </button>
+          </div>
+
           {report.warnings.length > 0 ? (
             <div className="packing-list-warnings" role="status">
               {report.warnings.map((warning) => <p key={warning}>{warning}</p>)}
