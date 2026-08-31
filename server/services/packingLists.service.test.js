@@ -103,7 +103,7 @@ test("aggregates duplicate received SKUs across purchase orders", () => {
   );
 });
 
-test("classifies warehouse, backorder, missing tracking, and unsent work", () => {
+test("classifies warehouse, backorder, and missing tracking work", () => {
   const part = {
     sku: "ABC-123",
     name: "Part",
@@ -166,5 +166,103 @@ test("classifies warehouse, backorder, missing tracking, and unsent work", () =>
   assert.equal(groups.warehouse.length, 1);
   assert.equal(groups.backordered.length, 1);
   assert.equal(groups.missingTracking.length, 1);
-  assert.equal(groups.notSent.length, 0);
+  assert.equal(groups.undecided.length, 0);
+});
+
+test("classifies only completely unassigned items as undecided", () => {
+  const part = {
+    sku: "ABC-123",
+    name: "Part",
+    receivedQuantity: 1,
+    sources: [{ poNumber: "0000001", quantity: 1, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-1",
+    label: "1001",
+    state: "open",
+    created_at: "2026-08-01 10:00:00",
+    customer_name: "Customer",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: 1,
+        relatedProduct: { sku: "ABC-123", name: "Part" },
+        decidedItems: []
+      }
+    ],
+    shipmentFulfillmentsGrid: { rows: [] },
+    dropShipFulfillmentsGrid: { rows: [] }
+  };
+
+  const groups = classifyOrders([order], [part], []);
+
+  assert.equal(groups.undecided.length, 1);
+  assert.match(groups.undecided[0].items[0].reason, /not been assigned/i);
+});
+
+test("excludes tracked manufacturer work and fully finalized items", () => {
+  const part = {
+    sku: "ABC-123",
+    name: "Part",
+    receivedQuantity: 1,
+    sources: [{ poNumber: "0000001", quantity: 1, receivedDates: [] }]
+  };
+  const makeOrder = (id, fulfillmentId, state, trackingCode) => ({
+    id,
+    label: id,
+    state: "in_fulfillment",
+    created_at: "2026-08-01 10:00:00",
+    customer_name: "Customer",
+    items: [
+      {
+        id: `item-${id}`,
+        qty: 1,
+        decidable_qty: 0,
+        relatedProduct: { sku: "ABC-123", name: "Part" },
+        decidedItems: [
+          {
+            decisions: [
+              {
+                qty: 1,
+                relatedFulfillment: { id: fulfillmentId }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    shipmentFulfillmentsGrid: { rows: [] },
+    dropShipFulfillmentsGrid: {
+      rows: [
+        {
+          id: fulfillmentId,
+          current_state: state,
+          relatedPurchaseOrder: { tracking_code: trackingCode }
+        }
+      ]
+    }
+  });
+
+  const groups = classifyOrders(
+    [
+      makeOrder("tracked", "drop-1", "dispatch", "1Z123"),
+      makeOrder("finalized", "drop-2", "finalized", "1Z456")
+    ],
+    [part],
+    [
+      {
+        order_id: "finalized",
+        missing_qty: 1,
+        relatedProduct: { sku: "ABC-123" }
+      }
+    ]
+  );
+
+  assert.deepEqual(groups, {
+    warehouse: [],
+    backordered: [],
+    missingTracking: [],
+    undecided: []
+  });
 });

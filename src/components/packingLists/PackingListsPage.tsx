@@ -29,9 +29,9 @@ const reportGroups: ReportGroup[] = [
     emptyMessage: "No matching manufacturer fulfillments are missing tracking."
   },
   {
-    key: "notSent",
-    label: "Not Sent",
-    emptyMessage: "No matching quantities are waiting to be sent."
+    key: "undecided",
+    label: "Undecided",
+    emptyMessage: "No matching quantities are waiting for a fulfillment decision."
   }
 ];
 

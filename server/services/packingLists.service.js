@@ -595,7 +595,7 @@ function classifyOrders(orderDetails, packingParts, backorders) {
     warehouse: new Map(),
     backordered: new Map(),
     missingTracking: new Map(),
-    notSent: new Map()
+    undecided: new Map()
   };
 
   for (const order of orderDetails.filter(Boolean)) {
@@ -621,6 +621,29 @@ function classifyOrders(orderDetails, packingParts, backorders) {
       }
 
       const isBackordered = backorderKeys.has(`${order.id}|${skuKey}`);
+      const decisions = getItemDecisions(item);
+      const completedQuantity = decisions.reduce((total, decision) => {
+        const fulfillmentId = normalizeText(decision?.relatedFulfillment?.id);
+        const warehouseState = normalizeState(
+          warehouseFulfillments.get(fulfillmentId)?.current_state
+        );
+        const dropShipState = normalizeState(
+          dropShipFulfillments.get(fulfillmentId)?.current_state
+        );
+
+        if (
+          warehouseState === "fulfilled" ||
+          dropShipState === "finalized"
+        ) {
+          return total + Math.max(Number(decision?.qty || 0), 0);
+        }
+
+        return total;
+      }, 0);
+
+      if (completedQuantity >= Math.max(Number(item.qty || 0), 0)) {
+        continue;
+      }
 
       if (isBackordered) {
         addGroupedOrder(
@@ -632,9 +655,6 @@ function classifyOrders(orderDetails, packingParts, backorders) {
         );
       }
 
-      const decisions = getItemDecisions(item);
-      let hasOpenFulfillment = false;
-
       for (const decision of decisions) {
         const fulfillmentId = normalizeText(decision?.relatedFulfillment?.id);
         const warehouseFulfillment = warehouseFulfillments.get(fulfillmentId);
@@ -644,7 +664,6 @@ function classifyOrders(orderDetails, packingParts, backorders) {
           const state = normalizeState(warehouseFulfillment.current_state);
 
           if (!closedWarehouseStates.has(state)) {
-            hasOpenFulfillment = true;
             addGroupedOrder(
               groups.warehouse,
               order,
@@ -667,36 +686,34 @@ function classifyOrders(orderDetails, packingParts, backorders) {
             continue;
           }
 
-          hasOpenFulfillment = true;
           const trackingCode = normalizeText(
             dropShipFulfillment.relatedPurchaseOrder?.tracking_code
           );
-          const reportItem = getPackingItem(part, item, {
-            fulfillmentState: dropShipFulfillment.current_state,
-            trackingCode,
-            reason: trackingCode
-              ? "Manufacturer fulfillment has tracking but is not finalized."
-              : "Manufacturer fulfillment has not received tracking."
-          });
 
-          addGroupedOrder(
-            trackingCode ? groups.notSent : groups.missingTracking,
-            order,
-            reportItem
-          );
+          if (!trackingCode) {
+            addGroupedOrder(
+              groups.missingTracking,
+              order,
+              getPackingItem(part, item, {
+                fulfillmentState: dropShipFulfillment.current_state,
+                reason: "Manufacturer fulfillment has not received tracking."
+              })
+            );
+          }
         }
       }
 
       if (
-        !hasOpenFulfillment &&
         !isBackordered &&
-        (Number(item.decidable_qty || 0) > 0 || decisions.length === 0)
+        decisions.length === 0 &&
+        Number(item.decidable_qty || 0) > 0
       ) {
         addGroupedOrder(
-          groups.notSent,
+          groups.undecided,
           order,
           getPackingItem(part, item, {
-            reason: "Matching quantity is still unassigned or has not been sent."
+            reason:
+              "Matching quantity has not been assigned to a warehouse or manufacturer fulfillment."
           })
         );
       }
@@ -707,7 +724,7 @@ function classifyOrders(orderDetails, packingParts, backorders) {
     warehouse: finalizeGroup(groups.warehouse),
     backordered: finalizeGroup(groups.backordered),
     missingTracking: finalizeGroup(groups.missingTracking),
-    notSent: finalizeGroup(groups.notSent)
+    undecided: finalizeGroup(groups.undecided)
   };
 }
 
@@ -795,7 +812,7 @@ async function createPackingListReport(input = {}) {
         warehouse: [],
         backordered: [],
         missingTracking: [],
-        notSent: []
+        undecided: []
       },
       warnings
     };

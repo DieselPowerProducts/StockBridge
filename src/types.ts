@@ -324,7 +324,7 @@ export type PackingListReport = {
     warehouse: PackingListOrder[];
     backordered: PackingListOrder[];
     missingTracking: PackingListOrder[];
-    notSent: PackingListOrder[];
+    undecided: PackingListOrder[];
   };
   warnings: string[];
 };
