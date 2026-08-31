@@ -6,6 +6,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
 import { InventorySheetImportsPage } from "./components/inventorySheetImports/InventorySheetImportsPage";
+import { PackingListsPage } from "./components/packingLists/PackingListsPage";
 import { ProductsPage } from "./components/products/ProductsPage";
 import { StockCheckPage } from "./components/products/StockCheckPage";
 import { ShopifyAvailabilitySyncPage } from "./components/shopify/ShopifyAvailabilitySyncPage";
@@ -40,6 +41,7 @@ function parseRoute(): AppRoute {
     page === "vendors" ||
     page === "products" ||
     page === "stock-check" ||
+    page === "packing-lists" ||
     page === "audit" ||
     page === "sheet-imports" ||
     page === "notifications" ||
@@ -276,6 +278,7 @@ export function App() {
   const sidebarPage: PageName =
     route.page === "stock-check" ||
     route.page === "vendors" ||
+    route.page === "packing-lists" ||
     route.page === "audit" ||
     route.page === "sheet-imports" ||
     route.page === "notifications"
@@ -324,6 +327,8 @@ export function App() {
               onOpenNotes={setSelectedSku}
             />
           )}
+
+          {route.page === "packing-lists" && <PackingListsPage />}
 
           {route.page === "notifications" && (
             <NotificationsPage onOpenSku={setSelectedSku} />

@@ -12,6 +12,7 @@ import type {
   InventorySheetImportsResponse,
   Note,
   NotesBootstrapResponse,
+  PackingListReport,
   PriceAuditConfirmation,
   PriceAuditDenial,
   PriceAuditResponse,
@@ -95,6 +96,21 @@ export function signOut() {
 
 export function getAppVersion() {
   return request<AppVersionStatus>("/status/version");
+}
+
+export function createPackingListReport(input: {
+  purchaseOrders: string[];
+  manufacturer: string;
+  receivedFrom: string;
+  receivedTo: string;
+}) {
+  return request<PackingListReport>("/packing-lists/report", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
 }
 
 export function getUsers() {

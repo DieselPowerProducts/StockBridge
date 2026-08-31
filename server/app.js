@@ -9,6 +9,7 @@ const inventorySheetImportsRoutes = require("./routes/inventorySheetImports.rout
 const integrationsRoutes = require("./routes/integrations.routes");
 const notesRoutes = require("./routes/notes.routes");
 const notificationsRoutes = require("./routes/notifications.routes");
+const packingListsRoutes = require("./routes/packingLists.routes");
 const priceAuditRoutes = require("./routes/priceAudit.routes");
 const productsRoutes = require("./routes/products.routes");
 const shopifyRoutes = require("./routes/shopify.routes");
@@ -57,6 +58,7 @@ app.use(importRoutes);
 app.use(inventorySheetImportsRoutes);
 app.use(notesRoutes);
 app.use(notificationsRoutes);
+app.use(packingListsRoutes);
 app.use(priceAuditRoutes);
 app.use(productsRoutes);
 app.use(shopifyRoutes);

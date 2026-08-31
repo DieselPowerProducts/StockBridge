@@ -3,6 +3,7 @@ export type PageName =
   | "stock-check"
   | "vendors"
   | "audit"
+  | "packing-lists"
   | "sheet-imports"
   | "notifications";
 export type RoutePageName = PageName | "notes" | "shopify-availability-sync";
@@ -270,6 +271,62 @@ export type InventorySheetImportDetails = InventorySheetImport & {
   rowPage: number;
   rowTotal: number;
   rowTotalPages: number;
+};
+
+export type PackingListSource = {
+  poNumber: string;
+  quantity: number;
+  receivedDates: string[];
+};
+
+export type PackingListPart = {
+  sku: string;
+  name: string;
+  receivedQuantity: number;
+  sources: PackingListSource[];
+};
+
+export type PackingListOrderItem = {
+  sku: string;
+  name: string;
+  orderedQuantity: number;
+  packingListQuantity: number;
+  poNumbers: string[];
+  fulfillmentState: string;
+  trackingCode: string;
+  reason: string;
+};
+
+export type PackingListOrder = {
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  orderState: string;
+  createdAt: string;
+  orderUrl: string;
+  items: PackingListOrderItem[];
+};
+
+export type PackingListReport = {
+  manufacturer: string;
+  receivedFrom: string;
+  receivedTo: string;
+  purchaseOrders: Array<{
+    id: string;
+    poNumber: string;
+    vendorName: string;
+    receivedQuantity: number;
+    receivedSkuCount: number;
+    url: string;
+  }>;
+  parts: PackingListPart[];
+  groups: {
+    warehouse: PackingListOrder[];
+    backordered: PackingListOrder[];
+    missingTracking: PackingListOrder[];
+    notSent: PackingListOrder[];
+  };
+  warnings: string[];
 };
 
 export type InventorySheetMissingSku = {
