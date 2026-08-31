@@ -79,7 +79,7 @@ function parsePurchaseOrderInput(value) {
   const values = Array.isArray(value) ? value : [value];
   const purchaseOrders = unique(
     values
-      .flatMap((entry) => normalizeText(entry).split(/[\s,;]+/))
+      .flatMap((entry) => normalizeText(entry).split(/[\s,;/]+/))
       .map((entry) => entry.trim())
       .filter(Boolean)
   );
@@ -683,7 +683,7 @@ async function createPackingListReport(input = {}) {
 
   if (mismatchedPurchaseOrders.length > 0) {
     warnings.push(
-      `Manufacturer did not match ${mismatchedPurchaseOrders
+      `Vendor did not match ${mismatchedPurchaseOrders
         .map((purchaseOrder) => `${purchaseOrder.poNumber} (${purchaseOrder.vendorName})`)
         .join(", ")}.`
     );

@@ -1,6 +1,10 @@
-import { FormEvent, useMemo, useState } from "react";
-import { createPackingListReport } from "../../services/api";
-import type { PackingListOrder, PackingListReport } from "../../types";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { createPackingListReport, getVendors } from "../../services/api";
+import type {
+  PackingListOrder,
+  PackingListReport,
+  VendorSummary
+} from "../../types";
 
 type ReportGroup = {
   key: keyof PackingListReport["groups"];
@@ -39,7 +43,7 @@ function getToday() {
 
 function parsePurchaseOrders(value: string) {
   return value
-    .split(/[\s,;]+/)
+    .split(/[\s,;/]+/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -123,23 +127,69 @@ function OrderRows({ orders }: { orders: PackingListOrder[] }) {
 export function PackingListsPage() {
   const today = useMemo(getToday, []);
   const [purchaseOrders, setPurchaseOrders] = useState("");
-  const [manufacturer, setManufacturer] = useState("");
+  const [vendorSearchInput, setVendorSearchInput] = useState("");
+  const [vendorSearchResults, setVendorSearchResults] = useState<VendorSummary[]>([]);
+  const [selectedVendor, setSelectedVendor] = useState<VendorSummary | null>(null);
+  const [isVendorSearchOpen, setIsVendorSearchOpen] = useState(false);
+  const [isVendorSearchLoading, setIsVendorSearchLoading] = useState(false);
   const [receivedFrom, setReceivedFrom] = useState(today);
   const [receivedTo, setReceivedTo] = useState(today);
   const [report, setReport] = useState<PackingListReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    const search = vendorSearchInput.trim();
+
+    if (!isVendorSearchOpen || selectedVendor || !search) {
+      setVendorSearchResults([]);
+      setIsVendorSearchLoading(false);
+      return;
+    }
+
+    let ignore = false;
+    const timeout = window.setTimeout(async () => {
+      setIsVendorSearchLoading(true);
+
+      try {
+        const result = await getVendors({ page: 1, limit: 8, search });
+
+        if (!ignore) {
+          setVendorSearchResults(result.data);
+        }
+      } catch (err) {
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : "Unable to load vendors.");
+        }
+      } finally {
+        if (!ignore) {
+          setIsVendorSearchLoading(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      ignore = true;
+      window.clearTimeout(timeout);
+    };
+  }, [isVendorSearchOpen, selectedVendor, vendorSearchInput]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+
+    if (!selectedVendor) {
+      setError("Select a vendor from the search results.");
+      return;
+    }
+
     setReport(null);
     setIsLoading(true);
 
     try {
       const result = await createPackingListReport({
         purchaseOrders: parsePurchaseOrders(purchaseOrders),
-        manufacturer: manufacturer.trim(),
+        manufacturer: selectedVendor.vendor,
         receivedFrom,
         receivedTo
       });
@@ -171,20 +221,68 @@ export function PackingListsPage() {
           <textarea
             value={purchaseOrders}
             onChange={(event) => setPurchaseOrders(event.target.value)}
-            placeholder="Enter PO numbers separated by commas or new lines"
+            placeholder="Enter PO numbers separated by commas, slashes, or new lines"
             required
           />
         </label>
-        <label className="packing-list-manufacturer-field">
-          <span>Manufacturer</span>
-          <input
-            type="text"
-            value={manufacturer}
-            onChange={(event) => setManufacturer(event.target.value)}
-            placeholder="Manufacturer name"
-            required
-          />
-        </label>
+        <div className="packing-list-manufacturer-field packing-list-vendor-field">
+          <label htmlFor="packingListVendor"><span>Vendor</span></label>
+          <div className="vendor-add-control">
+            <input
+              id="packingListVendor"
+              type="search"
+              className="vendor-add-input"
+              value={vendorSearchInput}
+              placeholder="Search Vendor"
+              aria-label="Search Vendor"
+              aria-controls="packingListVendorResults"
+              aria-expanded={isVendorSearchOpen}
+              autoComplete="off"
+              required
+              onChange={(event) => {
+                setVendorSearchInput(event.target.value);
+                setSelectedVendor(null);
+                setError("");
+                setIsVendorSearchOpen(true);
+              }}
+              onFocus={() => setIsVendorSearchOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setIsVendorSearchOpen(false);
+                }
+              }}
+            />
+
+            {isVendorSearchOpen && !selectedVendor ? (
+              <div id="packingListVendorResults" className="vendor-add-results">
+                {isVendorSearchLoading ? (
+                  <p className="vendor-add-empty">Loading vendors...</p>
+                ) : vendorSearchResults.length > 0 ? (
+                  <ul>
+                    {vendorSearchResults.map((vendor) => (
+                      <li key={vendor.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setSelectedVendor(vendor);
+                            setVendorSearchInput(vendor.vendor);
+                            setVendorSearchResults([]);
+                            setIsVendorSearchOpen(false);
+                          }}
+                        >
+                          {vendor.vendor}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : vendorSearchInput.trim() ? (
+                  <p className="vendor-add-empty">No matching vendors.</p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
         <label className="packing-list-from-field">
           <span>Received from</span>
           <input
@@ -228,7 +326,7 @@ export function PackingListsPage() {
                 <thead>
                   <tr>
                     <th>PO</th>
-                    <th>Manufacturer</th>
+                    <th>Vendor</th>
                     <th>Received SKUs</th>
                     <th>Received Qty</th>
                   </tr>
