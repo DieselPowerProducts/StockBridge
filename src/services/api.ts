@@ -501,6 +501,7 @@ export function addAllInventorySheetMissingSkuExceptions(importId: string) {
   return request<{
     audit: InventorySheetImport;
     autoApply: boolean;
+    reparsing?: boolean;
     resolvedCount: number;
     queued: boolean;
   }>(

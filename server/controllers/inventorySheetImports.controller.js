@@ -140,6 +140,15 @@ function canAutoApplyResolvedAudit(audit) {
   );
 }
 
+function shouldReparseResolvedAudit(audit) {
+  return Boolean(
+    audit &&
+    audit.status === "ready_for_review" &&
+    Number(audit.missingSkuRows || 0) === 0 &&
+    Number(audit.invalidRows || 0) > 0
+  );
+}
+
 async function rejectImport(req, res, next) {
   try {
     res.send(
@@ -292,9 +301,23 @@ async function addAllMissingSkuExceptions(req, res, next) {
       return;
     }
 
+    if (shouldReparseResolvedAudit(resolvedAudit)) {
+      const retryingImport = await queueManualRetry(sheetImport.id);
+
+      res.send({
+        audit: retryingImport,
+        autoApply: false,
+        reparsing: true,
+        resolvedCount: resolvedMissingSkus.length,
+        queued: retryingImport.queued
+      });
+      return;
+    }
+
     res.send({
       audit: resolvedAudit,
       autoApply: false,
+      reparsing: false,
       resolvedCount: resolvedMissingSkus.length,
       queued: false
     });
@@ -435,6 +458,7 @@ module.exports = {
   updateMapping,
   updateRowSelection,
   _test: {
-    canAutoApplyResolvedAudit
+    canAutoApplyResolvedAudit,
+    shouldReparseResolvedAudit
   }
 };

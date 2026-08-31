@@ -316,6 +316,13 @@ export function InventorySheetImportsPage() {
         return;
       }
 
+      if (result.reparsing) {
+        refreshAfterAction(
+          `${result.resolvedCount} missing SKUs were added to the exceptions. The spreadsheet is being reparsed now.`
+        );
+        return;
+      }
+
       setDetails((current) => current ? {
         ...current,
         ...result.audit,

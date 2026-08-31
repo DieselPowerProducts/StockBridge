@@ -127,3 +127,22 @@ test("keeps an audit pending while another review error remains", () => {
     false
   );
 });
+
+test("reparses after bulk missing SKU resolution when row errors remain", () => {
+  assert.equal(
+    inventorySheetImportsController._test.shouldReparseResolvedAudit({
+      status: "ready_for_review",
+      missingSkuRows: 0,
+      invalidRows: 22
+    }),
+    true
+  );
+  assert.equal(
+    inventorySheetImportsController._test.shouldReparseResolvedAudit({
+      status: "ready_for_review",
+      missingSkuRows: 1,
+      invalidRows: 22
+    }),
+    false
+  );
+});
