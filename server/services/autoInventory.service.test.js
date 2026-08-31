@@ -35,6 +35,17 @@ test("keeps numerical sheet quantities unchanged", () => {
   assert.equal(_test.getTrackedSheetQuantity(result, "numerical"), 12);
 });
 
+test("treats blank numerical inventory cells as zero stock", () => {
+  const result = _test.parseInventoryResult("", {
+    inventoryMode: "numerical",
+    subtractiveColumn: ""
+  });
+
+  assert.equal(result.quantity, 0);
+  assert.equal(result.sheetQuantity, 0);
+  assert.equal(_test.getTrackedSheetQuantity(result, "numerical"), 0);
+});
+
 test("applies a card mapping without changing vendor identity or exceptions", () => {
   const result = _test.applyAuditMappingToSettings(
     {
@@ -215,6 +226,30 @@ test("stages clean inventory sheets for automatic application", async () => {
     assert.equal(staged[0].rows[0].changeRequired, true);
     assert.equal(staged[0].rows[0].previousSheetQuantity, 7);
     assert.equal(staged[0].rows[0].proposedQuantity, 999999);
+  });
+});
+
+test("stages a blank numerical inventory cell as out of stock", async () => {
+  await withStagingHarness(async ({ staged, stageSheetAttachment }) => {
+    await stageSheetAttachment({
+      settings: stagingSettings,
+      attachment: {
+        filename: "inventory.csv",
+        contentType: "text/csv",
+        content: Buffer.from("Item,Available\nVENDOR-100,\n")
+      },
+      message: {
+        uid: "gmail-blank",
+        messageId: "message-blank",
+        subject: "Inventory"
+      }
+    });
+
+    assert.equal(staged[0].summary.invalidRows, 0);
+    assert.equal(staged[0].summary.status, "approved");
+    assert.equal(staged[0].rows[0].inventoryValue, "");
+    assert.equal(staged[0].rows[0].sheetQuantity, 0);
+    assert.equal(staged[0].rows[0].proposedQuantity, 0);
   });
 });
 

@@ -342,7 +342,7 @@ function parseNumericalInventoryResult(
   subtractiveValue = "",
   hasSubtractiveColumn = false
 ) {
-  const inventoryCount = parseNumericalCount(value);
+  const inventoryCount = parseNumericalCount(value, { blankAsZero: true });
 
   if (inventoryCount === null) {
     return null;
