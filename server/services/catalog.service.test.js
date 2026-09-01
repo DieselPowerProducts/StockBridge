@@ -41,13 +41,28 @@ test("keeps non-vendor BTO and non-BTO products eligible", () => {
 });
 
 test("excludes Shopify Collective products from Stock Check", () => {
-  const productVendorAvailability = {
-    collectiveQuantityByProductId: new Map([["collective-product", 0]])
-  };
+  const productVendorAvailability = _test.buildProductVendorAvailability(
+    [
+      {
+        product_id: "collective-vendor-product",
+        vendor_name: "DPP Collective",
+        status: 1,
+        quantity: 0
+      }
+    ],
+    [{ product_id: "collective-product", inventory_quantity: 0 }]
+  );
 
   assert.equal(
     _test.shouldIncludeNonCollectiveProductInStockCheck(
       { id: "collective-product" },
+      productVendorAvailability
+    ),
+    false
+  );
+  assert.equal(
+    _test.shouldIncludeNonCollectiveProductInStockCheck(
+      { id: "collective-vendor-product" },
       productVendorAvailability
     ),
     false

@@ -1544,6 +1544,7 @@ async function queryVendorAvailabilityRows(productIds) {
         vp.product_id,
         vp.vendor_id,
         vp.quantity,
+        v.name AS vendor_name,
         v.status,
         COALESCE(vs.built_to_order, FALSE) AS built_to_order,
         COALESCE(vs.build_time, '') AS build_time
@@ -1571,6 +1572,7 @@ async function queryVendorAvailabilityRows(productIds) {
         vp.product_id,
         vp.vendor_id,
         vp.quantity,
+        v.name AS vendor_name,
         v.status,
         COALESCE(vs.built_to_order, FALSE) AS built_to_order,
         COALESCE(vs.build_time, '') AS build_time
@@ -1701,12 +1703,23 @@ function getProductGraphSkus(productGraph) {
 function buildProductVendorAvailability(rows, collectiveRows = []) {
   const productIdsWithActiveVendors = new Set();
   const productIdsWithBuiltToOrderVendors = new Set();
+  const productIdsWithCollectiveVendors = new Set();
   const builtToOrderBuildTimeByProductId = new Map();
   const collectiveQuantityByProductId = new Map();
   const vendorQuantityByProductId = new Map();
 
   for (const row of rows) {
-    if (!row?.product_id || !isActiveVendor(row)) {
+    if (!row?.product_id) {
+      continue;
+    }
+
+    if (
+      String(row?.vendor_name || "").trim().toLowerCase() === "dpp collective"
+    ) {
+      productIdsWithCollectiveVendors.add(row.product_id);
+    }
+
+    if (!isActiveVendor(row)) {
       continue;
     }
 
@@ -1752,6 +1765,7 @@ function buildProductVendorAvailability(rows, collectiveRows = []) {
     collectiveQuantityByProductId,
     productIdsWithActiveVendors,
     productIdsWithBuiltToOrderVendors,
+    productIdsWithCollectiveVendors,
     vendorQuantityByProductId
   };
 }
@@ -3909,8 +3923,9 @@ function shouldIncludeNonCollectiveProductInStockCheck(
   product,
   productVendorAvailability
 ) {
-  return !productVendorAvailability?.collectiveQuantityByProductId?.has(
-    product?.id
+  return (
+    !productVendorAvailability?.collectiveQuantityByProductId?.has(product?.id) &&
+    !productVendorAvailability?.productIdsWithCollectiveVendors?.has(product?.id)
   );
 }
 
