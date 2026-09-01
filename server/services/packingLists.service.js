@@ -573,7 +573,7 @@ async function fetchPurchaseOrderVendors(purchaseOrderIds) {
 }
 
 async function addFulfillmentsToOrders(orderDetails, orders) {
-  const [shipmentRows, dropShipRows] = await Promise.all([
+  const [shipmentRows, inStoreRows, dropShipRows] = await Promise.all([
     fetchFulfillmentRows(
       "shipmentFulfillment",
       orders,
@@ -583,6 +583,17 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
         label
         fulfillFrom { id label }
         relatedShipment { id tracking_code status }
+        relatedOrder { id label state }
+      `
+    ),
+    fetchFulfillmentRows(
+      "inStoreFulfillment",
+      orders,
+      `
+        id
+        current_state
+        label
+        fulfillFrom { id label }
         relatedOrder { id label state }
       `
     ),
@@ -599,14 +610,22 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
       `
     )
   ]);
-  const [shipmentDetailsById, dropShipDetailsById] = await Promise.all([
-    fetchFulfillmentDetails("shipmentFulfillment", shipmentRows),
-    fetchFulfillmentDetails("dropShipFulfillment", dropShipRows)
-  ]);
-  const hydratedShipmentRows = shipmentRows.map((row) => ({
-    ...row,
-    items: shipmentDetailsById.get(normalizeText(row.id))?.items || []
-  }));
+  const [shipmentDetailsById, inStoreDetailsById, dropShipDetailsById] =
+    await Promise.all([
+      fetchFulfillmentDetails("shipmentFulfillment", shipmentRows),
+      fetchFulfillmentDetails("inStoreFulfillment", inStoreRows),
+      fetchFulfillmentDetails("dropShipFulfillment", dropShipRows)
+    ]);
+  const hydratedShipmentRows = [
+    ...shipmentRows.map((row) => ({
+      ...row,
+      items: shipmentDetailsById.get(normalizeText(row.id))?.items || []
+    })),
+    ...inStoreRows.map((row) => ({
+      ...row,
+      items: inStoreDetailsById.get(normalizeText(row.id))?.items || []
+    }))
+  ];
   const hydratedDropShipRows = dropShipRows.map((row) => ({
     ...row,
     items: dropShipDetailsById.get(normalizeText(row.id))?.items || []

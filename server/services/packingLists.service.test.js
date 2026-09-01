@@ -327,6 +327,55 @@ test("uses drop-ship item details when order decisions are omitted", () => {
   assert.equal(groups.undecided.length, 0);
 });
 
+test("uses an in-store fulfillment item as warehouse work", () => {
+  const part = {
+    sku: "SYN-8550-11",
+    name: "Part",
+    receivedQuantity: 22,
+    sources: [{ poNumber: "0095037", quantity: 22, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-927055",
+    label: "927055",
+    state: "In Fulfillment",
+    created_at: "2026-07-07 16:07:08",
+    customer_name: "Luke Shuman",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "SYN-8550-11", name: "Part" },
+        decidedItems: []
+      }
+    ],
+    shipmentFulfillmentsGrid: {
+      rows: [
+        {
+          id: "in-store-1",
+          label: "0188996",
+          current_state: "ready",
+          fulfillFrom: { id: "warehouse", label: "DPP Warehouse" },
+          items: [
+            {
+              quantity: 1,
+              product: { sku: "SYN-8550-11" }
+            }
+          ]
+        }
+      ]
+    },
+    dropShipFulfillmentsGrid: { rows: [] }
+  };
+
+  const groups = classifyOrders([order], [part], []);
+
+  assert.equal(groups.warehouse.length, 1);
+  assert.equal(groups.warehouse[0].orderNumber, "927055");
+  assert.equal(groups.warehouse[0].items[0].fulfillmentState, "ready");
+  assert.equal(groups.undecided.length, 0);
+});
+
 test("excludes tracked vendor work and fully finalized items", () => {
   const part = {
     sku: "ABC-123",
