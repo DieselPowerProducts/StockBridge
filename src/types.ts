@@ -308,7 +308,7 @@ export type PackingListOrder = {
 };
 
 export type PackingListReport = {
-  manufacturer: string;
+  vendors: string[];
   receivedFrom: string;
   receivedTo: string;
   purchaseOrders: Array<{

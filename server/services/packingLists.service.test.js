@@ -233,7 +233,7 @@ test("uses ordered quantity when an unassigned item's decidable quantity is null
   assert.equal(groups.undecided[0].orderNumber, "954272");
 });
 
-test("excludes tracked manufacturer work and fully finalized items", () => {
+test("excludes tracked vendor work and fully finalized items", () => {
   const part = {
     sku: "ABC-123",
     name: "Part",

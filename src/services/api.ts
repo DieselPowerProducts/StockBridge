@@ -100,7 +100,6 @@ export function getAppVersion() {
 
 export function createPackingListReport(input: {
   purchaseOrders: string[];
-  manufacturer: string;
   receivedFrom: string;
   receivedTo: string;
 }) {

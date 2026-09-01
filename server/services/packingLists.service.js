@@ -906,26 +906,10 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
   };
 }
 
-function manufacturerMatches(expectedManufacturer, vendorName) {
-  const expected = normalizeText(expectedManufacturer).toLowerCase();
-  const actual = normalizeText(vendorName).toLowerCase();
-
-  if (!expected || !actual) {
-    return false;
-  }
-
-  return actual.includes(expected) || expected.includes(actual);
-}
-
 async function createPackingListReport(input = {}) {
   const poNumbers = parsePurchaseOrderInput(input.purchaseOrders);
-  const manufacturer = normalizeText(input.manufacturer);
   const receivedFrom = validateDate(input.receivedFrom, "Received from date");
   const receivedTo = validateDate(input.receivedTo, "Received through date");
-
-  if (!manufacturer) {
-    throw createHttpError(400, "Manufacturer is required.");
-  }
 
   if (receivedFrom > receivedTo) {
     throw createHttpError(400, "Received from date must be before the through date.");
@@ -938,15 +922,11 @@ async function createPackingListReport(input = {}) {
   const missingPurchaseOrders = poNumbers.filter(
     (poNumber) => !purchaseOrdersByLabel.has(poNumber)
   );
-  const mismatchedPurchaseOrders = purchaseOrders
-    .filter(
-      (purchaseOrder) =>
-        !manufacturerMatches(manufacturer, purchaseOrder.vendor?.name)
-    )
-    .map((purchaseOrder) => ({
-      poNumber: purchaseOrder.label,
-      vendorName: normalizeText(purchaseOrder.vendor?.name)
-    }));
+  const vendors = unique(
+    purchaseOrders
+      .map((purchaseOrder) => normalizeText(purchaseOrder.vendor?.name))
+      .filter(Boolean)
+  );
   const details = await fetchPurchaseOrderDetails(purchaseOrders);
   const { parts, purchaseOrders: purchaseOrderSummary } = buildPackingParts(
     details.filter(Boolean),
@@ -958,14 +938,6 @@ async function createPackingListReport(input = {}) {
   if (missingPurchaseOrders.length > 0) {
     warnings.push(
       `Purchase orders not found: ${missingPurchaseOrders.join(", ")}.`
-    );
-  }
-
-  if (mismatchedPurchaseOrders.length > 0) {
-    warnings.push(
-      `Vendor did not match ${mismatchedPurchaseOrders
-        .map((purchaseOrder) => `${purchaseOrder.poNumber} (${purchaseOrder.vendorName})`)
-        .join(", ")}.`
     );
   }
 
@@ -981,7 +953,7 @@ async function createPackingListReport(input = {}) {
 
   if (parts.length === 0) {
     return {
-      manufacturer,
+      vendors,
       receivedFrom,
       receivedTo,
       purchaseOrders: purchaseOrderSummary,
@@ -1008,7 +980,7 @@ async function createPackingListReport(input = {}) {
   );
 
   return {
-    manufacturer,
+    vendors,
     receivedFrom,
     receivedTo,
     purchaseOrders: purchaseOrderSummary,
@@ -1023,7 +995,6 @@ module.exports = {
   _test: {
     buildPackingParts,
     classifyOrders,
-    manufacturerMatches,
     parsePurchaseOrderInput,
     parseReceiptDate,
     parseReceiptEntries

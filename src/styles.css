@@ -1753,7 +1753,7 @@ th {
   display: grid;
   gap: 12px;
   grid-template-areas:
-    "purchase-orders purchase-orders manufacturer manufacturer"
+    "purchase-orders purchase-orders purchase-orders purchase-orders"
     "received-from received-through . submit";
   grid-template-columns: minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(180px, 1fr) auto;
   padding-bottom: 18px;
@@ -1761,10 +1761,6 @@ th {
 
 .packing-list-po-field {
   grid-area: purchase-orders;
-}
-
-.packing-list-manufacturer-field {
-  grid-area: manufacturer;
 }
 
 .packing-list-from-field {
@@ -1777,30 +1773,6 @@ th {
 
 .packing-list-submit {
   grid-area: submit;
-}
-
-.packing-list-vendor-field {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  position: relative;
-}
-
-.packing-list-vendor-field .vendor-add-control {
-  margin-bottom: 0;
-}
-
-.packing-list-vendor-field .vendor-add-results {
-  background: #292929;
-  border: 1px solid #555555;
-  border-radius: 6px;
-  box-shadow: 0 8px 20px rgb(0 0 0 / 45%);
-  left: 0;
-  padding: 6px;
-  position: absolute;
-  right: 0;
-  top: 100%;
-  z-index: 8;
 }
 
 .packing-lists-form label {
@@ -3618,7 +3590,6 @@ body:has(.notes-popup-page),
   .packing-lists-form {
     grid-template-areas:
       "purchase-orders"
-      "manufacturer"
       "received-from"
       "received-through"
       "submit";
