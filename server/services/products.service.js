@@ -265,6 +265,7 @@ async function refreshProductDetails(sku, options = {}) {
   await catalogService.refreshProductBySku(sku, {
     includeWarehouse: options.includeWarehouse !== false
   });
+  await catalogService.ensureBackorderFollowUpForSku(sku);
   const details = await catalogService.getProductDetails(sku);
 
   await queueShopifyAvailabilitySync(
@@ -455,6 +456,7 @@ async function setProductVendorStock({
     quantity,
     vendorProduct
   });
+  await catalogService.ensureBackorderFollowUpForSku(product.sku || safeSku);
 
   return {
     ...result,

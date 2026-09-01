@@ -3911,6 +3911,71 @@ async function getStockCheckProducts({
   return filteredData;
 }
 
+async function ensureBackorderFollowUpForSku(sku, followUpDate = "") {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const details = await getProductDetails(safeSku);
+
+  if (
+    details.isKit ||
+    details.availability !== "Backorder" ||
+    details.followUpDate ||
+    details.followUpNoEta
+  ) {
+    return {
+      created: false,
+      followUpDate: details.followUpDate || "",
+      sku: details.sku || safeSku
+    };
+  }
+
+  const effectiveFollowUpDate =
+    normalizeDateText(followUpDate) ||
+    getTimeZoneDateParts(new Date(), syncTimezone).localDate;
+  const inserted = await followUpsService.setMissingFollowUps([
+    {
+      sku: details.sku || safeSku,
+      followUpDate: effectiveFollowUpDate
+    }
+  ]);
+
+  if (inserted.length > 0) {
+    clearCaches();
+  }
+
+  return {
+    created: inserted.length > 0,
+    followUpDate: inserted[0]?.followUpDate || details.followUpDate || "",
+    sku: details.sku || safeSku
+  };
+}
+
+async function ensureMissingBackorderFollowUps(followUpDate = "") {
+  const effectiveFollowUpDate =
+    normalizeDateText(followUpDate) ||
+    getTimeZoneDateParts(new Date(), syncTimezone).localDate;
+  const products = await getStockCheckProducts({
+    sort: "no-follow-up",
+    bypassCache: true
+  });
+  const inserted = await followUpsService.setMissingFollowUps(
+    products
+      .filter((product) => product.availability === "Backorder")
+      .map((product) => ({
+        sku: product.sku,
+        followUpDate: effectiveFollowUpDate
+      }))
+  );
+
+  if (inserted.length > 0) {
+    clearCaches();
+  }
+
+  return {
+    created: inserted.length,
+    followUpDate: effectiveFollowUpDate
+  };
+}
+
 function shouldIncludeBuiltToOrderProductInStockCheck(product) {
   return (
     product?.availability !== "Built to Order" ||
@@ -4077,6 +4142,8 @@ async function runScheduledFullSync() {
 
   try {
     const result = await runFullSync({ reason: "scheduled-full-sync" });
+    const automaticBackorderFollowUps =
+      await ensureMissingBackorderFollowUps(localDate);
     await setSyncState("catalog_last_full_sync_local_date", localDate);
     await setSyncState("catalog_last_warehouse_sync_local_hour", localHourKey);
     await setSyncState("catalog_last_full_sync_error_at", "");
@@ -4088,6 +4155,7 @@ async function runScheduledFullSync() {
       mode: "full",
       localDate,
       localHour,
+      automaticBackorderFollowUps,
       ...result
     };
   } catch (error) {
@@ -4132,6 +4200,8 @@ async function runScheduledWarehouseSync() {
   }
 
   const result = await runWarehouseSync({ reason: "scheduled-warehouse-sync" });
+  const automaticBackorderFollowUps =
+    await ensureMissingBackorderFollowUps(localDate);
   await setSyncState("catalog_last_warehouse_sync_local_hour", localHourKey);
 
   return {
@@ -4140,6 +4210,7 @@ async function runScheduledWarehouseSync() {
     mode: "warehouse",
     localDate,
     localHour,
+    automaticBackorderFollowUps,
     ...result
   };
 }
@@ -4189,6 +4260,8 @@ function clearCaches() {
 
 module.exports = {
   clearCaches,
+  ensureBackorderFollowUpForSku,
+  ensureMissingBackorderFollowUps,
   getAllShopifyAvailabilityRecords,
   getCatalogProductBySku: queryProductBySku,
   getActiveCatalogVendorProductsByVendorId: queryActiveVendorProductsByVendorId,

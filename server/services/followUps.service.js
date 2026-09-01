@@ -236,6 +236,45 @@ async function setFollowUp({ sku, followUpDate, followUpNoEta = false }) {
   };
 }
 
+async function setMissingFollowUps(followUps) {
+  const normalizedFollowUps = Array.from(
+    new Map(
+      (followUps || [])
+        .map((followUp) => ({
+          sku: normalizeSku(followUp?.sku),
+          followUpDate: normalizeDate(followUp?.followUpDate)
+        }))
+        .filter((followUp) => followUp.sku && followUp.followUpDate)
+        .map((followUp) => [followUp.sku, followUp])
+    ).values()
+  );
+
+  if (normalizedFollowUps.length === 0) {
+    return [];
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const followUpsJson = JSON.stringify(normalizedFollowUps);
+  const rows = await sql`
+    INSERT INTO product_follow_ups (sku, follow_up_date, no_eta)
+    SELECT follow_up.sku, follow_up."followUpDate"::date, false
+    FROM jsonb_to_recordset(${followUpsJson}::jsonb) AS follow_up(
+      sku text,
+      "followUpDate" text
+    )
+    ON CONFLICT (sku) DO NOTHING
+    RETURNING sku, follow_up_date::text AS follow_up_date, no_eta
+  `;
+
+  return rows.map((row) => ({
+    sku: row.sku,
+    followUpDate: formatDate(row.follow_up_date),
+    followUpNoEta: Boolean(row.no_eta)
+  }));
+}
+
 module.exports = {
   getAllFollowUpInfo,
   getAllFollowUps,
@@ -243,5 +282,6 @@ module.exports = {
   getFollowUpInfoForSkus,
   getFollowUpForSku,
   getFollowUpsForSkus,
+  setMissingFollowUps,
   setFollowUp
 };
