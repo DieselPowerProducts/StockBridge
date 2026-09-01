@@ -775,15 +775,8 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
         continue;
       }
 
-      if (isBackordered) {
-        addGroupedOrder(
-          groups.backordered,
-          order,
-          getPackingItem(part, item, {
-            reason: "SKU Nexus shows an active backorder quantity."
-          })
-        );
-      }
+      let hasDropShipDecision = false;
+      let hasResolvedFulfillmentVendorQuantity = false;
 
       for (const decision of decisions) {
         const fulfillmentId = normalizeText(decision?.relatedFulfillment?.id);
@@ -828,6 +821,7 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
         }
 
         if (dropShipFulfillment) {
+          hasDropShipDecision = true;
           const state = normalizeState(dropShipFulfillment.current_state);
 
           if (closedDropShipStates.has(state)) {
@@ -842,6 +836,8 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
           );
           const vendorQuantityKey = `${fulfillmentVendorId}|${skuKey}`;
           const hasVendorQuantity = vendorQuantityBySku.has(vendorQuantityKey);
+          hasResolvedFulfillmentVendorQuantity =
+            hasResolvedFulfillmentVendorQuantity || hasVendorQuantity;
           const isFulfillmentVendorBackordered =
             hasVendorQuantity && vendorQuantityBySku.get(vendorQuantityKey) <= 0;
 
@@ -851,7 +847,7 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
               order,
               getPackingItem(part, item, {
                 fulfillmentState: dropShipFulfillment.current_state,
-                reason: `${normalizeText(dropShipFulfillment.fulfillFrom?.label) || "Assigned manufacturer"} has no stock for this SKU.`
+                reason: `${normalizeText(dropShipFulfillment.fulfillFrom?.label) || "Assigned vendor"} has no stock for this SKU.`
               })
             );
             continue;
@@ -863,11 +859,26 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
               order,
               getPackingItem(part, item, {
                 fulfillmentState: dropShipFulfillment.current_state,
-                reason: "Manufacturer fulfillment has not received tracking."
+                reason: "Vendor fulfillment has not received tracking."
               })
             );
           }
         }
+      }
+
+      if (
+        isBackordered &&
+        hasDropShipDecision &&
+        !hasResolvedFulfillmentVendorQuantity
+      ) {
+        addGroupedOrder(
+          groups.backordered,
+          order,
+          getPackingItem(part, item, {
+            reason:
+              "SKU Nexus shows an active vendor backorder quantity, but vendor stock was unavailable."
+          })
+        );
       }
 
       if (

@@ -267,7 +267,7 @@ test("excludes tracked manufacturer work and fully finalized items", () => {
   });
 });
 
-test("uses the assigned manufacturer availability for backorder classification", () => {
+test("uses the assigned vendor availability for backorder classification", () => {
   const part = {
     sku: "MAH-F33726",
     name: "Part",
@@ -330,7 +330,7 @@ test("uses the assigned manufacturer availability for backorder classification",
   assert.equal(groups.missingTracking.length, 0);
 });
 
-test("does not use another vendor's zero stock for manufacturer backorder", () => {
+test("does not use another vendor's zero stock for vendor backorder", () => {
   const part = {
     sku: "ABC-123",
     name: "Part",
@@ -371,18 +371,29 @@ test("does not use another vendor's zero stock for manufacturer backorder", () =
     }
   };
 
-  const groups = classifyOrders([order], [part], [], [
-    {
-      vendor_id: "assigned-vendor",
-      quantity: 4,
-      product: { sku: "ABC-123" }
-    },
-    {
-      vendor_id: "other-vendor",
-      quantity: 0,
-      product: { sku: "ABC-123" }
-    }
-  ]);
+  const groups = classifyOrders(
+    [order],
+    [part],
+    [
+      {
+        order_id: "order-1",
+        missing_qty: 1,
+        relatedProduct: { sku: "ABC-123" }
+      }
+    ],
+    [
+      {
+        vendor_id: "assigned-vendor",
+        quantity: 4,
+        product: { sku: "ABC-123" }
+      },
+      {
+        vendor_id: "other-vendor",
+        quantity: 0,
+        product: { sku: "ABC-123" }
+      }
+    ]
+  );
 
   assert.equal(groups.backordered.length, 0);
   assert.equal(groups.missingTracking.length, 1);

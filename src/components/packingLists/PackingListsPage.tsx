@@ -20,8 +20,8 @@ const reportGroups: ReportGroup[] = [
   },
   {
     key: "backordered",
-    label: "Manufacturer Backorder",
-    emptyMessage: "No matching parts have an active manufacturer backorder."
+    label: "Vendor Backorder",
+    emptyMessage: "No matching parts are backordered with their assigned vendor."
   },
   {
     key: "missingTracking",
