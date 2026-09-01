@@ -7,7 +7,11 @@ const activeOrderStates = [
   "on_hold"
 ];
 const closedWarehouseStates = new Set(["fulfilled", "cancelled", "lost"]);
-const closedDropShipStates = new Set(["finalized", "cancelled"]);
+const closedDropShipStates = new Set([
+  "finalized",
+  "cancelled",
+  "return_to_decision"
+]);
 const maximumPurchaseOrders = 50;
 const skuChunkSize = 40;
 const queryPageSize = 250;
@@ -573,49 +577,65 @@ async function fetchPurchaseOrderVendors(purchaseOrderIds) {
 }
 
 async function addFulfillmentsToOrders(orderDetails, orders) {
-  const [shipmentRows, inStoreRows, dropShipRows] = await Promise.all([
-    fetchFulfillmentRows(
-      "shipmentFulfillment",
-      orders,
-      `
-        id
-        current_state
-        label
-        fulfillFrom { id label }
-        relatedShipment { id tracking_code status }
-        relatedOrder { id label state }
-      `
-    ),
-    fetchFulfillmentRows(
-      "inStoreFulfillment",
-      orders,
-      `
-        id
-        current_state
-        label
-        fulfillFrom { id label }
-        relatedOrder { id label state }
-      `
-    ),
-    fetchFulfillmentRows(
-      "dropShipFulfillment",
-      orders,
-      `
-        id
-        current_state
-        label
-        fulfillFrom { id label }
-        relatedPurchaseOrder { id label tracking_code }
-        relatedOrder { id label state }
-      `
-    )
-  ]);
-  const [shipmentDetailsById, inStoreDetailsById, dropShipDetailsById] =
+  const [shipmentRows, inStoreRows, dropShipRows, cancellationRows] =
     await Promise.all([
-      fetchFulfillmentDetails("shipmentFulfillment", shipmentRows),
-      fetchFulfillmentDetails("inStoreFulfillment", inStoreRows),
-      fetchFulfillmentDetails("dropShipFulfillment", dropShipRows)
+      fetchFulfillmentRows(
+        "shipmentFulfillment",
+        orders,
+        `
+          id
+          current_state
+          label
+          fulfillFrom { id label }
+          relatedShipment { id tracking_code status }
+          relatedOrder { id label state }
+        `
+      ),
+      fetchFulfillmentRows(
+        "inStoreFulfillment",
+        orders,
+        `
+          id
+          current_state
+          label
+          fulfillFrom { id label }
+          relatedOrder { id label state }
+        `
+      ),
+      fetchFulfillmentRows(
+        "dropShipFulfillment",
+        orders,
+        `
+          id
+          current_state
+          label
+          fulfillFrom { id label }
+          relatedPurchaseOrder { id label tracking_code }
+          relatedOrder { id label state }
+        `
+      ),
+      fetchFulfillmentRows(
+        "cancellationFulfillment",
+        orders,
+        `
+          id
+          current_state
+          label
+          relatedOrder { id label state }
+        `
+      )
     ]);
+  const [
+    shipmentDetailsById,
+    inStoreDetailsById,
+    dropShipDetailsById,
+    cancellationDetailsById
+  ] = await Promise.all([
+    fetchFulfillmentDetails("shipmentFulfillment", shipmentRows),
+    fetchFulfillmentDetails("inStoreFulfillment", inStoreRows),
+    fetchFulfillmentDetails("dropShipFulfillment", dropShipRows),
+    fetchFulfillmentDetails("cancellationFulfillment", cancellationRows)
+  ]);
   const hydratedShipmentRows = [
     ...shipmentRows.map((row) => ({
       ...row,
@@ -629,6 +649,10 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
   const hydratedDropShipRows = dropShipRows.map((row) => ({
     ...row,
     items: dropShipDetailsById.get(normalizeText(row.id))?.items || []
+  }));
+  const hydratedCancellationRows = cancellationRows.map((row) => ({
+    ...row,
+    items: cancellationDetailsById.get(normalizeText(row.id))?.items || []
   }));
   const purchaseOrderVendors = await fetchPurchaseOrderVendors(
     hydratedDropShipRows.map((row) => row?.relatedPurchaseOrder?.id)
@@ -644,6 +668,7 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
   );
   const shipmentRowsByOrder = new Map();
   const dropShipRowsByOrder = new Map();
+  const cancellationRowsByOrder = new Map();
 
   for (const row of hydratedShipmentRows) {
     const orderId = normalizeText(row?.relatedOrder?.id);
@@ -674,6 +699,17 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
     }
   }
 
+  for (const row of hydratedCancellationRows) {
+    const orderId = normalizeText(row?.relatedOrder?.id);
+
+    if (orderId) {
+      cancellationRowsByOrder.set(orderId, [
+        ...(cancellationRowsByOrder.get(orderId) || []),
+        row
+      ]);
+    }
+  }
+
   return orderDetails.map((order) => ({
     ...order,
     shipmentFulfillmentsGrid: {
@@ -681,8 +717,23 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
     },
     dropShipFulfillmentsGrid: {
       rows: dropShipRowsByOrder.get(normalizeText(order?.id)) || []
+    },
+    cancellationFulfillmentsGrid: {
+      rows: cancellationRowsByOrder.get(normalizeText(order?.id)) || []
     }
   }));
+}
+
+function getFulfillmentSkuQuantity(fulfillment, sku) {
+  return (fulfillment?.items || [])
+    .filter(
+      (fulfillmentItem) => normalizeSku(fulfillmentItem?.product?.sku) === sku
+    )
+    .reduce(
+      (total, fulfillmentItem) =>
+        total + Math.max(Number(fulfillmentItem?.quantity || 0), 0),
+      0
+    );
 }
 
 function getItemDecisions(item, warehouseFulfillments, dropShipFulfillments) {
@@ -704,16 +755,7 @@ function getItemDecisions(item, warehouseFulfillments, dropShipFulfillments) {
     ["Drop Ship", dropShipFulfillments]
   ]) {
     for (const fulfillment of fulfillments.values()) {
-      const quantity = (fulfillment?.items || [])
-        .filter(
-          (fulfillmentItem) =>
-            normalizeSku(fulfillmentItem?.product?.sku) === sku
-        )
-        .reduce(
-          (total, fulfillmentItem) =>
-            total + Math.max(Number(fulfillmentItem?.quantity || 0), 0),
-          0
-        );
+      const quantity = getFulfillmentSkuQuantity(fulfillment, sku);
       const fulfillmentId = normalizeText(fulfillment?.id);
 
       if (quantity <= 0 || !fulfillmentId || fulfillmentIds.has(fulfillmentId)) {
@@ -851,12 +893,29 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
         fulfillment
       ])
     );
+    const cancellationFulfillments =
+      order.cancellationFulfillmentsGrid?.rows || [];
 
     for (const item of order.items || []) {
       const skuKey = normalizeSku(item?.relatedProduct?.sku);
       const part = partsBySku.get(skuKey);
 
       if (!part) {
+        continue;
+      }
+
+      const orderedQuantity = Math.max(Number(item.qty || 0), 0);
+      const cancelledQuantity = cancellationFulfillments.reduce(
+        (total, fulfillment) =>
+          total + getFulfillmentSkuQuantity(fulfillment, skuKey),
+        0
+      );
+      const remainingQuantity = Math.max(
+        orderedQuantity - cancelledQuantity,
+        0
+      );
+
+      if (remainingQuantity === 0) {
         continue;
       }
 
@@ -888,14 +947,40 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
         return total;
       }, 0);
 
-      if (completedQuantity >= Math.max(Number(item.qty || 0), 0)) {
+      if (completedQuantity >= remainingQuantity) {
         continue;
       }
+
+      const activeDecisions = decisions.filter((decision) => {
+        const fulfillmentId = normalizeText(decision?.relatedFulfillment?.id);
+        const warehouseFulfillment = warehouseFulfillments.get(fulfillmentId);
+        const dropShipFulfillment = dropShipFulfillments.get(fulfillmentId);
+
+        if (warehouseFulfillment) {
+          return !closedWarehouseStates.has(
+            normalizeState(warehouseFulfillment.current_state)
+          );
+        }
+
+        if (dropShipFulfillment) {
+          return !closedDropShipStates.has(
+            normalizeState(dropShipFulfillment.current_state)
+          );
+        }
+
+        if (isWarehouseDecision(decision)) {
+          return !closedWarehouseStates.has(
+            normalizeState(decision?.relatedFulfillment?.state)
+          );
+        }
+
+        return true;
+      });
 
       let hasDropShipDecision = false;
       let hasResolvedFulfillmentVendorQuantity = false;
 
-      for (const decision of decisions) {
+      for (const decision of activeDecisions) {
         const fulfillmentId = normalizeText(decision?.relatedFulfillment?.id);
         const warehouseFulfillment = warehouseFulfillments.get(fulfillmentId);
         const dropShipFulfillment = dropShipFulfillments.get(fulfillmentId);
@@ -939,11 +1024,6 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
 
         if (dropShipFulfillment) {
           hasDropShipDecision = true;
-          const state = normalizeState(dropShipFulfillment.current_state);
-
-          if (closedDropShipStates.has(state)) {
-            continue;
-          }
 
           const trackingCode = normalizeText(
             dropShipFulfillment.relatedPurchaseOrder?.tracking_code
@@ -1003,7 +1083,7 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
 
       if (
         !isBackordered &&
-        decisions.length === 0 &&
+        activeDecisions.length === 0 &&
         Number(item.decidable_qty ?? item.qty ?? 0) > 0
       ) {
         addGroupedOrder(

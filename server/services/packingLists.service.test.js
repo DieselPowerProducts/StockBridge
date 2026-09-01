@@ -376,6 +376,115 @@ test("uses an in-store fulfillment item as warehouse work", () => {
   assert.equal(groups.undecided.length, 0);
 });
 
+test("prefers active warehouse work over returned vendor work and excludes cancellations", () => {
+  const parts = ["PPE-338052210", "PPE-338052220"].map((sku) => ({
+    sku,
+    name: sku,
+    receivedQuantity: 1,
+    sources: [{ poNumber: "0045736", quantity: 1, receivedDates: [] }]
+  }));
+  const order = {
+    id: "order-887940",
+    label: "887940",
+    state: "In Fulfillment",
+    created_at: "2026-04-14 21:12:08",
+    customer_name: "Michael Biddle",
+    items: [
+      {
+        id: "item-210",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "PPE-338052210", name: "210" },
+        decidedItems: [
+          {
+            name: "Shipment",
+            decisions: [
+              {
+                qty: 1,
+                label: "Warehouse: DPP Warehouse, Location: C-3",
+                relatedFulfillment: { id: "warehouse-1", state: "pack" }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: "item-220",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "PPE-338052220", name: "220" },
+        decidedItems: []
+      }
+    ],
+    shipmentFulfillmentsGrid: {
+      rows: [
+        {
+          id: "warehouse-1",
+          current_state: "pack",
+          fulfillFrom: { id: "warehouse", label: "DPP Warehouse" },
+          items: [
+            { quantity: 1, product: { sku: "PPE-338052210" } }
+          ]
+        }
+      ]
+    },
+    dropShipFulfillmentsGrid: {
+      rows: [
+        {
+          id: "returned-210",
+          current_state: "return_to_decision",
+          fulfillFrom: { id: "ppe", label: "PPE" },
+          relatedPurchaseOrder: { tracking_code: [] },
+          items: [
+            { quantity: 1, product: { sku: "PPE-338052210" } }
+          ]
+        },
+        {
+          id: "returned-220",
+          current_state: "return_to_decision",
+          fulfillFrom: { id: "ppe", label: "PPE" },
+          relatedPurchaseOrder: { tracking_code: [] },
+          items: [
+            { quantity: 1, product: { sku: "PPE-338052220" } }
+          ]
+        }
+      ]
+    },
+    cancellationFulfillmentsGrid: {
+      rows: [
+        {
+          id: "cancelled-220",
+          current_state: "cancelled",
+          items: [
+            { quantity: 1, product: { sku: "PPE-338052220" } }
+          ]
+        }
+      ]
+    }
+  };
+  const backorders = parts.map((part) => ({
+    order_id: order.id,
+    missing_qty: 1,
+    relatedProduct: { sku: part.sku }
+  }));
+  const vendorProducts = parts.map((part) => ({
+    vendor_id: "ppe",
+    quantity: 0,
+    product: { sku: part.sku }
+  }));
+
+  const groups = classifyOrders([order], parts, backorders, vendorProducts);
+
+  assert.equal(groups.warehouse.length, 1);
+  assert.deepEqual(
+    groups.warehouse[0].items.map((item) => item.sku),
+    ["PPE-338052210"]
+  );
+  assert.equal(groups.backordered.length, 0);
+  assert.equal(groups.missingTracking.length, 0);
+  assert.equal(groups.undecided.length, 0);
+});
+
 test("excludes tracked vendor work and fully finalized items", () => {
   const part = {
     sku: "ABC-123",
