@@ -233,6 +233,45 @@ test("uses ordered quantity when an unassigned item's decidable quantity is null
   assert.equal(groups.undecided[0].orderNumber, "954272");
 });
 
+test("does not classify an in-fulfillment order as undecided", () => {
+  const part = {
+    sku: "SYN-8550-11",
+    name: "Part",
+    receivedQuantity: 22,
+    sources: [{ poNumber: "0095037", quantity: 22, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-927055",
+    label: "927055",
+    state: "In Fulfillment",
+    created_at: "2026-07-07 10:00:00",
+    customer_name: "Luke Shuman",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "SYN-8550-11", name: "Part" },
+        decidedItems: []
+      }
+    ],
+    shipmentFulfillmentsGrid: {
+      rows: [
+        {
+          id: "other-item-fulfillment",
+          current_state: "dispatch",
+          fulfillFrom: { id: "warehouse", label: "DPP Warehouse" }
+        }
+      ]
+    },
+    dropShipFulfillmentsGrid: { rows: [] }
+  };
+
+  const groups = classifyOrders([order], [part], []);
+
+  assert.equal(groups.undecided.length, 0);
+});
+
 test("excludes tracked vendor work and fully finalized items", () => {
   const part = {
     sku: "ABC-123",

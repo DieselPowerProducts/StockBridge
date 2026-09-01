@@ -41,6 +41,10 @@ function normalizeState(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function normalizeOrderState(value) {
+  return normalizeState(value).replace(/\s+/g, "_");
+}
+
 function unique(values) {
   return Array.from(new Set(values));
 }
@@ -886,6 +890,7 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
 
       if (
         !isBackordered &&
+        ["open", "on_hold"].includes(normalizeOrderState(order.state)) &&
         decisions.length === 0 &&
         Number(item.decidable_qty ?? item.qty ?? 0) > 0
       ) {
