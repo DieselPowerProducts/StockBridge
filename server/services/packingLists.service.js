@@ -376,6 +376,44 @@ async function fetchBackorders(skus) {
   return rows;
 }
 
+async function fetchVendorProducts(skus) {
+  const rows = [];
+
+  for (const skuChunk of chunk(skus, skuChunkSize)) {
+    rows.push(
+      ...(await fetchPagedRows(
+        (page) => `
+          query PackingListVendorProducts {
+            vendorProduct {
+              grid(
+                filter: {
+                  product: {
+                    sku: { operator: in, value: [${graphqlStringList(skuChunk)}] }
+                  }
+                }
+                limit: { size: ${queryPageSize}, page: ${page} }
+              ) {
+                totalPages
+                rows {
+                  id
+                  vendor_id
+                  product_id
+                  quantity
+                  status
+                  product { id sku }
+                }
+              }
+            }
+          }
+        `,
+        (data) => data?.vendorProduct?.grid
+      ))
+    );
+  }
+
+  return rows;
+}
+
 async function fetchOrderDetails(orders) {
   const details = [];
 
@@ -462,6 +500,40 @@ async function fetchFulfillmentRows(rootName, orders, rowFields) {
   return rows;
 }
 
+async function fetchPurchaseOrderVendors(purchaseOrderIds) {
+  const rows = [];
+  const ids = unique(purchaseOrderIds.map(normalizeText).filter(Boolean));
+
+  for (const idChunk of chunk(ids, skuChunkSize)) {
+    rows.push(
+      ...(await fetchPagedRows(
+        (page) => `
+          query PackingListFulfillmentPurchaseOrders {
+            purchaseOrder {
+              grid(
+                filter: {
+                  id: { operator: in, value: [${graphqlStringList(idChunk)}] }
+                }
+                limit: { size: ${queryPageSize}, page: ${page} }
+              ) {
+                totalPages
+                rows {
+                  id
+                  vendor_id
+                  vendor { id name }
+                }
+              }
+            }
+          }
+        `,
+        (data) => data?.purchaseOrder?.grid
+      ))
+    );
+  }
+
+  return rows;
+}
+
 async function addFulfillmentsToOrders(orderDetails, orders) {
   const shipmentRows = await fetchFulfillmentRows(
     "shipmentFulfillment",
@@ -487,6 +559,18 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
       relatedOrder { id label state }
     `
   );
+  const purchaseOrderVendors = await fetchPurchaseOrderVendors(
+    dropShipRows.map((row) => row?.relatedPurchaseOrder?.id)
+  );
+  const purchaseOrderVendorById = new Map(
+    purchaseOrderVendors.map((purchaseOrder) => [
+      normalizeText(purchaseOrder?.id),
+      {
+        id: normalizeText(purchaseOrder?.vendor_id || purchaseOrder?.vendor?.id),
+        label: normalizeText(purchaseOrder?.vendor?.name)
+      }
+    ])
+  );
   const shipmentRowsByOrder = new Map();
   const dropShipRowsByOrder = new Map();
 
@@ -503,11 +587,18 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
 
   for (const row of dropShipRows) {
     const orderId = normalizeText(row?.relatedOrder?.id);
+    const purchaseOrderVendor = purchaseOrderVendorById.get(
+      normalizeText(row?.relatedPurchaseOrder?.id)
+    );
+    const hydratedRow =
+      normalizeText(row?.fulfillFrom?.id) || !purchaseOrderVendor?.id
+        ? row
+        : { ...row, fulfillFrom: purchaseOrderVendor };
 
     if (orderId) {
       dropShipRowsByOrder.set(orderId, [
         ...(dropShipRowsByOrder.get(orderId) || []),
-        row
+        hydratedRow
       ]);
     }
   }
@@ -577,7 +668,7 @@ function finalizeGroup(group) {
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
-function classifyOrders(orderDetails, packingParts, backorders) {
+function classifyOrders(orderDetails, packingParts, backorders, vendorProducts = []) {
   const partsBySku = new Map(
     packingParts.map((part) => [normalizeSku(part.sku), part])
   );
@@ -591,6 +682,22 @@ function classifyOrders(orderDetails, packingParts, backorders) {
           )}`
       )
   );
+  const vendorQuantityBySku = new Map();
+
+  for (const vendorProduct of vendorProducts) {
+    const vendorId = normalizeText(vendorProduct?.vendor_id);
+    const sku = normalizeSku(vendorProduct?.product?.sku);
+
+    if (!vendorId || !sku) {
+      continue;
+    }
+
+    const key = `${vendorId}|${sku}`;
+    vendorQuantityBySku.set(
+      key,
+      (vendorQuantityBySku.get(key) || 0) + Number(vendorProduct?.quantity || 0)
+    );
+  }
   const groups = {
     warehouse: new Map(),
     backordered: new Map(),
@@ -689,6 +796,25 @@ function classifyOrders(orderDetails, packingParts, backorders) {
           const trackingCode = normalizeText(
             dropShipFulfillment.relatedPurchaseOrder?.tracking_code
           );
+          const fulfillmentVendorId = normalizeText(
+            dropShipFulfillment.fulfillFrom?.id
+          );
+          const vendorQuantityKey = `${fulfillmentVendorId}|${skuKey}`;
+          const hasVendorQuantity = vendorQuantityBySku.has(vendorQuantityKey);
+          const isFulfillmentVendorBackordered =
+            hasVendorQuantity && vendorQuantityBySku.get(vendorQuantityKey) <= 0;
+
+          if (isFulfillmentVendorBackordered) {
+            addGroupedOrder(
+              groups.backordered,
+              order,
+              getPackingItem(part, item, {
+                fulfillmentState: dropShipFulfillment.current_state,
+                reason: `${normalizeText(dropShipFulfillment.fulfillFrom?.label) || "Assigned manufacturer"} has no stock for this SKU.`
+              })
+            );
+            continue;
+          }
 
           if (!trackingCode) {
             addGroupedOrder(
@@ -819,9 +945,10 @@ async function createPackingListReport(input = {}) {
   }
 
   const skus = parts.map((part) => part.sku);
-  const [orders, backorders] = await Promise.all([
+  const [orders, backorders, vendorProducts] = await Promise.all([
     fetchActiveOrders(skus),
-    fetchBackorders(skus)
+    fetchBackorders(skus),
+    fetchVendorProducts(skus)
   ]);
   const orderDetails = await addFulfillmentsToOrders(
     await fetchOrderDetails(orders),
@@ -834,7 +961,7 @@ async function createPackingListReport(input = {}) {
     receivedTo,
     purchaseOrders: purchaseOrderSummary,
     parts,
-    groups: classifyOrders(orderDetails, parts, backorders),
+    groups: classifyOrders(orderDetails, parts, backorders, vendorProducts),
     warnings
   };
 }

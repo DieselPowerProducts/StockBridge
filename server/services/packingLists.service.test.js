@@ -266,3 +266,124 @@ test("excludes tracked manufacturer work and fully finalized items", () => {
     undecided: []
   });
 });
+
+test("uses the assigned manufacturer availability for backorder classification", () => {
+  const part = {
+    sku: "MAH-F33726",
+    name: "Part",
+    receivedQuantity: 1,
+    sources: [{ poNumber: "0102368", quantity: 1, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-950546",
+    label: "950546",
+    state: "In Fulfillment",
+    created_at: "2026-08-23 18:06:05",
+    customer_name: "Nathan Martin",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "MAH-F33726", name: "Part" },
+        decidedItems: [
+          {
+            decisions: [
+              {
+                qty: 1,
+                relatedFulfillment: { id: "drop-1" }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    shipmentFulfillmentsGrid: { rows: [] },
+    dropShipFulfillmentsGrid: {
+      rows: [
+        {
+          id: "drop-1",
+          current_state: "pending",
+          fulfillFrom: { id: "mahle", label: "Mahle Aftermarket" },
+          relatedPurchaseOrder: { tracking_code: [] }
+        }
+      ]
+    }
+  };
+  const vendorProducts = [
+    {
+      vendor_id: "mahle",
+      quantity: 0,
+      product: { sku: "MAH-F33726" }
+    },
+    {
+      vendor_id: "other-vendor",
+      quantity: 999999,
+      product: { sku: "MAH-F33726" }
+    }
+  ];
+
+  const groups = classifyOrders([order], [part], [], vendorProducts);
+
+  assert.equal(groups.backordered.length, 1);
+  assert.match(groups.backordered[0].items[0].reason, /Mahle Aftermarket/);
+  assert.equal(groups.missingTracking.length, 0);
+});
+
+test("does not use another vendor's zero stock for manufacturer backorder", () => {
+  const part = {
+    sku: "ABC-123",
+    name: "Part",
+    receivedQuantity: 1,
+    sources: [{ poNumber: "0000001", quantity: 1, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-1",
+    label: "1001",
+    state: "In Fulfillment",
+    created_at: "2026-08-23 18:06:05",
+    customer_name: "Customer",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "ABC-123", name: "Part" },
+        decidedItems: [
+          {
+            decisions: [
+              { qty: 1, relatedFulfillment: { id: "drop-1" } }
+            ]
+          }
+        ]
+      }
+    ],
+    shipmentFulfillmentsGrid: { rows: [] },
+    dropShipFulfillmentsGrid: {
+      rows: [
+        {
+          id: "drop-1",
+          current_state: "pending",
+          fulfillFrom: { id: "assigned-vendor", label: "Assigned Vendor" },
+          relatedPurchaseOrder: { tracking_code: [] }
+        }
+      ]
+    }
+  };
+
+  const groups = classifyOrders([order], [part], [], [
+    {
+      vendor_id: "assigned-vendor",
+      quantity: 4,
+      product: { sku: "ABC-123" }
+    },
+    {
+      vendor_id: "other-vendor",
+      quantity: 0,
+      product: { sku: "ABC-123" }
+    }
+  ]);
+
+  assert.equal(groups.backordered.length, 0);
+  assert.equal(groups.missingTracking.length, 1);
+});
