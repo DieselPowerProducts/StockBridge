@@ -831,6 +831,11 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
           const trackingCode = normalizeText(
             dropShipFulfillment.relatedPurchaseOrder?.tracking_code
           );
+
+          if (trackingCode) {
+            continue;
+          }
+
           const fulfillmentVendorId = normalizeText(
             dropShipFulfillment.fulfillFrom?.id
           );
@@ -853,16 +858,14 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
             continue;
           }
 
-          if (!trackingCode) {
-            addGroupedOrder(
-              groups.missingTracking,
-              order,
-              getPackingItem(part, item, {
-                fulfillmentState: dropShipFulfillment.current_state,
-                reason: "Vendor fulfillment has not received tracking."
-              })
-            );
-          }
+          addGroupedOrder(
+            groups.missingTracking,
+            order,
+            getPackingItem(part, item, {
+              fulfillmentState: dropShipFulfillment.current_state,
+              reason: "Vendor fulfillment has not received tracking."
+            })
+          );
         }
       }
 

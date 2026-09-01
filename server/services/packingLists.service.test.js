@@ -270,6 +270,7 @@ test("excludes tracked vendor work and fully finalized items", () => {
         {
           id: fulfillmentId,
           current_state: state,
+          fulfillFrom: { id: "assigned-vendor", label: "Assigned Vendor" },
           relatedPurchaseOrder: { tracking_code: trackingCode }
         }
       ]
@@ -287,6 +288,13 @@ test("excludes tracked vendor work and fully finalized items", () => {
         order_id: "finalized",
         missing_qty: 1,
         relatedProduct: { sku: "ABC-123" }
+      }
+    ],
+    [
+      {
+        vendor_id: "assigned-vendor",
+        quantity: 0,
+        product: { sku: "ABC-123" }
       }
     ]
   );
