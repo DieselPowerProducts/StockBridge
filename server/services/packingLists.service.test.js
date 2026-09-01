@@ -387,3 +387,52 @@ test("does not use another vendor's zero stock for manufacturer backorder", () =
   assert.equal(groups.backordered.length, 0);
   assert.equal(groups.missingTracking.length, 1);
 });
+
+test("uses the order decision when the warehouse fulfillment grid omits a row", () => {
+  const part = {
+    sku: "MAH-GS33656",
+    name: "Part",
+    receivedQuantity: 3,
+    sources: [{ poNumber: "0102368", quantity: 3, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-953353",
+    label: "953353",
+    state: "In Fulfillment",
+    created_at: "2026-08-28 13:38:06",
+    customer_name: "REX GODFREY",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "MAH-GS33656", name: "Part" },
+        decidedItems: [
+          {
+            name: "Shipment",
+            decisions: [
+              {
+                qty: 1,
+                label: "Warehouse: DPP Warehouse, Location: S-H1",
+                relatedFulfillment: {
+                  id: "warehouse-1",
+                  label: "0187811",
+                  state: "pick"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    shipmentFulfillmentsGrid: { rows: [] },
+    dropShipFulfillmentsGrid: { rows: [] }
+  };
+
+  const groups = classifyOrders([order], [part], []);
+
+  assert.equal(groups.warehouse.length, 1);
+  assert.equal(groups.warehouse[0].orderNumber, "953353");
+  assert.equal(groups.warehouse[0].items[0].fulfillmentState, "pick");
+  assert.match(groups.warehouse[0].items[0].reason, /DPP Warehouse/);
+});

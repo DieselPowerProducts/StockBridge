@@ -615,7 +615,27 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
 }
 
 function getItemDecisions(item) {
-  return (item?.decidedItems || []).flatMap((group) => group?.decisions || []);
+  return (item?.decidedItems || []).flatMap((group) =>
+    (group?.decisions || []).map((decision) => ({
+      ...decision,
+      decisionGroupName: normalizeText(group?.name)
+    }))
+  );
+}
+
+function isWarehouseDecision(decision) {
+  return (
+    normalizeState(decision?.decisionGroupName) === "shipment" ||
+    /^warehouse\s*:/i.test(normalizeText(decision?.label))
+  );
+}
+
+function getDecisionWarehouseLabel(decision) {
+  const match = normalizeText(decision?.label).match(
+    /^warehouse\s*:\s*([^,]+)/i
+  );
+
+  return normalizeText(match?.[1]) || "DPP Warehouse";
 }
 
 function getPackingItem(part, item, details = {}) {
@@ -732,7 +752,10 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
       const completedQuantity = decisions.reduce((total, decision) => {
         const fulfillmentId = normalizeText(decision?.relatedFulfillment?.id);
         const warehouseState = normalizeState(
-          warehouseFulfillments.get(fulfillmentId)?.current_state
+          warehouseFulfillments.get(fulfillmentId)?.current_state ||
+            (isWarehouseDecision(decision)
+              ? decision?.relatedFulfillment?.state
+              : "")
         );
         const dropShipState = normalizeState(
           dropShipFulfillments.get(fulfillmentId)?.current_state
@@ -779,6 +802,24 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
                 reason: `Warehouse fulfillment from ${normalizeText(
                   warehouseFulfillment.fulfillFrom?.label
                 ) || "DPP Warehouse"} is still open.`
+              })
+            );
+          }
+
+          continue;
+        }
+
+        if (isWarehouseDecision(decision)) {
+          const state = normalizeState(decision?.relatedFulfillment?.state);
+
+          if (state && !closedWarehouseStates.has(state)) {
+            const warehouseLabel = getDecisionWarehouseLabel(decision);
+            addGroupedOrder(
+              groups.warehouse,
+              order,
+              getPackingItem(part, item, {
+                fulfillmentState: decision?.relatedFulfillment?.state,
+                reason: `Warehouse fulfillment from ${warehouseLabel} is still open.`
               })
             );
           }
