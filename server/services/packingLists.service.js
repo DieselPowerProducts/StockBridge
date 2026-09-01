@@ -14,6 +14,7 @@ const queryPageSize = 250;
 const purchaseOrderDetailsBatchSize = 10;
 const orderDetailsBatchSize = 50;
 const fulfillmentOrderChunkSize = 80;
+const fulfillmentDetailsBatchSize = 40;
 
 function createHttpError(statusCode, message) {
   const error = new Error(message);
@@ -39,10 +40,6 @@ function normalizeSku(value) {
 
 function normalizeState(value) {
   return normalizeText(value).toLowerCase();
-}
-
-function normalizeOrderState(value) {
-  return normalizeState(value).replace(/\s+/g, "_");
 }
 
 function unique(values) {
@@ -504,6 +501,43 @@ async function fetchFulfillmentRows(rootName, orders, rowFields) {
   return rows;
 }
 
+async function fetchFulfillmentDetails(rootName, fulfillments) {
+  const detailsById = new Map();
+
+  for (const fulfillmentChunk of chunk(fulfillments, fulfillmentDetailsBatchSize)) {
+    const aliases = fulfillmentChunk
+      .map(
+        (fulfillment, index) => `
+          item${index}: details(id: ${graphqlString(fulfillment.id)}) {
+            id
+            items {
+              quantity
+              product { id sku }
+            }
+          }
+        `
+      )
+      .join("\n");
+    const data = await skunexus.query(`
+      query PackingListFulfillmentDetails {
+        ${rootName} {
+          ${aliases}
+        }
+      }
+    `);
+
+    for (let index = 0; index < fulfillmentChunk.length; index += 1) {
+      const details = data?.[rootName]?.[`item${index}`];
+
+      if (details?.id) {
+        detailsById.set(normalizeText(details.id), details);
+      }
+    }
+  }
+
+  return detailsById;
+}
+
 async function fetchPurchaseOrderVendors(purchaseOrderIds) {
   const rows = [];
   const ids = unique(purchaseOrderIds.map(normalizeText).filter(Boolean));
@@ -539,32 +573,46 @@ async function fetchPurchaseOrderVendors(purchaseOrderIds) {
 }
 
 async function addFulfillmentsToOrders(orderDetails, orders) {
-  const shipmentRows = await fetchFulfillmentRows(
-    "shipmentFulfillment",
-    orders,
-    `
-      id
-      current_state
-      label
-      fulfillFrom { id label }
-      relatedShipment { id tracking_code status }
-      relatedOrder { id label state }
-    `
-  );
-  const dropShipRows = await fetchFulfillmentRows(
-    "dropShipFulfillment",
-    orders,
-    `
-      id
-      current_state
-      label
-      fulfillFrom { id label }
-      relatedPurchaseOrder { id label tracking_code }
-      relatedOrder { id label state }
-    `
-  );
+  const [shipmentRows, dropShipRows] = await Promise.all([
+    fetchFulfillmentRows(
+      "shipmentFulfillment",
+      orders,
+      `
+        id
+        current_state
+        label
+        fulfillFrom { id label }
+        relatedShipment { id tracking_code status }
+        relatedOrder { id label state }
+      `
+    ),
+    fetchFulfillmentRows(
+      "dropShipFulfillment",
+      orders,
+      `
+        id
+        current_state
+        label
+        fulfillFrom { id label }
+        relatedPurchaseOrder { id label tracking_code }
+        relatedOrder { id label state }
+      `
+    )
+  ]);
+  const [shipmentDetailsById, dropShipDetailsById] = await Promise.all([
+    fetchFulfillmentDetails("shipmentFulfillment", shipmentRows),
+    fetchFulfillmentDetails("dropShipFulfillment", dropShipRows)
+  ]);
+  const hydratedShipmentRows = shipmentRows.map((row) => ({
+    ...row,
+    items: shipmentDetailsById.get(normalizeText(row.id))?.items || []
+  }));
+  const hydratedDropShipRows = dropShipRows.map((row) => ({
+    ...row,
+    items: dropShipDetailsById.get(normalizeText(row.id))?.items || []
+  }));
   const purchaseOrderVendors = await fetchPurchaseOrderVendors(
-    dropShipRows.map((row) => row?.relatedPurchaseOrder?.id)
+    hydratedDropShipRows.map((row) => row?.relatedPurchaseOrder?.id)
   );
   const purchaseOrderVendorById = new Map(
     purchaseOrderVendors.map((purchaseOrder) => [
@@ -578,7 +626,7 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
   const shipmentRowsByOrder = new Map();
   const dropShipRowsByOrder = new Map();
 
-  for (const row of shipmentRows) {
+  for (const row of hydratedShipmentRows) {
     const orderId = normalizeText(row?.relatedOrder?.id);
 
     if (orderId) {
@@ -589,7 +637,7 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
     }
   }
 
-  for (const row of dropShipRows) {
+  for (const row of hydratedDropShipRows) {
     const orderId = normalizeText(row?.relatedOrder?.id);
     const purchaseOrderVendor = purchaseOrderVendorById.get(
       normalizeText(row?.relatedPurchaseOrder?.id)
@@ -618,13 +666,55 @@ async function addFulfillmentsToOrders(orderDetails, orders) {
   }));
 }
 
-function getItemDecisions(item) {
-  return (item?.decidedItems || []).flatMap((group) =>
+function getItemDecisions(item, warehouseFulfillments, dropShipFulfillments) {
+  const decisions = (item?.decidedItems || []).flatMap((group) =>
     (group?.decisions || []).map((decision) => ({
       ...decision,
       decisionGroupName: normalizeText(group?.name)
     }))
   );
+  const fulfillmentIds = new Set(
+    decisions
+      .map((decision) => normalizeText(decision?.relatedFulfillment?.id))
+      .filter(Boolean)
+  );
+  const sku = normalizeSku(item?.relatedProduct?.sku);
+
+  for (const [type, fulfillments] of [
+    ["Shipment", warehouseFulfillments],
+    ["Drop Ship", dropShipFulfillments]
+  ]) {
+    for (const fulfillment of fulfillments.values()) {
+      const quantity = (fulfillment?.items || [])
+        .filter(
+          (fulfillmentItem) =>
+            normalizeSku(fulfillmentItem?.product?.sku) === sku
+        )
+        .reduce(
+          (total, fulfillmentItem) =>
+            total + Math.max(Number(fulfillmentItem?.quantity || 0), 0),
+          0
+        );
+      const fulfillmentId = normalizeText(fulfillment?.id);
+
+      if (quantity <= 0 || !fulfillmentId || fulfillmentIds.has(fulfillmentId)) {
+        continue;
+      }
+
+      decisions.push({
+        qty: quantity,
+        decisionGroupName: type,
+        relatedFulfillment: {
+          id: fulfillmentId,
+          label: normalizeText(fulfillment?.label),
+          state: normalizeText(fulfillment?.current_state)
+        }
+      });
+      fulfillmentIds.add(fulfillmentId);
+    }
+  }
+
+  return decisions;
 }
 
 function isWarehouseDecision(decision) {
@@ -752,7 +842,11 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
       }
 
       const isBackordered = backorderKeys.has(`${order.id}|${skuKey}`);
-      const decisions = getItemDecisions(item);
+      const decisions = getItemDecisions(
+        item,
+        warehouseFulfillments,
+        dropShipFulfillments
+      );
       const completedQuantity = decisions.reduce((total, decision) => {
         const fulfillmentId = normalizeText(decision?.relatedFulfillment?.id);
         const warehouseState = normalizeState(
@@ -890,7 +984,6 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
 
       if (
         !isBackordered &&
-        ["open", "on_hold"].includes(normalizeOrderState(order.state)) &&
         decisions.length === 0 &&
         Number(item.decidable_qty ?? item.qty ?? 0) > 0
       ) {

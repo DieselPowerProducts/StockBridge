@@ -233,7 +233,7 @@ test("uses ordered quantity when an unassigned item's decidable quantity is null
   assert.equal(groups.undecided[0].orderNumber, "954272");
 });
 
-test("does not classify an in-fulfillment order as undecided", () => {
+test("does not let an unrelated fulfillment hide an undecided item", () => {
   const part = {
     sku: "SYN-8550-11",
     name: "Part",
@@ -260,6 +260,12 @@ test("does not classify an in-fulfillment order as undecided", () => {
         {
           id: "other-item-fulfillment",
           current_state: "dispatch",
+          items: [
+            {
+              quantity: 1,
+              product: { sku: "OTHER-SKU" }
+            }
+          ],
           fulfillFrom: { id: "warehouse", label: "DPP Warehouse" }
         }
       ]
@@ -269,6 +275,55 @@ test("does not classify an in-fulfillment order as undecided", () => {
 
   const groups = classifyOrders([order], [part], []);
 
+  assert.equal(groups.undecided.length, 1);
+  assert.equal(groups.undecided[0].orderNumber, "927055");
+});
+
+test("uses drop-ship item details when order decisions are omitted", () => {
+  const part = {
+    sku: "SYN-8515-11",
+    name: "Part",
+    receivedQuantity: 4,
+    sources: [{ poNumber: "0074128", quantity: 4, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-950605",
+    label: "950605",
+    state: "In Fulfillment",
+    created_at: "2026-08-23 20:03:07",
+    customer_name: "Jared Johnson",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "SYN-8515-11", name: "Part" },
+        decidedItems: []
+      }
+    ],
+    shipmentFulfillmentsGrid: { rows: [] },
+    dropShipFulfillmentsGrid: {
+      rows: [
+        {
+          id: "drop-1",
+          current_state: "pending",
+          fulfillFrom: { id: "synergy", label: "Synergy Manufacturing" },
+          relatedPurchaseOrder: { label: "0104061", tracking_code: [] },
+          items: [
+            {
+              quantity: 1,
+              product: { sku: "SYN-8515-11" }
+            }
+          ]
+        }
+      ]
+    }
+  };
+
+  const groups = classifyOrders([order], [part], []);
+
+  assert.equal(groups.missingTracking.length, 1);
+  assert.equal(groups.missingTracking[0].orderNumber, "950605");
   assert.equal(groups.undecided.length, 0);
 });
 
