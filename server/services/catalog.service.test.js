@@ -40,6 +40,27 @@ test("keeps non-vendor BTO and non-BTO products eligible", () => {
   );
 });
 
+test("excludes Shopify Collective products from Stock Check", () => {
+  const productVendorAvailability = {
+    collectiveQuantityByProductId: new Map([["collective-product", 0]])
+  };
+
+  assert.equal(
+    _test.shouldIncludeNonCollectiveProductInStockCheck(
+      { id: "collective-product" },
+      productVendorAvailability
+    ),
+    false
+  );
+  assert.equal(
+    _test.shouldIncludeNonCollectiveProductInStockCheck(
+      { id: "standard-product" },
+      productVendorAvailability
+    ),
+    true
+  );
+});
+
 test("keeps stock authoritative over optional Shopify availability modifiers", () => {
   assert.equal(
     _test.mapProductAvailabilityToShopifyStatus(

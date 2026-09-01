@@ -3848,11 +3848,13 @@ async function getStockCheckProducts({
     return cached.data;
   }
 
-  const [{ rows, graph }, followUpsBySku, productVendorAvailability] = await Promise.all([
+  const [{ rows, graph }, followUpsBySku] = await Promise.all([
     buildFullProductGraph(),
-    followUpsService.getAllFollowUps(),
-    getProductVendorAvailabilityInfo()
+    followUpsService.getAllFollowUps()
   ]);
+  const productVendorAvailability = await getProductVendorAvailabilityInfo(
+    getProductGraphProductIds(graph)
+  );
   const graphSkus = getProductGraphSkus(graph);
   const [shopifyAvailabilityBySku, buildToOrderLeadTimeBySku] =
     await Promise.all([
@@ -3861,6 +3863,12 @@ async function getStockCheckProducts({
     ]);
 
   const data = rows
+    .filter((product) =>
+      shouldIncludeNonCollectiveProductInStockCheck(
+        product,
+        productVendorAvailability
+      )
+    )
     .map((product) =>
       mapProduct(product, productVendorAvailability, followUpsBySku, {
         ...graph,
@@ -3894,6 +3902,15 @@ function shouldIncludeBuiltToOrderProductInStockCheck(product) {
     product?.availability !== "Built to Order" ||
     !product?.hasBuiltToOrderVendor ||
     Boolean(product?.followUpDate)
+  );
+}
+
+function shouldIncludeNonCollectiveProductInStockCheck(
+  product,
+  productVendorAvailability
+) {
+  return !productVendorAvailability?.collectiveQuantityByProductId?.has(
+    product?.id
   );
 }
 
@@ -4186,6 +4203,7 @@ module.exports = {
     getEffectiveAvailability,
     getEffectiveQtyAvailable,
     mapProductAvailabilityToShopifyStatus,
-    shouldIncludeBuiltToOrderProductInStockCheck
+    shouldIncludeBuiltToOrderProductInStockCheck,
+    shouldIncludeNonCollectiveProductInStockCheck
   }
 };
