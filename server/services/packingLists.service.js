@@ -884,14 +884,14 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
       if (
         !isBackordered &&
         decisions.length === 0 &&
-        Number(item.decidable_qty || 0) > 0
+        Number(item.decidable_qty ?? item.qty ?? 0) > 0
       ) {
         addGroupedOrder(
           groups.undecided,
           order,
           getPackingItem(part, item, {
             reason:
-              "Matching quantity has not been assigned to a warehouse or manufacturer fulfillment."
+              "Matching quantity has not been assigned to a warehouse or vendor fulfillment."
           })
         );
       }

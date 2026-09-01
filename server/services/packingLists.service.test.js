@@ -201,6 +201,38 @@ test("classifies only completely unassigned items as undecided", () => {
   assert.match(groups.undecided[0].items[0].reason, /not been assigned/i);
 });
 
+test("uses ordered quantity when an unassigned item's decidable quantity is null", () => {
+  const part = {
+    sku: "MAH-MS20601",
+    name: "Part",
+    receivedQuantity: 1,
+    sources: [{ poNumber: "0102368", quantity: 1, receivedDates: [] }]
+  };
+  const order = {
+    id: "order-954272",
+    label: "954272",
+    state: "Open",
+    created_at: "2026-08-30 06:11:04",
+    customer_name: "Colton Langdon",
+    items: [
+      {
+        id: "item-1",
+        qty: 1,
+        decidable_qty: null,
+        relatedProduct: { sku: "MAH-MS20601", name: "Part" },
+        decidedItems: []
+      }
+    ],
+    shipmentFulfillmentsGrid: { rows: [] },
+    dropShipFulfillmentsGrid: { rows: [] }
+  };
+
+  const groups = classifyOrders([order], [part], []);
+
+  assert.equal(groups.undecided.length, 1);
+  assert.equal(groups.undecided[0].orderNumber, "954272");
+});
+
 test("excludes tracked manufacturer work and fully finalized items", () => {
   const part = {
     sku: "ABC-123",
