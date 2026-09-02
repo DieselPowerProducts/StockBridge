@@ -8,6 +8,17 @@ async function listInventoryAudits(req, res, next) {
   }
 }
 
+async function deleteInventoryAudit(req, res, next) {
+  try {
+    res.send(
+      await inventoryAuditService.deleteInventoryAudit(req.params.auditId)
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  deleteInventoryAudit,
   listInventoryAudits
 };

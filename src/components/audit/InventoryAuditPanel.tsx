@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { getInventoryAudits } from "../../services/api";
+import {
+  deleteInventoryAudit,
+  getInventoryAudits
+} from "../../services/api";
 import type {
   InventoryAuditItem,
   InventoryAuditResolvedUpdate
@@ -24,6 +27,9 @@ export function InventoryAuditPanel({
   const [totalItems, setTotalItems] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [deletingAuditIds, setDeletingAuditIds] = useState<Set<string>>(
+    new Set()
+  );
   const [error, setError] = useState("");
   const itemsRef = useRef<InventoryAuditItem[]>([]);
   const resolvedSkusRef = useRef(new Map<string, number>());
@@ -128,6 +134,41 @@ export function InventoryAuditPanel({
     };
   }, [currentPage, refreshNonce, searchQuery]);
 
+  async function handleDeleteAudit(auditId: string) {
+    if (deletingAuditIds.has(auditId)) {
+      return;
+    }
+
+    setError("");
+    setDeletingAuditIds((current) => new Set(current).add(auditId));
+
+    try {
+      await deleteInventoryAudit(auditId);
+      const nextItems = itemsRef.current.filter((item) => item.id !== auditId);
+
+      itemsRef.current = nextItems;
+      setItems(nextItems);
+      setTotalItems((total) => Math.max(total - 1, 0));
+
+      if (nextItems.length === 0 && currentPage > 1) {
+        setCurrentPage((page) => Math.max(page - 1, 1));
+      }
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to remove the inventory audit."
+      );
+    } finally {
+      setDeletingAuditIds((current) => {
+        const next = new Set(current);
+
+        next.delete(auditId);
+        return next;
+      });
+    }
+  }
+
   return (
     <section
       className="inventory-audit-panel"
@@ -192,7 +233,26 @@ export function InventoryAuditPanel({
                   </td>
                   <td>{item.vendorName || item.senderEmail}</td>
                   <td className="inventory-audit-response">
-                    {item.responseText}
+                    <div className="inventory-audit-response-content">
+                      <span>{item.responseText}</span>
+                      <button
+                        type="button"
+                        className="inventory-audit-remove"
+                        title="Remove inventory audit"
+                        aria-label={`Remove inventory audit for ${item.sku}`}
+                        disabled={deletingAuditIds.has(item.id)}
+                        onClick={() => void handleDeleteAudit(item.id)}
+                      >
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                        >
+                          <path d="M6 6l12 12M18 6L6 18" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

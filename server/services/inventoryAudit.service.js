@@ -681,8 +681,33 @@ async function clearInventoryAuditsForSku(sku) {
   };
 }
 
+async function deleteInventoryAudit(auditId) {
+  const safeAuditId = normalizeText(auditId);
+
+  if (!/^\d+$/.test(safeAuditId) || safeAuditId === "0") {
+    const error = new Error("Inventory audit ID is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await initializeSchema();
+
+  const sql = getSql();
+  const rows = await sql`
+    DELETE FROM inventory_audits
+    WHERE id = ${safeAuditId}::bigint
+    RETURNING id::text
+  `;
+
+  return {
+    auditId: safeAuditId,
+    deleted: rows.length
+  };
+}
+
 module.exports = {
   clearInventoryAuditsForSku,
+  deleteInventoryAudit,
   listInventoryAudits,
   processStockCheckReplySource,
   _test: {

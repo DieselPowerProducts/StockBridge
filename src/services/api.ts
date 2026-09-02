@@ -423,6 +423,13 @@ export function getInventoryAudits({
   );
 }
 
+export function deleteInventoryAudit(auditId: string) {
+  return request<{ auditId: string; deleted: number }>(
+    `/audits/inventory/${encodeURIComponent(auditId)}`,
+    { method: "DELETE" }
+  );
+}
+
 export function getInventorySheetImports({
   page,
   limit,
