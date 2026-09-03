@@ -1080,7 +1080,7 @@ async function importSheetAttachment({ settings, attachment, message }) {
   }
 
   let imported = 0;
-  let skipped = 0;
+  let skipped = Number(audit.invalidRows || 0);
   let errors = 0;
   let followUpsSet = 0;
   const missingSkuSamples = [];

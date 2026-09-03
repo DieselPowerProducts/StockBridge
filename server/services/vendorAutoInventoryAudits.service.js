@@ -1002,7 +1002,7 @@ async function setStatus(auditId, status, fields = {}) {
   return mapAuditRow(rows[0]);
 }
 
-async function approveAudit(auditId, reviewer) {
+async function approveAudit(auditId, reviewer, { allowErrors = false } = {}) {
   await initializeSchema();
   const sql = getSql();
   const safeAuditId = normalizeText(auditId, 500);
@@ -1018,7 +1018,17 @@ async function approveAudit(auditId, reviewer) {
       reviewed_at = now(),
       updated_at = now()
     WHERE id = ${safeAuditId}
-      AND status = 'ready_for_review'
+      AND (
+        status = 'ready_for_review'
+        OR (
+          ${Boolean(allowErrors)}
+          AND status IN ('needs_mapping', 'failed')
+        )
+      )
+      AND (
+        NOT ${Boolean(allowErrors)}
+        OR matched_rows > 0
+      )
       AND is_legacy = FALSE
     RETURNING id
   `;
@@ -1027,7 +1037,9 @@ async function approveAudit(auditId, reviewer) {
     const current = await getAuditRecord(safeAuditId);
     const error = new Error(
       current
-        ? "This inventory sheet is not ready to be approved."
+        ? allowErrors && Number(current.matchedRows || 0) === 0
+          ? "This inventory sheet has no matched rows to submit."
+          : "This inventory sheet is not ready to be approved."
         : "Inventory sheet audit not found."
     );
     error.statusCode = current ? 409 : 404;

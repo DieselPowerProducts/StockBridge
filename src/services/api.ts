@@ -553,6 +553,13 @@ export function retryInventorySheetImport(importId: string) {
   );
 }
 
+export function submitInventorySheetImport(importId: string) {
+  return request<InventorySheetImport & { queued: boolean }>(
+    `/inventory-sheet-imports/${encodeURIComponent(importId)}/submit`,
+    { method: "POST" }
+  );
+}
+
 export function updateInventorySheetImportMapping(
   importId: string,
   mapping: {

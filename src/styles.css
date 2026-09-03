@@ -1397,7 +1397,9 @@ button:disabled {
   text-decoration: none;
 }
 
-.sheet-import-file-actions .sheet-import-retry {
+.sheet-import-queue-actions {
+  display: flex;
+  gap: 8px;
   margin-left: auto;
 }
 

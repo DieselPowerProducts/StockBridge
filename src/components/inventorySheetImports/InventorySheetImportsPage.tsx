@@ -9,6 +9,7 @@ import {
   getInventorySheetImports,
   rejectInventorySheetImport,
   retryInventorySheetImport,
+  submitInventorySheetImport,
   updateInventorySheetImportMapping
 } from "../../services/api";
 import type {
@@ -252,6 +253,20 @@ export function InventorySheetImportsPage() {
     });
   }
 
+  function handleSubmit() {
+    if (
+      !details ||
+      !window.confirm(
+        `Submit ${details.attachmentFilename} despite its remaining errors? Rows that could not be parsed or matched will be skipped.`
+      )
+    ) return;
+
+    void runAction("submit", async () => {
+      await submitInventorySheetImport(details.id);
+      refreshAfterAction("The usable rows from this spreadsheet are applying now.");
+    });
+  }
+
   function handleReject() {
     if (!details || !window.confirm(`Reject ${details.attachmentFilename}?`)) return;
     void runAction("reject", async () => {
@@ -334,6 +349,7 @@ export function InventorySheetImportsPage() {
 
   const canMap = Boolean(details && !details.isLegacy && details.availableHeaders.length > 0 && ["ready_for_review", "needs_mapping", "failed"].includes(details.status));
   const canRetry = Boolean(details && !details.isLegacy && ["ready_for_review", "needs_mapping", "failed"].includes(details.status) && details.manualRetryCount < maximumManualRetries);
+  const canSubmit = Boolean(details && !details.isLegacy && details.matchedRows > 0 && ["ready_for_review", "needs_mapping", "failed"].includes(details.status));
   const displayedSheetColumns = sheetData
     ? getDisplayedSheetColumns(sheetData, skuHeader, inventoryHeader)
     : [];
@@ -442,7 +458,12 @@ export function InventorySheetImportsPage() {
                     <div className="sheet-import-file-actions">
                       {canMap ? <button type="button" className="price-audit-refresh" onClick={() => setIsMappingOpen((current) => !current)}>Change column mapping</button> : null}
                       <a className="price-audit-refresh" href={getInventorySheetImportFileUrl(details.id)}>Download spreadsheet</a>
-                      {canRetry ? <button type="button" className="price-audit-confirm sheet-import-retry" disabled={activeAction !== ""} onClick={handleRetry}>Retry</button> : null}
+                      {canRetry || canSubmit ? (
+                        <div className="sheet-import-queue-actions">
+                          {canRetry ? <button type="button" className="price-audit-confirm" disabled={activeAction !== ""} onClick={handleRetry}>Retry</button> : null}
+                          {canSubmit ? <button type="button" className="price-audit-confirm" disabled={activeAction !== ""} onClick={handleSubmit}>Submit</button> : null}
+                        </div>
+                      ) : null}
                     </div>
 
                     {canMap && isMappingOpen ? (

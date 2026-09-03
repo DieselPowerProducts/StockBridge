@@ -114,8 +114,24 @@ async function approveImport(req, res, next) {
   }
 }
 
-async function approveAndQueueImport(importId, reviewer) {
-  const sheetImport = await sheetImportsService.approveAudit(importId, reviewer);
+async function submitImport(req, res, next) {
+  try {
+    res.send(
+      await approveAndQueueImport(req.params.importId, req.user, {
+        allowErrors: true
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function approveAndQueueImport(importId, reviewer, options = {}) {
+  const sheetImport = await sheetImportsService.approveAudit(
+    importId,
+    reviewer,
+    options
+  );
 
   try {
     const wake = await gmailInventoryService.queueInventoryAuditApply(
@@ -453,6 +469,7 @@ module.exports = {
   listImports,
   rejectImport,
   retryImport,
+  submitImport,
   addAllMissingSkuExceptions,
   addMissingSkuException,
   updateMapping,

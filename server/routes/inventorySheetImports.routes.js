@@ -11,6 +11,7 @@ router.get("/inventory-sheet-imports/:importId", controller.getImport);
 router.post("/inventory-sheet-imports/:importId/approve", controller.approveImport);
 router.post("/inventory-sheet-imports/:importId/reject", controller.rejectImport);
 router.post("/inventory-sheet-imports/:importId/retry", controller.retryImport);
+router.post("/inventory-sheet-imports/:importId/submit", controller.submitImport);
 router.post(
   "/inventory-sheet-imports/:importId/missing-sku-exception",
   controller.addMissingSkuException
