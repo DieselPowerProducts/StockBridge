@@ -245,8 +245,8 @@ function getProductDetailsBuiltToOrderLeadTime(
   productDetails: ProductDetails | null
 ) {
   return (
-    getBuiltToOrderVendor(productDetails)?.buildTime ||
     productDetails?.builtToOrderLeadTime ||
+    getBuiltToOrderVendor(productDetails)?.buildTime ||
     ""
   );
 }
@@ -660,6 +660,9 @@ export function NotesModal({
   const [vendorDetailsDraft, setVendorDetailsDraft] =
     useState<VendorProductDetailsDraft | null>(null);
   const [savingVendorDetailsId, setSavingVendorDetailsId] = useState("");
+  const [openVendorBtoEditorId, setOpenVendorBtoEditorId] = useState("");
+  const [vendorBtoLeadTimeDraft, setVendorBtoLeadTimeDraft] = useState("");
+  const [savingVendorBtoId, setSavingVendorBtoId] = useState("");
   const [togglingVendorAutoInventoryId, setTogglingVendorAutoInventoryId] =
     useState("");
   const [vendorDetailsStatus, setVendorDetailsStatus] = useState("");
@@ -847,6 +850,9 @@ export function NotesModal({
     setOpenVendorDetailsId("");
     setVendorDetailsDraft(null);
     setSavingVendorDetailsId("");
+    setOpenVendorBtoEditorId("");
+    setVendorBtoLeadTimeDraft("");
+    setSavingVendorBtoId("");
     setVendorDetailsStatus("");
     setFollowUpNoEta(false);
     setIsShopifyAvailabilitySaving(false);
@@ -1043,8 +1049,8 @@ export function NotesModal({
     }
 
     return String(
-      getBuiltToOrderVendor(nextProductDetails)?.buildTime ||
-        nextProductDetails.builtToOrderLeadTime ||
+      nextProductDetails.builtToOrderLeadTime ||
+        getBuiltToOrderVendor(nextProductDetails)?.buildTime ||
         builtToOrderLeadTime ||
         ""
     ).trim();
@@ -1334,6 +1340,8 @@ export function NotesModal({
     if (openVendorDetailsId === vendor.vendorProductId) {
       setOpenVendorDetailsId("");
       setVendorDetailsDraft(null);
+      setOpenVendorBtoEditorId("");
+      setVendorBtoLeadTimeDraft("");
       setVendorDetailsStatus("");
       return;
     }
@@ -1345,8 +1353,79 @@ export function NotesModal({
       productCost:
         vendor.productCost === null ? "" : String(vendor.productCost)
     });
+    setOpenVendorBtoEditorId("");
+    setVendorBtoLeadTimeDraft("");
     setVendorDetailsStatus("");
     setDetailsError("");
+  }
+
+  function handleToggleVendorBtoEditor(vendor: ProductVendor) {
+    if (!vendor.builtToOrder || !vendor.buildTime.trim()) {
+      return;
+    }
+
+    if (openVendorBtoEditorId === vendor.vendorProductId) {
+      setOpenVendorBtoEditorId("");
+      setVendorBtoLeadTimeDraft("");
+      return;
+    }
+
+    setOpenVendorBtoEditorId(vendor.vendorProductId);
+    setVendorBtoLeadTimeDraft(
+      productDetails?.builtToOrderLeadTime || vendor.buildTime
+    );
+    setVendorDetailsStatus("");
+    setDetailsError("");
+  }
+
+  async function handleSaveVendorBtoLeadTime(vendor: ProductVendor) {
+    if (
+      openVendorBtoEditorId !== vendor.vendorProductId ||
+      savingVendorBtoId
+    ) {
+      return;
+    }
+
+    const nextLeadTime = vendorBtoLeadTimeDraft.trim();
+
+    setDetailsError("");
+    setVendorDetailsStatus("");
+    setSavingVendorBtoId(vendor.vendorProductId);
+
+    try {
+      const result = await updateProductBuiltToOrderLeadTime({
+        sku,
+        buildToOrderLeadTime: nextLeadTime
+      });
+      const nextProductDetails = productDetails
+        ? {
+            ...productDetails,
+            builtToOrderLeadTime: result.buildToOrderLeadTime
+          }
+        : null;
+
+      setProductDetails(nextProductDetails);
+      setBuiltToOrderLeadTime(
+        result.buildToOrderLeadTime ||
+          getBuiltToOrderVendor(nextProductDetails)?.buildTime ||
+          vendor.buildTime
+      );
+      setVendorBtoLeadTimeDraft(result.buildToOrderLeadTime);
+      savedBuiltToOrderLeadTimeRef.current = result.buildToOrderLeadTime;
+      setVendorDetailsStatus(
+        result.buildToOrderLeadTime
+          ? "Product BTO time saved."
+          : `Using ${vendor.name}'s default BTO time.`
+      );
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? `Unable to save product BTO time: ${err.message}`
+          : "Unable to save product BTO time."
+      );
+    } finally {
+      setSavingVendorBtoId("");
+    }
   }
 
   async function handleSaveVendorProductDetails(vendor: ProductVendor) {
@@ -1857,7 +1936,10 @@ export function NotesModal({
       ? "in_stock"
       : "backordered";
   const builtToOrderLeadTimeValue =
-    builtToOrderVendor?.buildTime || builtToOrderLeadTime;
+    productDetails?.builtToOrderLeadTime ||
+    builtToOrderLeadTime ||
+    builtToOrderVendor?.buildTime ||
+    "";
   const builtToOrderMessagePreview = formatBuiltToOrderMessage(
     builtToOrderLeadTimeValue
   );
@@ -2570,6 +2652,8 @@ export function NotesModal({
                               if (!event.currentTarget.contains(event.relatedTarget)) {
                                 setOpenVendorDetailsId("");
                                 setVendorDetailsDraft(null);
+                                setOpenVendorBtoEditorId("");
+                                setVendorBtoLeadTimeDraft("");
                                 setVendorDetailsStatus("");
                               }
                             }}
@@ -2633,6 +2717,35 @@ export function NotesModal({
                                   />
                                 </label>
                                 <div className="vendor-product-details-actions">
+                                  {vendor.builtToOrder &&
+                                    Boolean(vendor.buildTime.trim()) && (
+                                      <button
+                                        type="button"
+                                        className="vendor-product-bto-toggle"
+                                        aria-expanded={
+                                          openVendorBtoEditorId ===
+                                          vendor.vendorProductId
+                                        }
+                                        aria-pressed={
+                                          openVendorBtoEditorId ===
+                                          vendor.vendorProductId
+                                        }
+                                        title={`Edit BTO time for ${sku}`}
+                                        disabled={
+                                          savingVendorDetailsId ===
+                                            vendor.vendorProductId ||
+                                          togglingVendorAutoInventoryId ===
+                                            vendor.vendorProductId ||
+                                          savingVendorBtoId ===
+                                            vendor.vendorProductId
+                                        }
+                                        onClick={() =>
+                                          handleToggleVendorBtoEditor(vendor)
+                                        }
+                                      >
+                                        BTO
+                                      </button>
+                                    )}
                                   {vendor.autoInventoryEnabled && (
                                     <button
                                       type="button"
@@ -2645,6 +2758,8 @@ export function NotesModal({
                                       }
                                       disabled={
                                         savingVendorDetailsId ===
+                                          vendor.vendorProductId ||
+                                        savingVendorBtoId ===
                                           vendor.vendorProductId ||
                                         togglingVendorAutoInventoryId ===
                                           vendor.vendorProductId
@@ -2661,6 +2776,7 @@ export function NotesModal({
                                     className="vendor-product-details-save"
                                     disabled={
                                       savingVendorDetailsId === vendor.vendorProductId ||
+                                      savingVendorBtoId === vendor.vendorProductId ||
                                       togglingVendorAutoInventoryId ===
                                         vendor.vendorProductId
                                     }
@@ -2670,6 +2786,56 @@ export function NotesModal({
                                       : "Save"}
                                   </button>
                                 </div>
+                                {openVendorBtoEditorId ===
+                                  vendor.vendorProductId && (
+                                  <div className="vendor-product-bto-editor">
+                                    <label>
+                                      <span>Product BTO time</span>
+                                      <input
+                                        type="text"
+                                        value={vendorBtoLeadTimeDraft}
+                                        placeholder={vendor.buildTime}
+                                        disabled={
+                                          savingVendorBtoId ===
+                                          vendor.vendorProductId
+                                        }
+                                        onChange={(event) =>
+                                          setVendorBtoLeadTimeDraft(
+                                            event.target.value
+                                          )
+                                        }
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            void handleSaveVendorBtoLeadTime(
+                                              vendor
+                                            );
+                                          }
+                                        }}
+                                      />
+                                    </label>
+                                    <div className="vendor-product-bto-actions">
+                                      <span>
+                                        Default: {vendor.buildTime}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        disabled={
+                                          savingVendorBtoId ===
+                                          vendor.vendorProductId
+                                        }
+                                        onClick={() =>
+                                          void handleSaveVendorBtoLeadTime(vendor)
+                                        }
+                                      >
+                                        {savingVendorBtoId ===
+                                        vendor.vendorProductId
+                                          ? "Saving..."
+                                          : "Save BTO"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                                 {vendorDetailsStatus && (
                                   <p className="vendor-product-details-status">
                                     {vendorDetailsStatus}

@@ -40,6 +40,21 @@ test("keeps non-vendor BTO and non-BTO products eligible", () => {
   );
 });
 
+test("uses a product BTO time before the assigned vendor default", () => {
+  assert.equal(
+    _test.getOwnBuildToOrderLeadTime(
+      { id: "product-1", sku: "MBRP-1" },
+      {
+        builtToOrderBuildTimeByProductId: new Map([
+          ["product-1", "3-4 Weeks"]
+        ])
+      },
+      new Map([["MBRP-1", "5-6 Weeks"]])
+    ),
+    "5-6 Weeks"
+  );
+});
+
 test("excludes Shopify Collective products from Stock Check", () => {
   const productVendorAvailability = _test.buildProductVendorAvailability(
     [

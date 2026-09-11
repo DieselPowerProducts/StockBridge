@@ -1860,7 +1860,7 @@ function getOwnBuildToOrderLeadTime(
   ).trim();
   const storedLeadTime = String(buildToOrderLeadTimeBySku.get(product.sku) || "").trim();
 
-  return vendorBuildTime || storedLeadTime;
+  return storedLeadTime || vendorBuildTime;
 }
 
 function getEffectiveBuildToOrderLeadTime(
@@ -4306,6 +4306,7 @@ module.exports = {
     getEffectiveAvailability,
     getEffectiveQtyAvailable,
     mapProductAvailabilityToShopifyStatus,
+    getOwnBuildToOrderLeadTime,
     shouldIncludeBuiltToOrderProductInStockCheck,
     shouldIncludeNonCollectiveProductInStockCheck
   }

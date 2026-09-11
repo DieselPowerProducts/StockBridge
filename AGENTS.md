@@ -312,6 +312,9 @@ It includes:
 - Built-to-order lead time storage. If no BTO vendor supplies a build time, the
   modal stores the entered lead time per SKU and rehydrates it when reopened.
   The lead-time box stays visible while the product is in BTO state.
+- BTO vendor pencil menus expose a product-specific BTO time editor when the
+  vendor has a default build time. A saved product time overrides the vendor
+  default in the modal and Shopify sync; clearing it restores the default.
 - Vendor stock on/off controls.
 - Non-warehouse vendor rows include a pencil menu for viewing and editing the
   SKU Nexus vendor SKU and product cost cached in `catalog_vendor_products`.
