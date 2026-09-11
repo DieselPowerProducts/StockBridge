@@ -320,6 +320,8 @@ It includes:
   SKU Nexus vendor SKU and product cost cached in `catalog_vendor_products`.
   Saves update SKU Nexus first, then update the local cache without changing
   inventory or vendor-product status.
+- Saving SKU/cost, product BTO time, or auto-inventory state from the vendor
+  pencil menu must leave that menu open so the result status remains visible.
 - Auto-inventory-managed vendor stock rows are read-only. Numerical rows show
   `Qty`; alphabetical rows show `In Stock` or `Out of Stock`. Both include the
   latest sheet update time in their hover title.

@@ -694,6 +694,7 @@ export function NotesModal({
   const mentionUsersLoadedRef = useRef(false);
   const mentionUsersLoadingRef = useRef(false);
   const savedBuiltToOrderLeadTimeRef = useRef("");
+  const activeVendorMenuOperationRef = useRef("");
   const vendorAddResultsId = useId();
 
   const loadNotes = useCallback(async () => {
@@ -853,6 +854,7 @@ export function NotesModal({
     setOpenVendorBtoEditorId("");
     setVendorBtoLeadTimeDraft("");
     setSavingVendorBtoId("");
+    activeVendorMenuOperationRef.current = "";
     setVendorDetailsStatus("");
     setFollowUpNoEta(false);
     setIsShopifyAvailabilitySaving(false);
@@ -1378,6 +1380,14 @@ export function NotesModal({
     setDetailsError("");
   }
 
+  function finishVendorMenuOperation(vendorProductId: string) {
+    window.requestAnimationFrame(() => {
+      if (activeVendorMenuOperationRef.current === vendorProductId) {
+        activeVendorMenuOperationRef.current = "";
+      }
+    });
+  }
+
   async function handleSaveVendorBtoLeadTime(vendor: ProductVendor) {
     if (
       openVendorBtoEditorId !== vendor.vendorProductId ||
@@ -1390,6 +1400,7 @@ export function NotesModal({
 
     setDetailsError("");
     setVendorDetailsStatus("");
+    activeVendorMenuOperationRef.current = vendor.vendorProductId;
     setSavingVendorBtoId(vendor.vendorProductId);
 
     try {
@@ -1425,6 +1436,7 @@ export function NotesModal({
       );
     } finally {
       setSavingVendorBtoId("");
+      finishVendorMenuOperation(vendor.vendorProductId);
     }
   }
 
@@ -1458,6 +1470,7 @@ export function NotesModal({
 
     setDetailsError("");
     setVendorDetailsStatus("");
+    activeVendorMenuOperationRef.current = vendor.vendorProductId;
     setSavingVendorDetailsId(vendor.vendorProductId);
 
     try {
@@ -1499,6 +1512,7 @@ export function NotesModal({
       );
     } finally {
       setSavingVendorDetailsId("");
+      finishVendorMenuOperation(vendor.vendorProductId);
     }
   }
 
@@ -1515,6 +1529,7 @@ export function NotesModal({
 
     setDetailsError("");
     setVendorDetailsStatus("");
+    activeVendorMenuOperationRef.current = vendor.vendorProductId;
     setTogglingVendorAutoInventoryId(vendor.vendorProductId);
 
     try {
@@ -1551,6 +1566,7 @@ export function NotesModal({
       );
     } finally {
       setTogglingVendorAutoInventoryId("");
+      finishVendorMenuOperation(vendor.vendorProductId);
     }
   }
 
@@ -2649,7 +2665,11 @@ export function NotesModal({
                           <div
                             className="vendor-product-details-control"
                             onBlur={(event) => {
-                              if (!event.currentTarget.contains(event.relatedTarget)) {
+                              if (
+                                !event.currentTarget.contains(event.relatedTarget) &&
+                                activeVendorMenuOperationRef.current !==
+                                  vendor.vendorProductId
+                              ) {
                                 setOpenVendorDetailsId("");
                                 setVendorDetailsDraft(null);
                                 setOpenVendorBtoEditorId("");
