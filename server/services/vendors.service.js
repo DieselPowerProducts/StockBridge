@@ -10,11 +10,10 @@ const vendorAutoInventoryProductUpdatesService = require("./vendorAutoInventoryP
 const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorDefaultContactsService = require("./vendorDefaultContacts.service");
 const vendorSettingsService = require("./vendorSettings.service");
-const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
+const shopifyAvailabilityQueueService = require("./shopifyAvailabilityQueue.service");
 const { getSql } = require("../db/neon");
 
 const ignoredVendorContactEmails = new Set(["shipping@dieselpowerproducts.com"]);
-const vendorReconciliationPageSize = 100;
 
 function normalizeRequiredString(value, message) {
   const normalized = String(value || "").trim();
@@ -212,111 +211,47 @@ async function setVendorDefaultContact(vendorId, contactId) {
 
 async function updateVendorSettings(vendorId, settings) {
   const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
-  const nextBuiltToOrder = settings?.builtToOrder === true;
-  const nextBuildTime = String(settings?.buildTime || "").trim();
-  const backorderedSkus = nextBuiltToOrder && nextBuildTime
-    ? await listBackorderedProductSkus(safeVendorId)
-    : [];
 
-  const savedSettings = await vendorSettingsService.setVendorSettings({
+  await vendorSettingsService.setVendorSettings({
     vendorId: safeVendorId,
     builtToOrder: settings?.builtToOrder,
     buildTime: settings?.buildTime
   });
+  catalogService.clearCaches();
+  let btoReconciliation;
 
-  const btoReconciliation = await reconcileBackorderedProductsForBuiltToOrderVendor({
-    vendorId: safeVendorId,
-    buildTime: savedSettings.buildTime,
-    productSkus: backorderedSkus
-  });
+  try {
+    const queued =
+      await shopifyAvailabilityQueueService.enqueueVendorReconciliation(
+        safeVendorId
+      );
+
+    btoReconciliation = {
+      converted: queued.queued,
+      queued: queued.queued,
+      shopifyFailed: 0,
+      shopifyMatched: 0,
+      shopifyUpdated: 0
+    };
+  } catch (error) {
+    console.error("Unable to queue vendor BTO reconciliation.", error);
+    btoReconciliation = {
+      converted: 0,
+      queued: 0,
+      shopifyFailed: 0,
+      shopifyMatched: 0,
+      shopifyUpdated: 0,
+      error: String(
+        error?.message || error || "Shopify availability reconciliation failed."
+      )
+    };
+  }
   const vendor = await catalogService.getVendorDetails(safeVendorId);
 
   return {
     ...vendor,
     btoReconciliation
   };
-}
-
-async function listBackorderedProductSkus(vendorId) {
-  const productSkus = new Set();
-  let page = 1;
-
-  while (true) {
-    const result = await catalogService.listVendorProducts(vendorId, {
-      page,
-      limit: vendorReconciliationPageSize
-    });
-
-    for (const product of result.data || []) {
-      const sku = String(product?.sku || "").trim();
-
-      if (sku && product?.availability === "Backorder") {
-        productSkus.add(sku);
-      }
-    }
-
-    if (result.isLastPage) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return Array.from(productSkus);
-}
-
-async function reconcileBackorderedProductsForBuiltToOrderVendor({
-  vendorId,
-  buildTime,
-  productSkus
-}) {
-  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
-  const safeBuildTime = String(buildTime || "").trim();
-  const safeProductSkus = Array.from(
-    new Set((productSkus || []).map((sku) => String(sku || "").trim()).filter(Boolean))
-  );
-
-  if (!safeBuildTime || safeProductSkus.length === 0) {
-    return {
-      converted: 0,
-      shopifyFailed: 0,
-      shopifyMatched: 0,
-      shopifyUpdated: 0
-    };
-  }
-
-  await shopifyAvailabilityStateService.setAvailabilityStatuses(
-    safeProductSkus.map((sku) => ({
-      sku,
-      availability: "built_to_order",
-      buildToOrderLeadTime: safeBuildTime
-    }))
-  );
-  catalogService.clearCaches();
-
-  try {
-    const shopifyResult = await catalogService.syncShopifyAvailabilityForSkus(
-      safeProductSkus,
-      { source: `vendor-bto-settings:${safeVendorId}` }
-    );
-
-    return {
-      converted: safeProductSkus.length,
-      shopifyFailed: Number(shopifyResult.failed || 0),
-      shopifyMatched: Number(shopifyResult.matched || 0),
-      shopifyUpdated: Number(shopifyResult.updated || 0)
-    };
-  } catch (error) {
-    console.error("Unable to sync reconciled vendor BTO products to Shopify.", error);
-
-    return {
-      converted: safeProductSkus.length,
-      error: String(error?.message || error || "Shopify availability sync failed."),
-      shopifyFailed: safeProductSkus.length,
-      shopifyMatched: 0,
-      shopifyUpdated: 0
-    };
-  }
 }
 
 async function removeAutoInventoryUpdatesForSkuExceptions(vendorId, settings) {
@@ -382,7 +317,6 @@ module.exports = {
   listVendorContacts,
   listVendors,
   listVendorProducts,
-  reconcileBackorderedProductsForBuiltToOrderVendor,
   setVendorDefaultContact,
   updateVendorAutoInventorySettings,
   updateVendorSettings

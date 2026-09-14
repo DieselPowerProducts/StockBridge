@@ -142,8 +142,10 @@ export function VendorsPage({
       setBuildTimeDraft(result.buildTime || "");
       const reconciliation = result.btoReconciliation;
       setVendorSettingsStatus(
-        reconciliation?.converted
-          ? `Vendor settings saved. ${reconciliation.converted} backordered product${reconciliation.converted === 1 ? "" : "s"} updated to Built to Order.${reconciliation.shopifyFailed ? ` ${reconciliation.shopifyFailed} Shopify updates could not be completed.` : ""}`
+        reconciliation?.queued
+          ? `Vendor settings saved. ${reconciliation.queued} assigned product${reconciliation.queued === 1 ? "" : "s"} queued for Shopify availability review.`
+          : reconciliation?.error
+            ? `Vendor settings saved, but Shopify availability review could not be queued: ${reconciliation.error}`
           : "Vendor settings saved."
       );
       setProductRefreshNonce((current) => current + 1);

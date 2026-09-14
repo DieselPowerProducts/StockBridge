@@ -334,3 +334,79 @@ test("nightly reconciliation includes stale in-stock products that have lost sto
     delete require.cache[servicePath];
   }
 });
+
+test("vendor reconciliation queues every active assigned product and publishes one wake", async () => {
+  const neonPath = require.resolve("../db/neon");
+  const eventsPath = require.resolve("./shopifyAvailabilityEvents.service");
+  const statePath = require.resolve("./shopifyAvailabilityState.service");
+  const servicePath = require.resolve("./shopifyAvailabilityQueue.service");
+  const neonModule = require(neonPath);
+  const originalGetSql = neonModule.getSql;
+  const originalEventsModule = require.cache[eventsPath];
+  const originalStateModule = require.cache[statePath];
+  const queries = [];
+  const publishCalls = [];
+  const fakeSql = async () => [];
+
+  fakeSql.query = async (query, values) => {
+    queries.push({ query, values });
+    return [
+      { sku: "DPP-1", revision: 1 },
+      { sku: "DPP-2", revision: 3 }
+    ];
+  };
+  neonModule.getSql = () => fakeSql;
+  require.cache[eventsPath] = {
+    id: eventsPath,
+    filename: eventsPath,
+    loaded: true,
+    exports: {
+      publishAvailabilitySyncWake: async (options) => {
+        publishCalls.push(options);
+        return { messageId: "vendor-message", skipped: false };
+      }
+    }
+  };
+  require.cache[statePath] = {
+    id: statePath,
+    filename: statePath,
+    loaded: true,
+    exports: {
+      initializeSchema: async () => {}
+    }
+  };
+  delete require.cache[servicePath];
+
+  try {
+    const queueService = require(servicePath);
+    const result = await queueService.enqueueVendorReconciliation(" vendor-1 ");
+
+    assert.equal(queries.length, 1);
+    assert.deepEqual(queries[0].values, ["vendor-1"]);
+    assert.match(queries[0].query, /vendor_product\.vendor_id = \$1/);
+    assert.match(queries[0].query, /lower\(COALESCE\(product\.state, 'Active'\)\) = 'active'/);
+    assert.deepEqual(publishCalls, [
+      { source: "vendor-bto-settings:vendor-1" }
+    ]);
+    assert.deepEqual(result, {
+      queued: 2,
+      wake: { messageId: "vendor-message", skipped: false }
+    });
+  } finally {
+    neonModule.getSql = originalGetSql;
+
+    if (originalEventsModule) {
+      require.cache[eventsPath] = originalEventsModule;
+    } else {
+      delete require.cache[eventsPath];
+    }
+
+    if (originalStateModule) {
+      require.cache[statePath] = originalStateModule;
+    } else {
+      delete require.cache[statePath];
+    }
+
+    delete require.cache[servicePath];
+  }
+});

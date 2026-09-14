@@ -471,6 +471,7 @@ export type VendorDetails = {
   buildTime: string;
   btoReconciliation?: {
     converted: number;
+    queued?: number;
     shopifyFailed: number;
     shopifyMatched: number;
     shopifyUpdated: number;

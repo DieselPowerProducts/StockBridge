@@ -246,6 +246,61 @@ async function enqueueNightlyReconciliation() {
   };
 }
 
+async function enqueueVendorReconciliation(vendorId) {
+  await Promise.all([
+    initializeSchema(),
+    shopifyAvailabilityStateService.initializeSchema()
+  ]);
+
+  const safeVendorId = normalizeSku(vendorId);
+
+  if (!safeVendorId) {
+    const error = new Error("Vendor ID is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const sql = getSql();
+  const rows = await sql.query(
+    `
+      INSERT INTO shopify_availability_sync_queue (
+        sku,
+        process_after,
+        source
+      )
+      SELECT DISTINCT
+        product.sku,
+        now(),
+        'vendor-bto-settings'
+      FROM catalog_vendor_products AS vendor_product
+      INNER JOIN catalog_products AS product
+        ON product.product_id = vendor_product.product_id
+      WHERE vendor_product.vendor_id = $1
+        AND lower(COALESCE(product.state, 'Active')) = 'active'
+      ON CONFLICT (sku) DO UPDATE
+      SET process_after = EXCLUDED.process_after,
+          source = EXCLUDED.source,
+          revision = shopify_availability_sync_queue.revision + 1,
+          attempt_count = 0,
+          locked_until = NULL,
+          last_error = '',
+          updated_at = now()
+      RETURNING sku, revision
+    `,
+    [safeVendorId]
+  );
+  const wake = rows.length
+    ? await shopifyAvailabilityEventsService.publishAvailabilitySyncWake({
+        source: `vendor-bto-settings:${safeVendorId}`
+      })
+    : null;
+
+  return {
+    queued: rows.length,
+    wake
+  };
+}
+
 async function claimDueAvailabilitySyncs(
   limit = defaultProcessLimit,
   { sku = "", revision = null } = {}
@@ -512,6 +567,7 @@ async function processDueAvailabilitySyncs({
 module.exports = {
   enqueueAvailabilitySync,
   enqueueNightlyReconciliation,
+  enqueueVendorReconciliation,
   getRetryDelaySeconds,
   getNextAvailabilitySyncWake,
   processDueAvailabilitySyncs,

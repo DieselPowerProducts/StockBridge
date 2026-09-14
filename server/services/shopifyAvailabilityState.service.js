@@ -68,6 +68,7 @@ async function initializeSchema() {
           availability_status TEXT NOT NULL,
           availability_modifier TEXT NOT NULL DEFAULT '',
           build_to_order_lead_time TEXT NOT NULL DEFAULT '',
+          build_to_order_lead_time_override TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
@@ -85,6 +86,10 @@ async function initializeSchema() {
       await sql`
         ALTER TABLE product_shopify_availability_state
         ADD COLUMN IF NOT EXISTS build_to_order_lead_time TEXT NOT NULL DEFAULT ''
+      `;
+      await sql`
+        ALTER TABLE product_shopify_availability_state
+        ADD COLUMN IF NOT EXISTS build_to_order_lead_time_override TEXT
       `;
     })();
   }
@@ -115,9 +120,29 @@ async function getBuildToOrderLeadTimeForSku(sku) {
   const sql = getSql();
   const safeSku = normalizeSku(sku);
   const rows = await sql`
-    SELECT build_to_order_lead_time
-    FROM product_shopify_availability_state
-    WHERE sku = ${safeSku}
+    SELECT COALESCE(
+      NULLIF(state.build_to_order_lead_time_override, ''),
+      NULLIF(vendor_defaults.build_time, ''),
+      state.build_to_order_lead_time
+    ) AS build_to_order_lead_time
+    FROM product_shopify_availability_state AS state
+    LEFT JOIN LATERAL (
+      SELECT settings.build_time
+      FROM catalog_products AS product
+      INNER JOIN catalog_vendor_products AS vendor_product
+        ON vendor_product.product_id = product.product_id
+      INNER JOIN catalog_vendors AS vendor
+        ON vendor.vendor_id = vendor_product.vendor_id
+      INNER JOIN vendor_settings AS settings
+        ON settings.vendor_id = vendor_product.vendor_id
+      WHERE product.sku = state.sku
+        AND vendor.status >= 2
+        AND settings.built_to_order = TRUE
+        AND NULLIF(settings.build_time, '') IS NOT NULL
+      ORDER BY vendor_product.vendor_id
+      LIMIT 1
+    ) AS vendor_defaults ON TRUE
+    WHERE state.sku = ${safeSku}
     LIMIT 1
   `;
 
@@ -188,9 +213,31 @@ async function getBuildToOrderLeadTimesForSkus(skus) {
   const skuJson = JSON.stringify(safeSkus);
   const rows = await sql.query(
     `
-      SELECT sku, build_to_order_lead_time
-      FROM product_shopify_availability_state
-      WHERE sku IN (
+      SELECT
+        state.sku,
+        COALESCE(
+          NULLIF(state.build_to_order_lead_time_override, ''),
+          NULLIF(vendor_defaults.build_time, ''),
+          state.build_to_order_lead_time
+        ) AS build_to_order_lead_time
+      FROM product_shopify_availability_state AS state
+      LEFT JOIN LATERAL (
+        SELECT settings.build_time
+        FROM catalog_products AS product
+        INNER JOIN catalog_vendor_products AS vendor_product
+          ON vendor_product.product_id = product.product_id
+        INNER JOIN catalog_vendors AS vendor
+          ON vendor.vendor_id = vendor_product.vendor_id
+        INNER JOIN vendor_settings AS settings
+          ON settings.vendor_id = vendor_product.vendor_id
+        WHERE product.sku = state.sku
+          AND vendor.status >= 2
+          AND settings.built_to_order = TRUE
+          AND NULLIF(settings.build_time, '') IS NOT NULL
+        ORDER BY vendor_product.vendor_id
+        LIMIT 1
+      ) AS vendor_defaults ON TRUE
+      WHERE state.sku IN (
         SELECT jsonb_array_elements_text($1::jsonb)
       )
     `,
@@ -413,13 +460,20 @@ async function setBuildToOrderLeadTime({ sku, buildToOrderLeadTime }) {
     INSERT INTO product_shopify_availability_state (
       sku,
       availability_status,
-      build_to_order_lead_time
+      build_to_order_lead_time,
+      build_to_order_lead_time_override
     )
-    VALUES (${safeSku}, 'built_to_order', ${safeBuildToOrderLeadTime})
+    VALUES (
+      ${safeSku},
+      'built_to_order',
+      ${safeBuildToOrderLeadTime},
+      ${safeBuildToOrderLeadTime || null}
+    )
     ON CONFLICT (sku) DO UPDATE
-    SET build_to_order_lead_time = EXCLUDED.build_to_order_lead_time,
+    SET build_to_order_lead_time_override =
+          EXCLUDED.build_to_order_lead_time_override,
         updated_at = now()
-    RETURNING build_to_order_lead_time
+    RETURNING COALESCE(build_to_order_lead_time_override, '') AS build_to_order_lead_time
   `;
 
   return String(rows[0]?.build_to_order_lead_time || "").trim();
