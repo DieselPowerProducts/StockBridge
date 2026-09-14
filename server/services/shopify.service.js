@@ -1053,7 +1053,6 @@ function normalizeAvailabilitySyncRecord(record) {
   }
 
   return {
-    allowDiscontinuedOverride: Boolean(record?.allowDiscontinuedOverride),
     availability,
     buildToOrderLeadTime: String(record?.buildToOrderLeadTime || "").trim(),
     buildToOrderMessage: normalizeBuildToOrderMessage(record?.buildToOrderMessage),
@@ -1663,6 +1662,19 @@ function mergeVariantAvailabilityRecords(variants) {
     }
 
     if (
+      currentRecord.availability === "discontinued" ||
+      nextRecord.availability === "discontinued"
+    ) {
+      recordsBySku.set(sku, {
+        sku,
+        availability: "discontinued",
+        buildToOrderLeadTime: undefined
+      });
+      conflictSkus.delete(sku);
+      continue;
+    }
+
+    if (
       currentRecord.availability === nextRecord.availability &&
       String(currentRecord.buildToOrderLeadTime || "") ===
         String(nextRecord.buildToOrderLeadTime || "")
@@ -1724,6 +1736,46 @@ async function syncAvailabilityStateFromShopifyPage({
     skippedCount: skipped.length,
     skippedSamples: skipped.slice(0, 25),
     updatedCount: savedRecords.length
+  };
+}
+
+async function syncAllAvailabilityStateFromShopify({ first = 250 } = {}) {
+  let cursor = "";
+  let hasNextPage = true;
+  const availabilityCounts = {};
+  let pages = 0;
+  let scannedVariantCount = 0;
+  let skippedCount = 0;
+  let updatedCount = 0;
+
+  while (hasNextPage) {
+    const result = await syncAvailabilityStateFromShopifyPage({
+      after: cursor,
+      first
+    });
+
+    pages += 1;
+    scannedVariantCount += result.scannedVariantCount;
+    skippedCount += result.skippedCount;
+    updatedCount += result.updatedCount;
+
+    for (const [availability, count] of Object.entries(
+      result.availabilityCounts
+    )) {
+      availabilityCounts[availability] =
+        (availabilityCounts[availability] || 0) + Number(count || 0);
+    }
+
+    hasNextPage = result.hasNextPage;
+    cursor = result.nextCursor;
+  }
+
+  return {
+    availabilityCounts,
+    pages,
+    scannedVariantCount,
+    skippedCount,
+    updatedCount
   };
 }
 
@@ -2014,15 +2066,22 @@ async function syncVariantAvailabilityMetafields(records, options = {}) {
   const discontinuedTargets = targets.filter(
     (target) =>
       target.ok !== false &&
-      hasDiscontinuedAvailability(target.variants) &&
-      !target.allowDiscontinuedOverride
+      hasDiscontinuedAvailability(target.variants)
   );
   const matchedTargets = targets.filter(
     (target) =>
       target.ok !== false &&
-      (!hasDiscontinuedAvailability(target.variants) ||
-        target.allowDiscontinuedOverride)
+      !hasDiscontinuedAvailability(target.variants)
   );
+
+  if (!options.dryRun && discontinuedTargets.length > 0) {
+    await shopifyAvailabilityStateService.setAvailabilityStatuses(
+      discontinuedTargets.map((target) => ({
+        sku: target.sku,
+        availability: "discontinued"
+      }))
+    );
+  }
   const targetChanges = matchedTargets.map((target) => ({
     target,
     changes: getAvailabilityTargetChanges(target)
@@ -2099,6 +2158,13 @@ async function updateProductAvailability({
 }) {
   const requestedStatus = normalizeAvailabilityStatus(availability);
 
+  if (requestedStatus === "discontinued") {
+    throw createHttpError(
+      409,
+      "Discontinued availability is managed in Shopify and is read-only in StockBridge."
+    );
+  }
+
   if (requestedStatus === "backordered") {
     const warehouseQtyAvailable = await getWarehouseQtyAvailableForSku(sku);
 
@@ -2120,6 +2186,26 @@ async function updateProductAvailability({
 
   if (variantIds.length === 0) {
     throw createHttpError(404, "No Shopify variants matched this SKU.");
+  }
+
+  if (hasDiscontinuedAvailability(variantsToUpdate)) {
+    await shopifyAvailabilityStateService.setAvailabilityStatuses([
+      { sku: safeSku, availability: "discontinued" }
+    ]);
+
+    try {
+      require("./catalog.service").clearCaches();
+    } catch (error) {
+      console.error(
+        "Unable to clear catalog caches after reading discontinued availability.",
+        error
+      );
+    }
+
+    throw createHttpError(
+      409,
+      "This product is Discontinued in Shopify and cannot be updated by StockBridge."
+    );
   }
 
   const { deleteKeys, metafields, status } = getMetafieldChanges({
@@ -2406,6 +2492,7 @@ module.exports = {
   getTrackedCollectiveInventory,
   getQuickShipMetafieldStates,
   resolveOrder,
+  syncAllAvailabilityStateFromShopify,
   syncAvailabilityStateFromShopifyPage,
   syncCollectiveAvailabilityMetafields,
   syncVariantAvailabilityMetafields,
@@ -2413,6 +2500,7 @@ module.exports = {
   updateQuickShipMetafields,
   _test: {
     hasDiscontinuedAvailability,
-    isDiscontinuedAvailabilityValue
+    isDiscontinuedAvailabilityValue,
+    mergeVariantAvailabilityRecords
   }
 };

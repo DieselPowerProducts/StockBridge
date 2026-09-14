@@ -403,6 +403,12 @@ async function setAvailabilityStatuses(records) {
         FROM input_rows
         ON CONFLICT (sku) DO UPDATE
         SET availability_status = EXCLUDED.availability_status,
+            availability_modifier =
+              CASE
+                WHEN EXCLUDED.availability_status = 'discontinued'
+                THEN ''
+                ELSE product_shopify_availability_state.availability_modifier
+              END,
             build_to_order_lead_time =
               CASE
                 WHEN $2::boolean

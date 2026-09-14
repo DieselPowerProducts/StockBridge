@@ -2289,6 +2289,14 @@ body:has(.notes-popup-page),
   opacity: 0.65;
 }
 
+.shopify-availability-modifiers button.availability-discontinued:disabled {
+  cursor: default;
+}
+
+.shopify-availability-modifiers button.active.availability-discontinued:disabled {
+  opacity: 1;
+}
+
 .built-to-order-lead-time {
   display: grid;
   gap: 5px;

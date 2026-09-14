@@ -2018,8 +2018,7 @@ function mapProductAvailabilityToShopifyStatus(
 
   if (
     availabilityModifier === "built_to_order" ||
-    availabilityModifier === "out_of_stock" ||
-    availabilityModifier === "discontinued"
+    availabilityModifier === "out_of_stock"
   ) {
     return availabilityModifier;
   }
@@ -2078,8 +2077,6 @@ function getShopifyAvailabilityRecord({
       : followUpInfo?.followUpDate || kitBackorderFollowUpDate || "";
 
   return {
-    allowDiscontinuedOverride:
-      shopifyAvailabilityModifier === "discontinued",
     sku: product.sku,
     productName: product.name,
     availability,
@@ -3424,6 +3421,8 @@ async function runFullSync({ reason = "manual" } = {}) {
         };
     const shopifyCollectiveInventory =
       await syncShopifyCollectiveInventoryAfterFullSync(reason);
+    const shopifyAvailabilityRead =
+      await syncShopifyAvailabilityStateAfterFullSync(reason);
     const newProductShopifyAvailability =
       await syncShopifyAvailabilityForNewProducts(newProductSkus, reason);
     const shopifyAvailabilityReconciliation =
@@ -3445,6 +3444,7 @@ async function runFullSync({ reason = "manual" } = {}) {
       warehouseProducts: warehouseStockRows.length,
       kitQuickShip,
       newProductShopifyAvailability,
+      shopifyAvailabilityRead,
       shopifyAvailabilityReconciliation,
       shopifyCollectiveInventory
     };
@@ -3924,6 +3924,45 @@ async function getStockCheckProducts({
   });
 
   return filteredData;
+}
+
+async function syncShopifyAvailabilityStateAfterFullSync(reason) {
+  try {
+    const result =
+      await require("./shopify.service").syncAllAvailabilityStateFromShopify();
+
+    await setSyncState(
+      "catalog_last_shopify_availability_read_at",
+      new Date().toISOString()
+    );
+    await setSyncState("catalog_last_shopify_availability_read_reason", reason);
+    await setSyncState("catalog_last_shopify_availability_read_error_at", "");
+    await setSyncState("catalog_last_shopify_availability_read_error", "");
+
+    return result;
+  } catch (error) {
+    const errorMessage = String(
+      error?.message || error || "Shopify availability could not be read."
+    ).slice(0, 1000);
+
+    console.error(
+      "Shopify availability read failed; continuing catalog sync.",
+      error
+    );
+    await setSyncState(
+      "catalog_last_shopify_availability_read_error_at",
+      new Date().toISOString()
+    );
+    await setSyncState(
+      "catalog_last_shopify_availability_read_error",
+      errorMessage
+    );
+
+    return {
+      error: errorMessage,
+      failed: true
+    };
+  }
 }
 
 async function ensureBackorderFollowUpForSku(sku, followUpDate = "") {

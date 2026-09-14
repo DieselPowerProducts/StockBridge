@@ -455,15 +455,21 @@ function getDisplayedShopifyAvailabilityStatus(
 function getDisplayedShopifyAvailabilityModifier(
   productDetails: ProductDetails
 ): ShopifyAvailabilityModifier | "" {
-  if (productDetails.shopifyAvailabilityModifier) {
+  if (productDetails.shopifyAvailabilityStatus === "discontinued") {
+    return "discontinued";
+  }
+
+  if (
+    productDetails.shopifyAvailabilityModifier &&
+    productDetails.shopifyAvailabilityModifier !== "discontinued"
+  ) {
     return productDetails.shopifyAvailabilityModifier;
   }
 
   const savedAvailability = productDetails.shopifyAvailabilityStatus;
 
   return savedAvailability === "built_to_order" ||
-    savedAvailability === "out_of_stock" ||
-    savedAvailability === "discontinued"
+    savedAvailability === "out_of_stock"
     ? savedAvailability
     : "";
 }
@@ -1946,6 +1952,8 @@ export function NotesModal({
   const visibleAssignedVendors = isKitParent ? warehouseVendors : vendors;
   const editableVendors = isKitParent ? [] : vendors.filter(canUpdateVendorStock);
   const builtToOrderVendor = getBuiltToOrderVendor(productDetails);
+  const isShopifyDiscontinued =
+    productDetails?.shopifyAvailabilityStatus === "discontinued";
   const currentStockAvailability: "in_stock" | "backordered" =
     currentShopifyAvailability === "in_stock" ||
     productDetails?.availability === "Available"
@@ -2276,6 +2284,7 @@ export function NotesModal({
     modifier: ShopifyAvailabilityModifier
   ) {
     if (
+      modifier === "discontinued" ||
       !productDetails ||
       isShopifyAvailabilitySaving ||
       isFollowUpSaving
@@ -2379,6 +2388,7 @@ export function NotesModal({
                     )}
                     aria-pressed={option.status === currentStockAvailability}
                     disabled={
+                      isShopifyDiscontinued ||
                       !productDetails ||
                       isShopifyAvailabilitySaving ||
                       isFollowUpSaving ||
@@ -2396,28 +2406,39 @@ export function NotesModal({
                 role="group"
                 aria-label="Optional availability state"
               >
-                {availabilityModifierOptions.map((option) => (
-                  <button
-                    key={option.status}
-                    type="button"
-                    className={getShopifyAvailabilityButtonClass(
-                      option.status,
-                      shopifyAvailabilityModifier
-                    )}
-                    aria-pressed={option.status === shopifyAvailabilityModifier}
-                    disabled={
-                      !productDetails ||
-                      isShopifyAvailabilitySaving ||
-                      isFollowUpSaving ||
-                      isBulkVendorStockSaving
-                    }
-                    onClick={() =>
-                      handleAvailabilityModifierChange(option.status)
-                    }
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                {availabilityModifierOptions.map((option) => {
+                  const isDiscontinuedOption =
+                    option.status === "discontinued";
+
+                  return (
+                    <button
+                      key={option.status}
+                      type="button"
+                      className={getShopifyAvailabilityButtonClass(
+                        option.status,
+                        shopifyAvailabilityModifier
+                      )}
+                      aria-pressed={
+                        isDiscontinuedOption
+                          ? isShopifyDiscontinued
+                          : option.status === shopifyAvailabilityModifier
+                      }
+                      disabled={
+                        isDiscontinuedOption ||
+                        isShopifyDiscontinued ||
+                        !productDetails ||
+                        isShopifyAvailabilitySaving ||
+                        isFollowUpSaving ||
+                        isBulkVendorStockSaving
+                      }
+                      onClick={() =>
+                        handleAvailabilityModifierChange(option.status)
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
                 <button
                   type="button"
                   className={[
@@ -2429,6 +2450,7 @@ export function NotesModal({
                     .join(" ")}
                   aria-pressed={followUpNoEta}
                   disabled={
+                    isShopifyDiscontinued ||
                     !productDetails ||
                     isShopifyAvailabilitySaving ||
                     isFollowUpSaving ||

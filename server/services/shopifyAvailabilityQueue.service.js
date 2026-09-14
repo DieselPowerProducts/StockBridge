@@ -186,6 +186,7 @@ async function enqueueNightlyReconciliation() {
     LEFT JOIN product_shopify_availability_state AS state
       ON lower(state.sku) = lower(product.sku)
     WHERE lower(COALESCE(product.state, 'Active')) = 'active'
+      AND COALESCE(state.availability_status, '') <> 'discontinued'
       AND (
         state.availability_status <> 'in_stock'
         OR COALESCE(state.availability_modifier, '') <> ''

@@ -3,7 +3,11 @@ const assert = require("node:assert/strict");
 
 const {
   aggregateTrackedCollectiveInventoryVariants,
-  _test: { isDiscontinuedAvailabilityValue }
+  updateProductAvailability,
+  _test: {
+    isDiscontinuedAvailabilityValue,
+    mergeVariantAvailabilityRecords
+  }
 } = require("./shopify.service");
 
 function variant({
@@ -109,4 +113,36 @@ test("does not overwrite discontinued Collective availability", () => {
   assert.equal(records[0].hasDiscontinuedAvailability, true);
   assert.equal(records[0].availabilityMetafieldMismatch, false);
   assert.equal(isDiscontinuedAvailabilityValue("DISCONTINUED"), true);
+});
+
+test("keeps discontinued when duplicate Shopify variants disagree", () => {
+  const result = mergeVariantAvailabilityRecords([
+    variant({ id: "available", sku: "DUPLICATE-SKU", quantity: 2 }),
+    variant({
+      id: "discontinued",
+      sku: "duplicate-sku",
+      quantity: 0,
+      productAvailability: "Discontinued"
+    })
+  ]);
+
+  assert.deepEqual(result.records, [
+    {
+      sku: "DUPLICATE-SKU",
+      availability: "discontinued",
+      buildToOrderLeadTime: undefined
+    }
+  ]);
+});
+
+test("rejects attempts to set discontinued through StockBridge", async () => {
+  await assert.rejects(
+    updateProductAvailability({
+      sku: "SKU-DISCONTINUED",
+      availability: "discontinued"
+    }),
+    (error) =>
+      error?.statusCode === 409 &&
+      /read-only in StockBridge/.test(error.message)
+  );
 });

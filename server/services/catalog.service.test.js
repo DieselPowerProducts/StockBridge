@@ -114,7 +114,7 @@ test("keeps stock authoritative over optional Shopify availability modifiers", (
       "backordered",
       "discontinued"
     ),
-    "discontinued"
+    "backordered"
   );
 });
 

@@ -303,6 +303,10 @@ test("nightly reconciliation includes stale in-stock products that have lost sto
     );
 
     assert.ok(reconciliationQuery);
+    assert.match(
+      reconciliationQuery,
+      /COALESCE\(state\.availability_status, ''\) <> 'discontinued'/
+    );
     assert.match(reconciliationQuery, /OR product\.is_kit = TRUE/);
     assert.match(
       reconciliationQuery,
