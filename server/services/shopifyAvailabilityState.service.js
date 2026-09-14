@@ -78,12 +78,6 @@ async function initializeSchema() {
         ADD COLUMN IF NOT EXISTS availability_modifier TEXT NOT NULL DEFAULT ''
       `;
       await sql`
-        UPDATE product_shopify_availability_state
-        SET availability_modifier = availability_status
-        WHERE availability_modifier = ''
-          AND availability_status IN ('built_to_order', 'out_of_stock')
-      `;
-      await sql`
         ALTER TABLE product_shopify_availability_state
         ADD COLUMN IF NOT EXISTS build_to_order_lead_time TEXT NOT NULL DEFAULT ''
       `;
