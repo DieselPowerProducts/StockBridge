@@ -314,7 +314,15 @@ test("nightly reconciliation includes stale in-stock products that have lost sto
     );
     assert.match(
       reconciliationQuery,
+      /assigned_vendor_product\.status = 1/
+    );
+    assert.match(
+      reconciliationQuery,
       /FROM catalog_vendor_products AS stocked_vendor_product/
+    );
+    assert.match(
+      reconciliationQuery,
+      /stocked_vendor_product\.status = 1/
     );
     assert.match(
       reconciliationQuery,

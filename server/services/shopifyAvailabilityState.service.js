@@ -130,6 +130,7 @@ async function getBuildToOrderLeadTimeForSku(sku) {
       INNER JOIN vendor_settings AS settings
         ON settings.vendor_id = vendor_product.vendor_id
       WHERE product.sku = state.sku
+        AND vendor_product.status = 1
         AND vendor.status >= 2
         AND settings.built_to_order = TRUE
         AND NULLIF(settings.build_time, '') IS NOT NULL
@@ -225,6 +226,7 @@ async function getBuildToOrderLeadTimesForSkus(skus) {
         INNER JOIN vendor_settings AS settings
           ON settings.vendor_id = vendor_product.vendor_id
         WHERE product.sku = state.sku
+          AND vendor_product.status = 1
           AND vendor.status >= 2
           AND settings.built_to_order = TRUE
           AND NULLIF(settings.build_time, '') IS NOT NULL

@@ -199,6 +199,7 @@ async function enqueueNightlyReconciliation() {
             INNER JOIN catalog_vendors AS assigned_vendor
               ON assigned_vendor.vendor_id = assigned_vendor_product.vendor_id
             WHERE assigned_vendor_product.product_id = product.product_id
+              AND assigned_vendor_product.status = 1
               AND assigned_vendor.status >= 2
           )
           AND NOT EXISTS (
@@ -209,6 +210,7 @@ async function enqueueNightlyReconciliation() {
             LEFT JOIN vendor_settings AS stocked_vendor_settings
               ON stocked_vendor_settings.vendor_id = stocked_vendor_product.vendor_id
             WHERE stocked_vendor_product.product_id = product.product_id
+              AND stocked_vendor_product.status = 1
               AND stocked_vendor.status >= 2
               AND COALESCE(stocked_vendor_settings.built_to_order, FALSE) = FALSE
               AND stocked_vendor_product.quantity > 0
@@ -228,6 +230,7 @@ async function enqueueNightlyReconciliation() {
           INNER JOIN vendor_settings AS settings
             ON settings.vendor_id = vendor_product.vendor_id
           WHERE vendor_product.product_id = product.product_id
+            AND vendor_product.status = 1
             AND vendor.status >= 2
             AND settings.built_to_order = TRUE
         )
@@ -277,6 +280,7 @@ async function enqueueVendorReconciliation(vendorId) {
       INNER JOIN catalog_products AS product
         ON product.product_id = vendor_product.product_id
       WHERE vendor_product.vendor_id = $1
+        AND vendor_product.status = 1
         AND lower(COALESCE(product.state, 'Active')) = 'active'
       ON CONFLICT (sku) DO UPDATE
       SET process_after = EXCLUDED.process_after,

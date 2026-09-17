@@ -40,6 +40,13 @@ test("keeps non-vendor BTO and non-BTO products eligible", () => {
   );
 });
 
+test("recognizes only active vendor-product assignments", () => {
+  assert.equal(_test.isActiveVendorProduct({ status: 1 }), true);
+  assert.equal(_test.isActiveVendorProduct({ status: 2 }), false);
+  assert.equal(_test.isActiveVendorProduct({ status: 0 }), false);
+  assert.equal(_test.isActiveVendorProduct({ status: null }), false);
+});
+
 test("uses a product BTO time before the assigned vendor default", () => {
   assert.equal(
     _test.getOwnBuildToOrderLeadTime(

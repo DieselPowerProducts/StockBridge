@@ -302,6 +302,10 @@ function isActiveVendor(vendor) {
   return Number(vendor?.status || 0) >= 2;
 }
 
+function isActiveVendorProduct(vendorProduct) {
+  return Number(vendorProduct?.status) === 1;
+}
+
 function getEffectiveQtyAvailable(
   sku,
   productsBySku,
@@ -1023,6 +1027,7 @@ async function queryVendorProductsPage({ vendorId, page, limit, search }) {
       JOIN catalog_products p
         ON p.product_id = vp.product_id
       WHERE vp.vendor_id = $1
+      AND vp.status = 1
       AND lower(COALESCE(p.state, 'Active')) = 'active'
       ${searchClause}
     `,
@@ -1046,6 +1051,7 @@ async function queryVendorProductsPage({ vendorId, page, limit, search }) {
       JOIN catalog_products p
         ON p.product_id = vp.product_id
       WHERE vp.vendor_id = $1
+      AND vp.status = 1
       AND lower(COALESCE(p.state, 'Active')) = 'active'
       ${searchClause}
       ORDER BY COALESCE(NULLIF(p.sku, ''), vp.sku, vp.label, vp.vendor_product_id) ASC
@@ -1251,20 +1257,24 @@ async function queryVendorProductsByProductId(productId) {
   const sql = getSql();
   return sql`
     SELECT
-      vendor_product_id AS id,
-      vendor_id,
-      product_id,
-      sku,
-      label,
-      quantity,
-      status,
-      price,
-      pending_price,
-      pending_price_source_url,
-      pending_price_updated_at
-    FROM catalog_vendor_products
-    WHERE product_id = ${productId}
-    ORDER BY COALESCE(NULLIF(sku, ''), label, vendor_product_id) ASC
+      vp.vendor_product_id AS id,
+      vp.vendor_id,
+      vp.product_id,
+      vp.sku,
+      vp.label,
+      vp.quantity,
+      vp.status,
+      vp.price,
+      vp.pending_price,
+      vp.pending_price_source_url,
+      vp.pending_price_updated_at
+    FROM catalog_vendor_products vp
+    JOIN catalog_vendors v
+      ON v.vendor_id = vp.vendor_id
+    WHERE vp.product_id = ${productId}
+    AND vp.status = 1
+    AND v.status >= 2
+    ORDER BY COALESCE(NULLIF(vp.sku, ''), vp.label, vp.vendor_product_id) ASC
   `;
 }
 
@@ -1288,7 +1298,11 @@ async function queryActiveVendorProductsByVendorId(vendorId) {
     FROM catalog_vendor_products vp
     JOIN catalog_products p
       ON p.product_id = vp.product_id
+    JOIN catalog_vendors v
+      ON v.vendor_id = vp.vendor_id
     WHERE vp.vendor_id = ${vendorId}
+    AND vp.status = 1
+    AND v.status >= 2
     AND lower(COALESCE(p.state, 'Active')) = 'active'
     ORDER BY COALESCE(NULLIF(p.sku, ''), vp.sku, vp.label, vp.vendor_product_id) ASC
   `;
@@ -1554,6 +1568,7 @@ async function queryVendorAvailabilityRows(productIds) {
         ON v.vendor_id = vp.vendor_id
       LEFT JOIN vendor_settings vs
         ON vs.vendor_id = vp.vendor_id
+      WHERE vp.status = 1
     `;
   }
 
@@ -1585,6 +1600,7 @@ async function queryVendorAvailabilityRows(productIds) {
       WHERE vp.product_id IN (
         SELECT jsonb_array_elements_text($1::jsonb)
       )
+      AND vp.status = 1
     `,
     [idJson]
   );
@@ -3759,7 +3775,12 @@ async function getProductDetails(sku) {
   ]);
   const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
   const assignedVendors = vendorProducts
-    .filter((vendorProduct) => vendorProduct.id && vendorProduct.vendor_id)
+    .filter(
+      (vendorProduct) =>
+        vendorProduct.id &&
+        vendorProduct.vendor_id &&
+        isActiveVendorProduct(vendorProduct)
+    )
     .map((vendorProduct) => {
       const vendor = vendorsById.get(vendorProduct.vendor_id);
       const settings = settingsByVendorId.get(vendorProduct.vendor_id);
@@ -4346,6 +4367,7 @@ module.exports = {
     getEffectiveQtyAvailable,
     mapProductAvailabilityToShopifyStatus,
     getOwnBuildToOrderLeadTime,
+    isActiveVendorProduct,
     shouldIncludeBuiltToOrderProductInStockCheck,
     shouldIncludeNonCollectiveProductInStockCheck
   }

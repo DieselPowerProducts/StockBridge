@@ -202,9 +202,12 @@ async function getVendorProducts(productIds) {
         p.sku AS product_sku
       FROM catalog_vendor_products vp
       JOIN catalog_products p ON p.product_id = vp.product_id
+      JOIN catalog_vendors v ON v.vendor_id = vp.vendor_id
       WHERE vp.product_id IN (
         SELECT jsonb_array_elements_text($1::jsonb)
       )
+      AND vp.status = 1
+      AND v.status >= 2
     `,
     [JSON.stringify(productIds)]
   );
