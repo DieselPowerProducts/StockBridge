@@ -18,13 +18,6 @@ type StockCheckPageProps = {
   onOpenNotes: (sku: string) => void;
 };
 
-type StockCheckCacheEntry = {
-  data: Product[];
-  isLastPage: boolean;
-  total: number;
-  totalPages: number;
-};
-
 const pageSize = 30;
 const stockCheckSortOptions: Array<{ value: StockCheckSort; label: string }> = [
   { value: "yesterday", label: "Yesterday" },
@@ -83,10 +76,6 @@ function normalizeSku(value: string) {
   return value.trim().toUpperCase();
 }
 
-function isFlowThroughStockCheckSort(sort: StockCheckSort) {
-  return sort === "yesterday" || sort === "today" || sort === "tomorrow";
-}
-
 function compareStockCheckProducts(left: Product, right: Product) {
   const leftDate = left.followUpDate || "";
   const rightDate = right.followUpDate || "";
@@ -113,8 +102,7 @@ function applyAndFilterStockCheckProducts(
   productStockUpdate: ProductStockUpdate | null,
   followUpOverrides: FollowUpOverrides,
   sort: StockCheckSort,
-  vendorEmailSentSkus: Set<string> = new Set(),
-  excludedSkus: Set<string> = new Set()
+  vendorEmailSentSkus: Set<string> = new Set()
 ) {
   return applyProductStockUpdate(products, productStockUpdate)
     .map((product) => {
@@ -137,20 +125,7 @@ function applyAndFilterStockCheckProducts(
       };
     })
     .filter((product) => matchesStockCheckFilter(product, sort))
-    .filter((product) => !excludedSkus.has(normalizeSku(product.sku)))
     .sort(compareStockCheckProducts);
-}
-
-function getStockCheckCacheKey({
-  page,
-  referenceDate,
-  sort
-}: {
-  page: number;
-  referenceDate: string;
-  sort: StockCheckSort;
-}) {
-  return `${referenceDate}:${sort}:${page}`;
 }
 
 export function StockCheckPage({
@@ -161,15 +136,12 @@ export function StockCheckPage({
 }: StockCheckPageProps) {
   const latestProductStockUpdate = useRef(productStockUpdate);
   const latestFollowUpOverrides = useRef(followUpOverrides);
-  const stockCheckCache = useRef(new Map<string, StockCheckCacheEntry>());
-  const borrowedSkusByCacheKey = useRef(new Map<string, Set<string>>());
-  const removedSkusBySortKey = useRef(new Map<string, Set<string>>());
+  const handledUpdate = useRef(productStockUpdate);
   const vendorEmailSentSkus = useRef(new Set<string>());
   const productsRef = useRef<Product[]>([]);
-  const currentPageRef = useRef(1);
-  const sortRef = useRef<StockCheckSort>("all");
-  const totalItemsRef = useRef(0);
-  const handledRefreshToken = useRef(0);
+  const requestVersion = useRef(0);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const [reservedHeight, setReservedHeight] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
@@ -178,252 +150,60 @@ export function StockCheckPage({
   const [sort, setSort] = useState<StockCheckSort>("all");
   const [refreshToken, setRefreshToken] = useState(0);
 
-  useEffect(() => {
-    latestProductStockUpdate.current = productStockUpdate;
-  }, [productStockUpdate]);
-
-  useEffect(() => {
-    latestFollowUpOverrides.current = followUpOverrides;
-  }, [followUpOverrides]);
-
-  useEffect(() => {
-    currentPageRef.current = currentPage;
-  }, [currentPage]);
-
-  useEffect(() => {
-    sortRef.current = sort;
-  }, [sort]);
-
   function updateProducts(nextProducts: Product[]) {
     productsRef.current = nextProducts;
     setProducts(nextProducts);
   }
 
-  function updateTotalItems(nextTotalItems: number) {
-    totalItemsRef.current = nextTotalItems;
-    setTotalItems(nextTotalItems);
-  }
-
-  function getBorrowedSkus(cacheKey: string) {
-    return borrowedSkusByCacheKey.current.get(cacheKey) || new Set<string>();
-  }
-
-  function getSortDateKey(nextSort: StockCheckSort, referenceDate: string) {
-    return `${referenceDate}:${nextSort}`;
-  }
-
-  function getAdjustedTotal(total: number, nextSort: StockCheckSort, referenceDate: string) {
-    if (!isFlowThroughStockCheckSort(nextSort)) {
-      return total;
-    }
-
-    const removedSkus =
-      removedSkusBySortKey.current.get(getSortDateKey(nextSort, referenceDate)) ||
-      new Set<string>();
-
-    return Math.max(0, total - removedSkus.size);
-  }
-
-  function applyLocalState(
-    productsToApply: Product[],
-    nextSort = sort,
-    page = currentPage,
-    referenceDate = getLocalDateText()
-  ) {
-    const cacheKey = getStockCheckCacheKey({
-      page,
-      referenceDate,
-      sort: nextSort
-    });
-
-    return applyAndFilterStockCheckProducts(
-      productsToApply,
-      latestProductStockUpdate.current,
-      latestFollowUpOverrides.current,
-      nextSort,
-      vendorEmailSentSkus.current,
-      getBorrowedSkus(cacheKey)
-    );
-  }
-
-  async function getCachedOrRemotePage(
-    page: number,
-    nextSort: StockCheckSort,
-    referenceDate: string
-  ) {
-    const cacheKey = getStockCheckCacheKey({
-      page,
-      referenceDate,
-      sort: nextSort
-    });
-    const cachedResult = stockCheckCache.current.get(cacheKey);
-
-    if (cachedResult) {
-      return cachedResult;
-    }
-
-    const result = await getStockCheckProducts({
-      page,
-      limit: pageSize,
-      search: "",
-      sort: nextSort,
-      referenceDate,
-      bypassCache: false
-    });
-    const cacheEntry = {
-      data: result.data,
-      isLastPage: result.isLastPage,
-      total: result.total,
-      totalPages: result.totalPages
-    };
-
-    stockCheckCache.current.set(cacheKey, cacheEntry);
-    return cacheEntry;
-  }
-
-  async function fillCurrentPageFromFollowingPages({
-    baseProducts,
-    expectedTotal,
-    page,
-    referenceDate,
-    sort: nextSort
-  }: {
-    baseProducts: Product[];
-    expectedTotal: number;
-    page: number;
-    referenceDate: string;
-    sort: StockCheckSort;
-  }) {
-    if (!isFlowThroughStockCheckSort(nextSort)) {
-      return;
-    }
-
-    const pageStartIndex = (page - 1) * pageSize;
-    const seenSkus = new Set(baseProducts.map((product) => normalizeSku(product.sku)));
-    const filledProducts = [...baseProducts];
-    let nextPage = page + 1;
-    const maxPage = Math.ceil(expectedTotal / pageSize) + 1;
-
-    while (
-      filledProducts.length < pageSize &&
-      pageStartIndex + filledProducts.length < expectedTotal &&
-      nextPage <= maxPage
-    ) {
-      let nextEntry: StockCheckCacheEntry;
-
-      try {
-        nextEntry = await getCachedOrRemotePage(nextPage, nextSort, referenceDate);
-      } catch (err) {
-        console.warn("Unable to fill stock check page from next page.", err);
-        return;
-      }
-
-      const nextCacheKey = getStockCheckCacheKey({
-        page: nextPage,
-        referenceDate,
-        sort: nextSort
-      });
-      const nextPageProducts = applyLocalState(
-        nextEntry.data,
-        nextSort,
-        nextPage,
-        referenceDate
-      );
-
-      for (const product of nextPageProducts) {
-        const productSku = normalizeSku(product.sku);
-
-        if (seenSkus.has(productSku)) {
-          continue;
-        }
-
-        filledProducts.push(product);
-        seenSkus.add(productSku);
-
-        const borrowedSkus =
-          borrowedSkusByCacheKey.current.get(nextCacheKey) || new Set<string>();
-        borrowedSkus.add(productSku);
-        borrowedSkusByCacheKey.current.set(nextCacheKey, borrowedSkus);
-
-        if (filledProducts.length >= pageSize) {
-          break;
-        }
-      }
-
-      if (nextEntry.isLastPage) {
-        break;
-      }
-
-      nextPage += 1;
-    }
-
-    if (
-      currentPageRef.current === page &&
-      sortRef.current === nextSort &&
-      filledProducts.length > baseProducts.length
-    ) {
-      const currentCacheKey = getStockCheckCacheKey({
-        page,
-        referenceDate,
-        sort: nextSort
-      });
-      const currentEntry = stockCheckCache.current.get(currentCacheKey);
-
-      if (currentEntry) {
-        stockCheckCache.current.set(currentCacheKey, {
-          ...currentEntry,
-          data: filledProducts
-        });
-      }
-
-      updateProducts(filledProducts);
-    }
+  function reserveTableHeight() {
+    setReservedHeight(tableRef.current?.getBoundingClientRect().height || 0);
   }
 
   useEffect(() => {
+    latestProductStockUpdate.current = productStockUpdate;
+    latestFollowUpOverrides.current = followUpOverrides;
+    if (!productStockUpdate || handledUpdate.current === productStockUpdate) return;
+    handledUpdate.current = productStockUpdate;
+
+    const currentProducts = productsRef.current;
+    const previous = currentProducts.find(
+      (product) => normalizeSku(product.sku) === normalizeSku(productStockUpdate.sku)
+    );
+    const changed = Boolean(
+      productStockUpdate.followUpSaved ||
+      !previous ||
+      previous.availability !== productStockUpdate.availability ||
+      previous.qtyAvailable !== productStockUpdate.qtyAvailable ||
+      (productStockUpdate.followUpDate !== undefined &&
+        previous.followUpDate !== productStockUpdate.followUpDate)
+    );
+    if (!changed) return;
+
+    // Invalidate in-flight responses before the replacement request starts.
+    requestVersion.current += 1;
+    reserveTableHeight();
+    if (productStockUpdate.followUpSaved) {
+      vendorEmailSentSkus.current.delete(normalizeSku(productStockUpdate.sku));
+    }
+    const nextProducts = applyAndFilterStockCheckProducts(
+      currentProducts, productStockUpdate, followUpOverrides, sort,
+      vendorEmailSentSkus.current
+    );
+    updateProducts(nextProducts);
+    setTotalItems((total) => Math.max(0, total - (currentProducts.length - nextProducts.length)));
+    setRefreshToken((token) => token + 1);
+  }, [productStockUpdate, followUpOverrides, sort]);
+
+  useEffect(() => {
     let ignore = false;
+    const version = ++requestVersion.current;
     const referenceDate = getLocalDateText();
-    const cacheKey = getStockCheckCacheKey({
-      page: currentPage,
-      referenceDate,
-      sort
-    });
-    const cachedResult = stockCheckCache.current.get(cacheKey);
-    const shouldBypassCache = refreshToken !== handledRefreshToken.current;
+    const isCurrent = () => !ignore && version === requestVersion.current;
 
-    async function loadStockCheckProducts() {
-      if (!shouldBypassCache && cachedResult) {
-        setError("");
-        setIsLoading(false);
-        const nextProducts = applyLocalState(
-          cachedResult.data,
-          sort,
-          currentPage,
-          referenceDate
-        );
-        const adjustedTotal = getAdjustedTotal(
-          cachedResult.total,
-          sort,
-          referenceDate
-        );
-
-        updateProducts(nextProducts);
-        updateTotalItems(adjustedTotal);
-        void fillCurrentPageFromFollowingPages({
-          baseProducts: nextProducts,
-          expectedTotal: adjustedTotal,
-          page: currentPage,
-          referenceDate,
-          sort
-        });
-        return;
-      }
-
-      if (!shouldBypassCache) {
-        setIsLoading(true);
-      }
+    async function loadPage() {
+      reserveTableHeight();
+      setIsLoading(true);
       setError("");
-
       try {
         const result = await getStockCheckProducts({
           page: currentPage,
@@ -431,146 +211,47 @@ export function StockCheckPage({
           search: "",
           sort,
           referenceDate,
-          bypassCache: shouldBypassCache
+          bypassCache: true
         });
+        if (!isCurrent()) return;
 
-        if (!ignore) {
-          if (shouldBypassCache && isFlowThroughStockCheckSort(sort)) {
-            removedSkusBySortKey.current.delete(getSortDateKey(sort, referenceDate));
-          }
-
-          stockCheckCache.current.set(cacheKey, {
-            data: result.data,
-            isLastPage: result.isLastPage,
-            total: result.total,
-            totalPages: result.totalPages
-          });
-          const nextProducts = applyLocalState(
-            result.data,
-            sort,
-            currentPage,
-            referenceDate
-          );
-          const adjustedTotal = getAdjustedTotal(result.total, sort, referenceDate);
-
-          updateProducts(nextProducts);
-          updateTotalItems(adjustedTotal);
-          void fillCurrentPageFromFollowingPages({
-            baseProducts: nextProducts,
-            expectedTotal: adjustedTotal,
-            page: currentPage,
-            referenceDate,
-            sort
-          });
+        const lastPage = Math.max(1, result.totalPages);
+        setTotalItems(result.total);
+        if (currentPage > lastPage) {
+          setCurrentPage(lastPage);
+          return;
         }
+        updateProducts(applyAndFilterStockCheckProducts(
+          result.data,
+          latestProductStockUpdate.current,
+          latestFollowUpOverrides.current,
+          sort,
+          vendorEmailSentSkus.current
+        ));
       } catch (err) {
-        if (!ignore) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to load stock check products."
-          );
+        if (isCurrent()) {
+          setError(err instanceof Error ? err.message : "Unable to load stock check products.");
         }
       } finally {
-        if (!ignore) {
-          handledRefreshToken.current = refreshToken;
+        if (isCurrent()) {
           setIsLoading(false);
+          setReservedHeight(0);
         }
       }
     }
-
-    loadStockCheckProducts();
-
-    return () => {
-      ignore = true;
-    };
+    void loadPage();
+    return () => { ignore = true; };
   }, [currentPage, refreshToken, sort]);
 
   useEffect(() => {
-    if (!productStockUpdate) {
-      return;
-    }
-
-    const currentSort = sortRef.current;
-    const currentPageNumber = currentPageRef.current;
-    const currentProducts = productsRef.current;
-    const nextProducts = applyAndFilterStockCheckProducts(
-      currentProducts,
-      productStockUpdate,
-      followUpOverrides,
-      currentSort,
-      vendorEmailSentSkus.current
-    );
-    const referenceDate = getLocalDateText();
-    const removedSkus = currentProducts
-      .filter(
-        (product) =>
-          !nextProducts.some(
-            (nextProduct) => normalizeSku(nextProduct.sku) === normalizeSku(product.sku)
-          )
-      )
-      .map((product) => normalizeSku(product.sku));
-    let nextTotal = totalItemsRef.current;
-
-    if (isFlowThroughStockCheckSort(currentSort) && removedSkus.length > 0) {
-      const sortDateKey = getSortDateKey(currentSort, referenceDate);
-      const removedSkusForSort =
-        removedSkusBySortKey.current.get(sortDateKey) || new Set<string>();
-      let newRemovedCount = 0;
-
-      for (const removedSku of removedSkus) {
-        if (!removedSkusForSort.has(removedSku)) {
-          removedSkusForSort.add(removedSku);
-          newRemovedCount += 1;
-        }
-      }
-
-      removedSkusBySortKey.current.set(sortDateKey, removedSkusForSort);
-      nextTotal = Math.max(0, totalItemsRef.current - newRemovedCount);
-      updateTotalItems(nextTotal);
-    }
-
-    updateProducts(nextProducts);
-
-    if (productStockUpdate.followUpSaved) {
-      stockCheckCache.current.clear();
-      borrowedSkusByCacheKey.current.clear();
-      setRefreshToken((current) => current + 1);
-    }
-
-    if (
-      isFlowThroughStockCheckSort(currentSort) &&
-      nextProducts.length < pageSize &&
-      (currentPageNumber - 1) * pageSize + nextProducts.length < nextTotal
-    ) {
-      void fillCurrentPageFromFollowingPages({
-        baseProducts: nextProducts,
-        expectedTotal: nextTotal,
-        page: currentPageNumber,
-        referenceDate,
-        sort: currentSort
-      });
-    }
-  }, [followUpOverrides, productStockUpdate]);
-
-  useEffect(() => {
-    if (!vendorEmailSentUpdate?.sku) {
-      return;
-    }
-
+    if (!vendorEmailSentUpdate?.sku) return;
     const emailedSku = normalizeSku(vendorEmailSentUpdate.sku);
-
     vendorEmailSentSkus.current.add(emailedSku);
-    updateProducts(
-      productsRef.current.map((product) =>
-        normalizeSku(product.sku) === emailedSku
-          ? {
-              ...product,
-              vendorEmailSent: true
-            }
-          : product
-      )
-    );
+    updateProducts(productsRef.current.map((product) =>
+      normalizeSku(product.sku) === emailedSku
+        ? { ...product, vendorEmailSent: true }
+        : product
+    ));
   }, [vendorEmailSentUpdate]);
 
   const emptyMessageBySort: Record<StockCheckSort, string> = {
@@ -606,14 +287,18 @@ export function StockCheckPage({
       </div>
 
       {error && <p className="status-message error-message">{error}</p>}
-      {isLoading && <p className="status-message">Loading stock check...</p>}
+      <p className="status-message" role="status" style={{ minHeight: "1.5em" }}>
+        {isLoading ? "Loading stock check..." : "\u00a0"}
+      </p>
 
-      <ProductsTable
-        emptyMessage={emptyMessageBySort[sort]}
-        products={products}
-        onOpenNotes={onOpenNotes}
-        showVendorEmailStatus
-      />
+      <div ref={tableRef} aria-busy={isLoading} style={{ minHeight: reservedHeight || undefined }}>
+        <ProductsTable
+          emptyMessage={emptyMessageBySort[sort]}
+          products={products}
+          onOpenNotes={onOpenNotes}
+          showVendorEmailStatus
+        />
+      </div>
 
       <Pagination
         currentPage={currentPage}
