@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { _test } = require("./autoInventory.service");
+const ExcelJS = require("exceljs");
+const JSZip = require("jszip");
+const { getSheetPreview, _test } = require("./autoInventory.service");
 
 const alphabeticalSettings = {
   inventoryMode: "alphabetical",
@@ -44,6 +46,39 @@ test("treats blank numerical inventory cells as zero stock", () => {
   assert.equal(result.quantity, 0);
   assert.equal(result.sheetQuantity, 0);
   assert.equal(_test.getTrackedSheetQuantity(result, "numerical"), 0);
+});
+
+test("parses Excel workbooks with absolute worksheet relationship targets", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Inventory");
+  worksheet.addRow(["No.", "Description", "Quantity on Hand"]);
+  worksheet.addRow(["115026120", "PPE Test Part", "In Stock"]);
+
+  const zip = await JSZip.loadAsync(await workbook.xlsx.writeBuffer());
+  const relationshipsPath = "xl/_rels/workbook.xml.rels";
+  const relationshipsFile = zip.file(relationshipsPath);
+  const relationships = await relationshipsFile.async("string");
+  zip.file(
+    relationshipsPath,
+    relationships.replace(
+      'Target="worksheets/sheet1.xml"',
+      'Target="/xl/worksheets/sheet1.xml"'
+    )
+  );
+  const content = await zip.generateAsync({ type: "nodebuffer" });
+
+  const preview = await getSheetPreview(content, {
+    filename: "PPE inventory.xlsx"
+  });
+
+  assert.deepEqual(preview.availableHeaders, [
+    "No.",
+    "Description",
+    "Quantity on Hand"
+  ]);
+  assert.deepEqual(preview.previewRows, [
+    ["115026120", "PPE Test Part", "In Stock"]
+  ]);
 });
 
 test("applies a card mapping without changing vendor identity or exceptions", () => {

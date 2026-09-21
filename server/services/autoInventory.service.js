@@ -3,6 +3,7 @@ const { Readable } = require("stream");
 const csv = require("csv-parser");
 const ExcelJS = require("exceljs");
 const { ImapFlow } = require("imapflow");
+const JSZip = require("jszip");
 const { simpleParser } = require("mailparser");
 const catalogService = require("./catalog.service");
 const productsService = require("./products.service");
@@ -504,10 +505,34 @@ function getExcelRowValues(row) {
   return values.map((value) => normalizeText(value));
 }
 
+async function normalizeExcelWorkbookRelationships(content) {
+  const zip = await JSZip.loadAsync(content);
+  const relationshipsPath = "xl/_rels/workbook.xml.rels";
+  const relationshipsFile = zip.file(relationshipsPath);
+
+  if (!relationshipsFile) {
+    return content;
+  }
+
+  const relationships = await relationshipsFile.async("string");
+  const normalizedRelationships = relationships.replace(
+    /Target=(['"])\/xl\/([^'"]+)\1/g,
+    (_match, quote, target) => `Target=${quote}${target}${quote}`
+  );
+
+  if (normalizedRelationships === relationships) {
+    return content;
+  }
+
+  zip.file(relationshipsPath, normalizedRelationships);
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+
 async function parseExcelRows(content) {
   const workbook = new ExcelJS.Workbook();
+  const normalizedContent = await normalizeExcelWorkbookRelationships(content);
 
-  await workbook.xlsx.load(content);
+  await workbook.xlsx.load(normalizedContent);
 
   const worksheet =
     workbook.worksheets.find((sheet) => Number(sheet.actualRowCount || 0) > 0) ||
