@@ -98,6 +98,35 @@ test("excludes Shopify Collective products from Stock Check", () => {
   );
 });
 
+test("excludes discontinued products from Stock Check", () => {
+  const availabilityBySku = new Map([
+    ["DISCONTINUED-SKU", "discontinued"],
+    ["BACKORDERED-SKU", "backordered"]
+  ]);
+
+  assert.equal(
+    _test.shouldIncludeNonDiscontinuedProductInStockCheck(
+      { sku: "DISCONTINUED-SKU" },
+      availabilityBySku
+    ),
+    false
+  );
+  assert.equal(
+    _test.shouldIncludeNonDiscontinuedProductInStockCheck(
+      { sku: "BACKORDERED-SKU" },
+      availabilityBySku
+    ),
+    true
+  );
+  assert.equal(
+    _test.shouldIncludeNonDiscontinuedProductInStockCheck(
+      { sku: "UNTRACKED-SKU" },
+      availabilityBySku
+    ),
+    true
+  );
+});
+
 test("keeps stock authoritative over optional Shopify availability modifiers", () => {
   assert.equal(
     _test.mapProductAvailabilityToShopifyStatus(

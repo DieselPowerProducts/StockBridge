@@ -3919,6 +3919,12 @@ async function getStockCheckProducts({
         productVendorAvailability
       )
     )
+    .filter((product) =>
+      shouldIncludeNonDiscontinuedProductInStockCheck(
+        product,
+        shopifyAvailabilityBySku
+      )
+    )
     .map((product) =>
       mapProduct(product, productVendorAvailability, followUpsBySku, {
         ...graph,
@@ -4067,6 +4073,15 @@ function shouldIncludeNonCollectiveProductInStockCheck(
     !productVendorAvailability?.collectiveQuantityByProductId?.has(product?.id) &&
     !productVendorAvailability?.productIdsWithCollectiveVendors?.has(product?.id)
   );
+}
+
+function shouldIncludeNonDiscontinuedProductInStockCheck(
+  product,
+  shopifyAvailabilityBySku
+) {
+  const sku = String(product?.sku || "").trim();
+
+  return !sku || shopifyAvailabilityBySku?.get(sku) !== "discontinued";
 }
 
 async function listStockCheckProducts(queryParams = {}) {
@@ -4369,6 +4384,7 @@ module.exports = {
     getOwnBuildToOrderLeadTime,
     isActiveVendorProduct,
     shouldIncludeBuiltToOrderProductInStockCheck,
-    shouldIncludeNonCollectiveProductInStockCheck
+    shouldIncludeNonCollectiveProductInStockCheck,
+    shouldIncludeNonDiscontinuedProductInStockCheck
   }
 };
