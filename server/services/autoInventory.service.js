@@ -805,6 +805,53 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       settings.skuHeader
     );
   const manualSkuExceptionKeys = buildSkuExceptionKeys(settings.skuExceptions);
+  const reconciledManualExceptions = new Map();
+  const disagreeingManualExceptions = new Set();
+  // Check every matching row before releasing an override, including duplicates.
+  if (manualSkuExceptionKeys.size > 0) {
+    for (const row of rows) {
+      const sheetSku = findHeaderValue(row, settings.skuHeader);
+      if (!sheetSku) continue;
+      const matches = findVendorProductsForSheetSku(
+        vendorProductLookup, sheetSku, stronglyRepresentedVendorProductIds
+      ).filter((product) =>
+        isVendorProductExcepted(product, manualSkuExceptionKeys, [sheetSku])
+      );
+      if (matches.length === 0) continue;
+      const parsed = parseInventoryResult(
+        findHeaderValue(row, settings.inventoryHeader),
+        settings,
+        settings.inventoryMode !== "alphabetical" && settings.subtractiveColumn
+          ? findHeaderValue(row, settings.subtractiveColumn)
+          : ""
+      );
+      for (const product of matches) {
+        const id = String(product.id);
+        const quantity = Number(product.quantity);
+        if (parsed && product.quantity != null && Number.isFinite(quantity) &&
+            (quantity > 0) === (parsed.quantity > 0)) {
+          reconciledManualExceptions.set(id, product);
+        } else {
+          disagreeingManualExceptions.add(id);
+        }
+      }
+    }
+    for (const id of disagreeingManualExceptions) {
+      reconciledManualExceptions.delete(id);
+    }
+    // A shared vendor SKU must not release another product's conflicting override.
+    const protectedKeys = buildSkuExceptionKeys(vendorProducts
+      .filter((product) =>
+        isVendorProductExcepted(product, manualSkuExceptionKeys) &&
+        !reconciledManualExceptions.has(String(product.id))
+      )
+      .flatMap((product) => getVendorProductSkuValues(product)));
+    for (const [id, product] of reconciledManualExceptions) {
+      if (isVendorProductExcepted(product, protectedKeys)) {
+        reconciledManualExceptions.delete(id);
+      }
+    }
+  }
   const missingSheetSkuExceptionKeys = buildSkuExceptionKeys(
     settings.missingSheetSkuExceptions
   );
@@ -848,7 +895,8 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       (vendorProduct) => {
         representedVendorProductIds.add(String(vendorProduct.id));
         if (
-          isVendorProductExcepted(vendorProduct, manualSkuExceptionKeys, [sheetSku])
+          isVendorProductExcepted(vendorProduct, manualSkuExceptionKeys, [sheetSku]) &&
+          !reconciledManualExceptions.has(String(vendorProduct.id))
         ) {
           exceptionRows += 1;
           return false;
@@ -917,6 +965,15 @@ async function stageSheetAttachment({ settings, attachment, message }) {
       });
     });
   });
+
+  if (reconciledManualExceptions.size > 0) {
+    await settingsService.setSkuException(
+      settings.vendorId,
+      Array.from(reconciledManualExceptions.values())
+        .flatMap((product) => getVendorProductSkuValues(product)),
+      false
+    );
+  }
 
   if (representedMissingSheetExceptionProducts.size > 0) {
     const representedSkuValues = Array.from(

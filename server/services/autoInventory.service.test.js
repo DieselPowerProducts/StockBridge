@@ -508,7 +508,7 @@ test("reactivates a missing-sheet exception when it appears later", async () => 
   });
 });
 
-test("keeps manual exceptions disabled when they appear on a later sheet", async () => {
+test("keeps manual exceptions disabled when the later sheet disagrees", async () => {
   await withStagingHarness(async ({ missingSheetExceptionUpdates, staged, stageSheetAttachment }) => {
     const result = await stageSheetAttachment({
       settings: { ...stagingSettings, skuExceptions: ["DPP-100"] },
@@ -525,6 +525,73 @@ test("keeps manual exceptions disabled when they appear on a later sheet", async
     assert.equal(staged[0].summary.exceptionRows, 1);
     assert.equal(missingSheetExceptionUpdates.length, 0);
   });
+});
+
+for (const scenario of [
+  { name: "positive quantities need not match exactly", quantity: 999999, values: ["12"], restored: true },
+  { name: "both sources out of stock", quantity: 0, values: ["0"], restored: true },
+  { name: "blank numerical quantity is zero", quantity: 0, values: [""], restored: true },
+  { name: "manual in stock but sheet out of stock", quantity: 999999, values: ["0"], restored: false },
+  { name: "conflicting duplicate rows", quantity: 999999, values: ["12", "0"], restored: false },
+  { name: "missing vendor SKU", quantity: 0, values: [], restored: false },
+  { name: "alphabetical in-stock match", quantity: 5, values: ["Available"], alphabetical: true, restored: true },
+  { name: "unrecognized alphabetical value", quantity: 0, values: ["Unknown"], alphabetical: true, restored: false },
+  { name: "unknown current stock", quantity: null, values: ["0"], restored: false },
+  { name: "subtract committed inventory before comparison", quantity: 0, values: ["3"], subtract: true, restored: true }
+]) {
+  test(`reconciles manual exceptions: ${scenario.name}`, async () => {
+    await withStagingHarness(async ({ exceptionUpdates, staged, stageSheetAttachment, productUpdateCalls }) => {
+      await stageSheetAttachment({
+        settings: {
+          ...stagingSettings,
+          ...(scenario.alphabetical ? alphabeticalSettings : {}),
+          subtractiveColumn: scenario.subtract ? "Allocated" : "",
+          skuExceptions: ["DPP-100"]
+        },
+        attachment: {
+          filename: "inventory.csv",
+          contentType: "text/csv",
+          content: Buffer.from("Item,Available,Allocated\n" +
+            (scenario.values.length
+              ? scenario.values.map((value) => `VENDOR-100,${value},3\n`).join("")
+              : "UNRELATED,0,0\n"))
+        },
+        message: { uid: "manual-reconcile", messageId: "manual-reconcile" }
+      });
+      assert.equal(exceptionUpdates.length, scenario.restored ? 1 : 0);
+      assert.equal(staged[0].rows.length, scenario.restored ? scenario.values.length : 0);
+      assert.equal(staged[0].missingSkus.length, 0);
+      assert.equal(productUpdateCalls(), 0);
+      if (scenario.restored) {
+        assert.equal(exceptionUpdates[0][0], "vendor-1");
+        assert.equal(exceptionUpdates[0][2], false);
+        assert.ok(exceptionUpdates[0][1].includes("DPP-100"));
+        assert.ok(exceptionUpdates[0][1].includes("VENDOR-100"));
+        assert.equal(staged[0].summary.status, "approved");
+        assert.equal(staged[0].rows[0].changeRequired, false);
+      }
+    }, [{
+      id: "vendor-product-1", vendor_id: "vendor-1", product_id: "product-1",
+      product_sku: "DPP-100", sku: "VENDOR-100", label: "VENDOR-100",
+      quantity: scenario.quantity, status: 1
+    }]);
+  });
+}
+
+test("does not clear a shared vendor SKU exception while another product disagrees", async () => {
+  await withStagingHarness(async ({ exceptionUpdates, staged, stageSheetAttachment }) => {
+    await stageSheetAttachment({
+      settings: { ...stagingSettings, skuExceptions: ["VENDOR-100"] },
+      attachment: { filename: "inventory.csv", contentType: "text/csv",
+        content: Buffer.from("Item,Available\nVENDOR-100,12\n") },
+      message: { uid: "shared", messageId: "shared" }
+    });
+    assert.equal(exceptionUpdates.length, 0);
+    assert.equal(staged[0].rows.length, 0);
+  }, [
+    { id: "vp-1", product_sku: "DPP-100", sku: "VENDOR-100", quantity: 999999 },
+    { id: "vp-2", product_sku: "DPP-200", sku: "VENDOR-100", quantity: 0 }
+  ]);
 });
 
 test("does not apply a row removed from a sheet review", async () => {

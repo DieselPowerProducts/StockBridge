@@ -435,7 +435,10 @@ Numerical and alphabetical auto-inventory updates are stored in
 `vendor_auto_inventory_product_updates` and surfaced in product details only for
 vendor products actively represented by the latest sheet and not listed in SKU
 exceptions. SKU exceptions keep normal manual stock controls. Manual exceptions
-remain disabled until a user explicitly re-enables auto inventory. Missing-sheet
+automatically clear when a parsed sheet matches that vendor product's current
+binary stock status (positive versus zero), not aggregate product availability.
+Missing, unparseable, or conflicting duplicate rows keep the manual exception.
+Missing-sheet
 exceptions are created from Pending sheet reviews and remove themselves only
 when that exact product or vendor SKU appears on a later sheet. Matching accepts
 vendor grouping dashes, such as `1039093278` and `103-909-3278`, while retaining
