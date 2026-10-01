@@ -22,7 +22,10 @@ async function assertBuiltToOrderAvailabilityAllowed(sku, availability) {
   const hasStock =
     Number(productDetails.qtyAvailable || 0) > 0 ||
     (productDetails.vendors || []).some(
-      (vendor) => Number(vendor.quantity || 0) > 0
+      // BTO vendor quantities are excluded from catalog availability as well.
+      (vendor) =>
+        !(vendor.stockSource === "vendor" && vendor.builtToOrder) &&
+        Number(vendor.quantity || 0) > 0
     );
 
   if (assignedVendors.length === 0 || hasStock) {
