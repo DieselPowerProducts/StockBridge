@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { AuthUser, PageName } from "../../types";
 
 type SidebarProps = {
@@ -6,6 +6,7 @@ type SidebarProps = {
   user: AuthUser;
   onNavigate: (page: PageName) => void;
   onLogout: () => void;
+  notifications: ReactNode;
 };
 
 const navItems: Array<{ page: PageName; label: string }> = [
@@ -19,6 +20,7 @@ const navItems: Array<{ page: PageName; label: string }> = [
 
 export function Sidebar({
   currentPage,
+  notifications,
   onNavigate,
   onLogout,
   user
@@ -27,11 +29,7 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`} id="sidebar">
-      <div className="sidebar-brand-row">
-        <div className="sidebar-brand">
-          <span className="sidebar-brand-mark" aria-hidden="true">S</span>
-          <span>StockBridge</span>
-        </div>
+      <div className="sidebar-controls">
         <button
           id="sidebarToggle"
           type="button"
@@ -41,9 +39,9 @@ export function Sidebar({
         >
           <span className="sidebar-toggle-icon" aria-hidden="true" />
         </button>
+        {notifications}
       </div>
 
-      <span className="sidebar-section-label">Workspace</span>
       <nav aria-label="Main navigation">
         <ul>
           {navItems.map((item) => (
