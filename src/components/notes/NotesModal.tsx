@@ -24,6 +24,7 @@ import {
   updateProductBuiltToOrderLeadTime,
   updateProductVendorAutoInventory,
   updateProductVendorDetails,
+  updateProductVendorBuiltToOrder,
   updateShopifyProductAvailability,
   updateProductFollowUp,
   updateProductVendorStock,
@@ -1215,15 +1216,24 @@ export function NotesModal({
 
       setFollowUpDate(result.followUpDate || "");
       setFollowUpNoEta(Boolean(result.followUpNoEta));
-      const nextProductDetails = productDetails
+      const refreshedDetails = !checked && getBuiltToOrderVendor(productDetails)
+        ? await getProductDetails(sku).catch(() => null)
+        : null;
+      const sourceDetails = refreshedDetails || productDetails;
+      const nextProductDetails = sourceDetails
         ? {
-            ...productDetails,
+            ...sourceDetails,
             followUpDate: result.followUpDate || "",
             followUpNoEta: Boolean(result.followUpNoEta)
           }
         : null;
 
       setProductDetails(nextProductDetails);
+      if (refreshedDetails) {
+        setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(refreshedDetails));
+        setShopifyAvailabilityModifier(getDisplayedShopifyAvailabilityModifier(refreshedDetails));
+        setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(refreshedDetails));
+      }
       if (nextProductDetails) {
         onProductStockChanged?.({
           ...getProductDetailsStockUpdate(nextProductDetails),
@@ -1518,6 +1528,36 @@ export function NotesModal({
       );
     } finally {
       setSavingVendorDetailsId("");
+      finishVendorMenuOperation(vendor.vendorProductId);
+    }
+  }
+
+  async function handleToggleVendorBuiltToOrder(vendor: ProductVendor) {
+    if (savingVendorBtoId || savingVendorDetailsId || togglingVendorAutoInventoryId) return;
+    setSavingVendorBtoId(vendor.vendorProductId);
+    activeVendorMenuOperationRef.current = vendor.vendorProductId;
+    setDetailsError("");
+    setVendorDetailsStatus("");
+    try {
+      const result = await updateProductVendorBuiltToOrder({
+        sku, vendorId: vendor.id, vendorProductId: vendor.vendorProductId,
+        enabled: !vendor.builtToOrder
+      });
+      setProductDetails(result);
+      setFollowUpDate(result.followUpDate || "");
+      setFollowUpNoEta(Boolean(result.followUpNoEta));
+      setCurrentShopifyAvailability(getDisplayedShopifyAvailabilityStatus(result));
+      setShopifyAvailabilityModifier(getDisplayedShopifyAvailabilityModifier(result));
+      setBuiltToOrderLeadTime(getProductDetailsBuiltToOrderLeadTime(result));
+      savedBuiltToOrderLeadTimeRef.current = String(result.builtToOrderLeadTime || "").trim();
+      setOpenVendorBtoEditorId("");
+      setVendorDetailsStatus(vendor.builtToOrder ? "BTO off for this product." : "BTO on for this product. No ETA cleared.");
+      onProductStockChanged?.(getProductDetailsStockUpdate(result));
+      onFollowUpSaved();
+    } catch (err) {
+      setDetailsError(err instanceof Error ? err.message : "Unable to update vendor BTO.");
+    } finally {
+      setSavingVendorBtoId("");
       finishVendorMenuOperation(vendor.vendorProductId);
     }
   }
@@ -2316,6 +2356,8 @@ export function NotesModal({
   async function handleNoEtaButtonChange() {
     if (
       !productDetails ||
+      (Boolean(getBuiltToOrderVendor(productDetails)) && !followUpNoEta) ||
+      Boolean(savingVendorBtoId) ||
       isShopifyAvailabilitySaving ||
       isFollowUpSaving
     ) {
@@ -2449,7 +2491,10 @@ export function NotesModal({
                     .filter(Boolean)
                     .join(" ")}
                   aria-pressed={followUpNoEta}
+                  title={builtToOrderVendor ? "Turn off BTO in each vendor's edit menu to allow No ETA." : "No ETA"}
                   disabled={
+                    (Boolean(builtToOrderVendor) && !followUpNoEta) ||
+                    Boolean(savingVendorBtoId) ||
                     isShopifyDiscontinued ||
                     !productDetails ||
                     isShopifyAvailabilitySaving ||
@@ -2759,6 +2804,19 @@ export function NotesModal({
                                   />
                                 </label>
                                 <div className="vendor-product-details-actions">
+                                  {(vendor.vendorBuiltToOrder || vendor.builtToOrder) && (
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={vendor.builtToOrder}
+                                      className="vendor-product-bto-toggle"
+                                      title={vendor.builtToOrder ? "Turn BTO off for this product" : "Turn BTO on for this product"}
+                                      disabled={Boolean(savingVendorBtoId || savingVendorDetailsId || togglingVendorAutoInventoryId || isFollowUpSaving)}
+                                      onClick={() => void handleToggleVendorBuiltToOrder(vendor)}
+                                    >
+                                      BTO {vendor.builtToOrder ? "On" : "Off"}
+                                    </button>
+                                  )}
                                   {vendor.builtToOrder &&
                                     Boolean(vendor.buildTime.trim()) && (
                                       <button
@@ -2785,7 +2843,7 @@ export function NotesModal({
                                           handleToggleVendorBtoEditor(vendor)
                                         }
                                       >
-                                        BTO
+                                        Lead time
                                       </button>
                                     )}
                                   {vendor.autoInventoryEnabled && (

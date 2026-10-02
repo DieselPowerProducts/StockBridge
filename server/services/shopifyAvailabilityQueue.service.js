@@ -212,7 +212,8 @@ async function enqueueNightlyReconciliation() {
             WHERE stocked_vendor_product.product_id = product.product_id
               AND stocked_vendor_product.status = 1
               AND stocked_vendor.status >= 2
-              AND COALESCE(stocked_vendor_settings.built_to_order, FALSE) = FALSE
+              AND (COALESCE(stocked_vendor_settings.built_to_order, FALSE) = FALSE
+                OR stocked_vendor_product.built_to_order_disabled = TRUE)
               AND stocked_vendor_product.quantity > 0
           )
           AND NOT EXISTS (
@@ -233,6 +234,7 @@ async function enqueueNightlyReconciliation() {
             AND vendor_product.status = 1
             AND vendor.status >= 2
             AND settings.built_to_order = TRUE
+            AND vendor_product.built_to_order_disabled = FALSE
         )
       )
     ON CONFLICT (sku) DO NOTHING

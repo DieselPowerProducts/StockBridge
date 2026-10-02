@@ -18,6 +18,7 @@ router.put(
   productsController.updateProductVendorAutoInventory
 );
 router.put("/products/vendor-details", productsController.updateProductVendorDetails);
+router.put("/products/vendor-bto", productsController.updateProductVendorBuiltToOrder);
 router.put("/products/vendor-stock", productsController.updateProductVendorStock);
 
 module.exports = router;

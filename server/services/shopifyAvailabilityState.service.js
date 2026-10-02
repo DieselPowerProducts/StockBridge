@@ -133,6 +133,7 @@ async function getBuildToOrderLeadTimeForSku(sku) {
         AND vendor_product.status = 1
         AND vendor.status >= 2
         AND settings.built_to_order = TRUE
+        AND vendor_product.built_to_order_disabled = FALSE
         AND NULLIF(settings.build_time, '') IS NOT NULL
       ORDER BY vendor_product.vendor_id
       LIMIT 1
@@ -229,6 +230,7 @@ async function getBuildToOrderLeadTimesForSkus(skus) {
           AND vendor_product.status = 1
           AND vendor.status >= 2
           AND settings.built_to_order = TRUE
+          AND vendor_product.built_to_order_disabled = FALSE
           AND NULLIF(settings.build_time, '') IS NOT NULL
         ORDER BY vendor_product.vendor_id
         LIMIT 1
@@ -348,6 +350,73 @@ async function setAvailabilityStatus({
       rows[0]?.availability_modifier
     )
   };
+}
+
+async function restoreBuiltToOrderAfterNoEta(skus) {
+  const safeSkus = Array.from(new Set((skus || []).map(normalizeSku).filter(Boolean)));
+  if (safeSkus.length === 0) return [];
+  await initializeSchema();
+  const sql = getSql();
+  const rows = await sql.query(`
+    UPDATE product_shopify_availability_state AS state
+    SET availability_status = 'built_to_order', updated_at = now()
+    FROM catalog_products AS product
+    WHERE lower(product.sku) = lower(state.sku)
+      AND state.sku IN (SELECT jsonb_array_elements_text($1::jsonb))
+      AND state.availability_status = 'backordered'
+      AND COALESCE(state.availability_modifier, '') IN ('', 'built_to_order')
+      AND lower(COALESCE(product.state, 'Active')) = 'active'
+      AND NOT EXISTS (
+        SELECT 1 FROM catalog_warehouse_stock AS warehouse
+        WHERE warehouse.product_id = product.product_id AND warehouse.qty_available > 0
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM catalog_vendor_products AS stocked
+        JOIN catalog_vendors AS vendor ON vendor.vendor_id = stocked.vendor_id
+        LEFT JOIN vendor_settings AS settings ON settings.vendor_id = stocked.vendor_id
+        WHERE stocked.product_id = product.product_id
+          AND stocked.status = 1 AND vendor.status >= 2 AND stocked.quantity > 0
+          AND (COALESCE(settings.built_to_order, FALSE) = FALSE OR stocked.built_to_order_disabled)
+      )
+      AND EXISTS (
+        SELECT 1 FROM catalog_vendor_products AS assigned
+        JOIN catalog_vendors AS vendor ON vendor.vendor_id = assigned.vendor_id
+        JOIN vendor_settings AS settings ON settings.vendor_id = assigned.vendor_id
+        WHERE assigned.product_id = product.product_id
+          AND assigned.status = 1 AND vendor.status >= 2
+          AND settings.built_to_order = TRUE AND assigned.built_to_order_disabled = FALSE
+      )
+    RETURNING state.sku
+  `, [JSON.stringify(safeSkus)]);
+  return rows.map((row) => row.sku);
+}
+
+async function restoreBackorderAfterVendorBtoOff(sku) {
+  const safeSku = normalizeSku(sku);
+  if (!safeSku) return false;
+  await initializeSchema();
+  const sql = getSql();
+  const rows = await sql.query(`
+    UPDATE product_shopify_availability_state AS state
+    SET availability_status = 'backordered', updated_at = now()
+    FROM catalog_products AS product
+    WHERE lower(product.sku) = lower(state.sku)
+      AND lower(state.sku) = lower($1)
+      AND state.availability_status = 'built_to_order'
+      AND COALESCE(state.availability_modifier, '') = ''
+      AND COALESCE(state.build_to_order_lead_time_override, '') = ''
+      AND lower(COALESCE(product.state, 'Active')) = 'active'
+      AND NOT EXISTS (
+        SELECT 1 FROM catalog_vendor_products AS assigned
+        JOIN catalog_vendors AS vendor ON vendor.vendor_id = assigned.vendor_id
+        JOIN vendor_settings AS settings ON settings.vendor_id = assigned.vendor_id
+        WHERE assigned.product_id = product.product_id
+          AND assigned.status = 1 AND vendor.status >= 2
+          AND settings.built_to_order = TRUE AND assigned.built_to_order_disabled = FALSE
+      )
+    RETURNING state.sku
+  `, [safeSku]);
+  return rows.length > 0;
 }
 
 async function setAvailabilityStatuses(records) {
@@ -482,6 +551,8 @@ async function setBuildToOrderLeadTime({ sku, buildToOrderLeadTime }) {
 }
 
 module.exports = {
+  restoreBackorderAfterVendorBtoOff,
+  restoreBuiltToOrderAfterNoEta,
   getAvailabilityModifierForSku,
   getAvailabilityModifiersForSkus,
   getAvailabilityStatusForSku,

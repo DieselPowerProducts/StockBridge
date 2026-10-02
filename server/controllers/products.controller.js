@@ -54,6 +54,14 @@ async function updateProductVendorStock(req, res, next) {
   }
 }
 
+async function updateProductVendorBuiltToOrder(req, res, next) {
+  try {
+    res.send(await productsService.setProductVendorBuiltToOrder(req.body));
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function updateProductVendorDetails(req, res, next) {
   try {
     const result = await productsService.setProductVendorDetails(req.body);
@@ -93,6 +101,7 @@ async function refreshProductDetails(req, res, next) {
 }
 
 module.exports = {
+  updateProductVendorBuiltToOrder,
   assignProductVendor,
   getProductDetails,
   listProducts,

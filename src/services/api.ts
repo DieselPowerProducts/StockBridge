@@ -315,6 +315,19 @@ export function updateProductVendorStock({
   });
 }
 
+export function updateProductVendorBuiltToOrder(input: {
+  sku: string;
+  vendorId: string;
+  vendorProductId: string;
+  enabled: boolean;
+}) {
+  return request<ProductDetails>("/products/vendor-bto", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+}
+
 export function updateProductVendorDetails({
   sku,
   vendorId,

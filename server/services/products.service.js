@@ -327,6 +327,9 @@ async function assignProductVendor({ sku, vendorId }) {
     includeWarehouse: false
   });
 
+  if (vendorSettings.builtToOrder && !assignedVendorProduct.built_to_order_disabled) {
+    await catalogService.clearBuiltToOrderNoEtas({ sku: safeSku });
+  }
   let details = await catalogService.getProductDetails(safeSku);
   let assignedVendor = (details.vendors || []).find(
     (vendor) => vendor.id === safeVendorId
@@ -361,11 +364,26 @@ async function assignProductVendor({ sku, vendorId }) {
 }
 
 async function setProductFollowUp({ sku, followUpDate, followUpNoEta }) {
+  const wantsNoEta = ["1", "true", "yes", "on"].includes(String(followUpNoEta || "").trim().toLowerCase());
+  if (wantsNoEta) {
+    const details = await catalogService.getProductDetails(sku);
+    if (details.vendors.some((vendor) => vendor.stockSource === "vendor" && vendor.builtToOrder)) {
+      const error = new Error("Turn off BTO for this product's built-to-order vendors before selecting No ETA.");
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+  const previous = !wantsNoEta && followUpDate
+    ? await followUpsService.getFollowUpInfoForSku(sku)
+    : null;
   const result = await followUpsService.setFollowUp({
     sku,
     followUpDate,
     followUpNoEta
   });
+  if (previous?.followUpNoEta && !result.followUpNoEta) {
+    await shopifyAvailabilityStateService.restoreBuiltToOrderAfterNoEta([result.sku || sku]);
+  }
 
   await inventoryAuditService.clearInventoryAuditsForSku(result.sku || sku);
   await stockCheckEmailsService.clearVendorEmailsForSku(result.sku || sku);
@@ -441,7 +459,7 @@ async function setProductVendorStock({
     throw error;
   }
 
-  if (vendorSettings.builtToOrder) {
+  if (vendorSettings.builtToOrder && !vendorProduct.built_to_order_disabled) {
     const error = new Error(
       "Built-to-order vendors cannot have manual stock overrides."
     );
@@ -745,7 +763,7 @@ async function setVendorProductQuantity({
     throw error;
   }
 
-  if (vendorSettings.builtToOrder) {
+  if (vendorSettings.builtToOrder && !resolvedVendorProduct.built_to_order_disabled) {
     const error = new Error(
       "Built-to-order vendors cannot have manual stock overrides."
     );
@@ -820,7 +838,39 @@ function clearProductCaches() {
   catalogService.clearCaches();
 }
 
+async function setProductVendorBuiltToOrder({ sku, vendorId, vendorProductId, enabled }) {
+  const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
+  const safeVendorId = normalizeRequiredString(vendorId, "Vendor ID is required.");
+  const safeVendorProductId = normalizeRequiredString(vendorProductId, "Vendor product ID is required.");
+  if (typeof enabled !== "boolean") {
+    const error = new Error("Enabled must be true or false.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const details = await catalogService.getProductDetails(safeSku);
+  const vendor = details.vendors.find((item) =>
+    item.stockSource === "vendor" && item.id === safeVendorId &&
+    item.vendorProductId === safeVendorProductId
+  );
+  if (!vendor?.vendorBuiltToOrder) {
+    const error = new Error("Choose an active built-to-order vendor assigned to this product.");
+    error.statusCode = 409;
+    throw error;
+  }
+  await catalogService.setVendorProductBuiltToOrder(safeVendorProductId, enabled);
+  if (enabled) {
+    await catalogService.clearBuiltToOrderNoEtas({ sku: details.sku });
+    await shopifyAvailabilityStateService.restoreBuiltToOrderAfterNoEta([details.sku]);
+  } else {
+    await shopifyAvailabilityStateService.restoreBackorderAfterVendorBtoOff(details.sku);
+  }
+  clearProductCaches();
+  await queueShopifyAvailabilitySync(details.sku, "vendor-product-bto");
+  return catalogService.getProductDetails(safeSku);
+}
+
 module.exports = {
+  setProductVendorBuiltToOrder,
   assignProductVendor,
   clearProductCaches,
   getProductDetails,

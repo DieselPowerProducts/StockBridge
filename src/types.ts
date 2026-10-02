@@ -389,6 +389,7 @@ export type ProductVendor = {
   stockType: string;
   canUpdateStock: boolean;
   builtToOrder: boolean;
+  vendorBuiltToOrder?: boolean;
   buildTime: string;
   autoInventoryEnabled?: boolean;
   autoInventoryExcepted?: boolean;

@@ -276,6 +276,7 @@ async function setMissingFollowUps(followUps) {
 }
 
 module.exports = {
+  initializeSchema,
   getAllFollowUpInfo,
   getAllFollowUps,
   getFollowUpInfoForSku,

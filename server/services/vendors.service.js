@@ -218,6 +218,9 @@ async function updateVendorSettings(vendorId, settings) {
     buildTime: settings?.buildTime
   });
   catalogService.clearCaches();
+  if (settings?.builtToOrder) {
+    await catalogService.clearBuiltToOrderNoEtas({ vendorId: safeVendorId });
+  }
   let btoReconciliation;
 
   try {

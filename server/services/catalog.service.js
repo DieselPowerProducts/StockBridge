@@ -832,6 +832,10 @@ async function initializeSchema() {
       `;
       await sql`
         ALTER TABLE catalog_vendor_products
+        ADD COLUMN IF NOT EXISTS built_to_order_disabled BOOLEAN NOT NULL DEFAULT FALSE
+      `;
+      await sql`
+        ALTER TABLE catalog_vendor_products
         ADD COLUMN IF NOT EXISTS pending_price_source_url TEXT NOT NULL DEFAULT ''
       `;
       await sql`
@@ -1263,6 +1267,7 @@ async function queryVendorProductsByProductId(productId) {
       vp.sku,
       vp.label,
       vp.quantity,
+      vp.built_to_order_disabled,
       vp.status,
       vp.price,
       vp.pending_price,
@@ -1318,6 +1323,7 @@ async function queryVendorProductById(vendorProductId) {
       vp.sku,
       vp.label,
       vp.quantity,
+      vp.built_to_order_disabled,
       vp.status,
       vp.price,
       vp.pending_price,
@@ -1352,6 +1358,7 @@ async function queryVendorProductByVendorAndSku(vendorId, sku) {
       vp.sku,
       vp.label,
       vp.quantity,
+      vp.built_to_order_disabled,
       vp.status,
       vp.price,
       vp.pending_price,
@@ -1381,6 +1388,48 @@ async function queryVendorProductByVendorAndSku(vendorId, sku) {
   `;
 
   return rows[0] || null;
+}
+
+async function setVendorProductBuiltToOrder(vendorProductId, enabled) {
+  await initializeSchema();
+  const sql = getSql();
+  await sql`
+    UPDATE catalog_vendor_products
+    SET built_to_order_disabled = ${!enabled}
+    WHERE vendor_product_id = ${vendorProductId}
+  `;
+  clearCaches();
+}
+
+async function clearBuiltToOrderNoEtas({ vendorId = null, sku = null } = {}) {
+  await initializeSchema();
+  await followUpsService.initializeSchema();
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE product_follow_ups AS follow_up
+    SET no_eta = FALSE, updated_at = now()
+    WHERE follow_up.no_eta = TRUE
+      AND (${sku}::text IS NULL OR lower(follow_up.sku) = lower(${sku}))
+      AND EXISTS (
+        SELECT 1
+        FROM catalog_products p
+        JOIN catalog_vendor_products vp ON vp.product_id = p.product_id
+        JOIN catalog_vendors v ON v.vendor_id = vp.vendor_id
+        JOIN vendor_settings settings ON settings.vendor_id = vp.vendor_id
+        WHERE lower(p.sku) = lower(follow_up.sku)
+          AND lower(COALESCE(p.state, 'Active')) = 'active'
+          AND vp.status = 1 AND v.status >= 2
+          AND settings.built_to_order = TRUE
+          AND vp.built_to_order_disabled = FALSE
+          AND (${vendorId}::text IS NULL OR vp.vendor_id = ${vendorId})
+      )
+    RETURNING sku
+  `;
+  await shopifyAvailabilityStateService.restoreBuiltToOrderAfterNoEta(
+    rows.map((row) => row.sku)
+  );
+  clearCaches();
+  return rows.map((row) => row.sku);
 }
 
 async function updateCatalogVendorProductQuantity(vendorProductId, quantity) {
@@ -1561,7 +1610,7 @@ async function queryVendorAvailabilityRows(productIds) {
         vp.quantity,
         v.name AS vendor_name,
         v.status,
-        COALESCE(vs.built_to_order, FALSE) AS built_to_order,
+        (COALESCE(vs.built_to_order, FALSE) AND NOT vp.built_to_order_disabled) AS built_to_order,
         COALESCE(vs.build_time, '') AS build_time
       FROM catalog_vendor_products vp
       JOIN catalog_vendors v
@@ -1590,7 +1639,7 @@ async function queryVendorAvailabilityRows(productIds) {
         vp.quantity,
         v.name AS vendor_name,
         v.status,
-        COALESCE(vs.built_to_order, FALSE) AS built_to_order,
+        (COALESCE(vs.built_to_order, FALSE) AND NOT vp.built_to_order_disabled) AS built_to_order,
         COALESCE(vs.build_time, '') AS build_time
       FROM catalog_vendor_products vp
       JOIN catalog_vendors v
@@ -3439,6 +3488,7 @@ async function runFullSync({ reason = "manual" } = {}) {
       await syncShopifyCollectiveInventoryAfterFullSync(reason);
     const shopifyAvailabilityRead =
       await syncShopifyAvailabilityStateAfterFullSync(reason);
+    await clearBuiltToOrderNoEtas();
     const newProductShopifyAvailability =
       await syncShopifyAvailabilityForNewProducts(newProductSkus, reason);
     const shopifyAvailabilityReconciliation =
@@ -3820,8 +3870,9 @@ async function getProductDetails(sku) {
         quantity: Number(vendorProduct.quantity || 0),
         stockSource: "vendor",
         stockType: "VENDOR",
-        canUpdateStock: !settings?.builtToOrder,
-        builtToOrder: Boolean(settings?.builtToOrder),
+        canUpdateStock: !settings?.builtToOrder || Boolean(vendorProduct.built_to_order_disabled),
+        builtToOrder: Boolean(settings?.builtToOrder) && !vendorProduct.built_to_order_disabled,
+        vendorBuiltToOrder: Boolean(settings?.builtToOrder),
         buildTime: String(settings?.buildTime || ""),
         autoInventoryEnabled: Boolean(autoInventorySettings?.enabled),
         autoInventoryExcepted: Boolean(isAutoInventoryExcepted),
@@ -4349,6 +4400,8 @@ function clearCaches() {
 }
 
 module.exports = {
+  clearBuiltToOrderNoEtas,
+  setVendorProductBuiltToOrder,
   clearCaches,
   ensureBackorderFollowUpForSku,
   ensureMissingBackorderFollowUps,

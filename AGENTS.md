@@ -322,6 +322,20 @@ It includes:
   inventory or vendor-product status.
 - Saving SKU/cost, product BTO time, or auto-inventory state from the vendor
   pencil menu must leave that menu open so the result status remains visible.
+- The vendor pencil menu has a per-assignment BTO switch stored in
+  `catalog_vendor_products.built_to_order_disabled`. Catalog refreshes preserve
+  this local override. Effective BTO requires the vendor default to be enabled
+  and the assignment override not to be disabled.
+- No ETA is blocked when any active assigned vendor has effective BTO enabled.
+  Enabling vendor BTO or product-assignment BTO clears No ETA while preserving
+  follow-up dates and queues Shopify reconciliation. Nightly sync also clears
+  conflicting No ETA flags, respecting product-level BTO-off overrides.
+- Clearing No ETA restores a saved Backorder state to Built to Order when an
+  effective BTO vendor is active and every inventory source is out of stock;
+  explicit Out of Stock and discontinued states remain unchanged.
+- Turning the final product-assignment BTO switch off restores a saved BTO
+  status to Backorder only when it has no product-specific BTO modifier or
+  lead-time override. Turning BTO back on restores eligible Backorders to BTO.
 - Auto-inventory-managed vendor stock rows are read-only. Numerical rows show
   `Qty`; alphabetical rows show `In Stock` or `Out of Stock`. Both include the
   latest sheet update time in their hover title.

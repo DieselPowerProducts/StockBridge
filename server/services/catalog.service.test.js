@@ -2,6 +2,44 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { _test } = require("./catalog.service");
 
+test("BTO cleanup preserves dates and scopes to active non-overridden assignments", async (t) => {
+  const neon = require("../db/neon");
+  const servicePath = require.resolve("./catalog.service");
+  const originalModule = require.cache[servicePath];
+  const statements = [];
+  const fakeSql = async (strings, ...values) => {
+    const query = strings.join("?");
+    statements.push({ query, values });
+    return query.includes("UPDATE product_follow_ups AS follow_up") ? [{ sku: "BTO-1" }] : [];
+  };
+  t.mock.method(neon, "getSql", () => fakeSql);
+  t.mock.method(require("./vendorSettings.service"), "initializeSchema", async () => {});
+  t.mock.method(require("./followUps.service"), "initializeSchema", async () => {});
+  const restore = t.mock.method(
+    require("./shopifyAvailabilityState.service"),
+    "restoreBuiltToOrderAfterNoEta",
+    async () => []
+  );
+  delete require.cache[servicePath];
+  try {
+    const service = require(servicePath);
+    assert.deepEqual(await service.clearBuiltToOrderNoEtas({ vendorId: "v1" }), ["BTO-1"]);
+    assert.deepEqual(restore.mock.calls[0].arguments, [["BTO-1"]]);
+    const cleanup = statements.find(({ query }) => query.includes("UPDATE product_follow_ups AS follow_up"));
+    assert.match(cleanup.query, /vp.status = 1 AND v.status >= 2/);
+    assert.match(cleanup.query, /vp.built_to_order_disabled = FALSE/);
+    assert.match(cleanup.query, /settings.built_to_order = TRUE/);
+    assert.match(cleanup.query, /SET no_eta = FALSE, updated_at = now\(\)/);
+    assert.doesNotMatch(cleanup.query, /SET follow_up_date/);
+    assert.deepEqual(cleanup.values, [null, null, "v1", "v1"]);
+    await service.setVendorProductBuiltToOrder("vp1", false);
+    const override = statements.find(({ query }) => query.includes("SET built_to_order_disabled"));
+    assert.deepEqual(override.values, [true, "vp1"]);
+  } finally {
+    require.cache[servicePath] = originalModule;
+  }
+});
+
 test("shows BTO vendor products in Stock Check only with a follow-up", () => {
   assert.equal(
     _test.shouldIncludeBuiltToOrderProductInStockCheck({
