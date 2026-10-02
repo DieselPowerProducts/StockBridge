@@ -200,14 +200,15 @@ async function waitForSkuNexusVendorProductAssignment({
 async function createSkuNexusVendorProduct({
   vendorId,
   productId,
-  productSku
+  productSku,
+  builtToOrder = false
 }) {
   const csvRows = [
     ["product_id", "sku", "quantity", "price", "status"],
     [
       productId,
       productSku,
-      enabledVendorStockQuantity,
+      builtToOrder ? disabledVendorStockQuantity : enabledVendorStockQuantity,
       0,
       activeAssignedVendorProductStatus
     ]
@@ -308,7 +309,8 @@ async function assignProductVendor({ sku, vendorId }) {
     assignedVendorProduct = await createSkuNexusVendorProduct({
       vendorId: safeVendorId,
       productId: refreshedProduct.id,
-      productSku
+      productSku,
+      builtToOrder: vendorSettings.builtToOrder
     });
   }
 

@@ -4,6 +4,43 @@ const assert = require("node:assert/strict");
 const catalogService = require("./catalog.service");
 const productsService = require("./products.service");
 const queueService = require("./shopifyAvailabilityQueue.service");
+const vendorSettingsService = require("./vendorSettings.service");
+const skunexus = require("./skunexus.service");
+
+for (const builtToOrder of [true, false]) {
+  test(`new ${builtToOrder ? "BTO" : "regular"} vendor starts with the correct stock`, async (t) => {
+    const quantity = builtToOrder ? 0 : 999999;
+    const assignment = {
+      id: "vp-1", vendor_id: "vendor-1", product_id: "product-1",
+      sku: "TEST-123", quantity, status: 1, price: 0
+    };
+    t.mock.method(catalogService, "getVendorDetails", async () => ({ id: "vendor-1" }));
+    t.mock.method(vendorSettingsService, "getVendorSettings", async () => ({ builtToOrder }));
+    const refresh = t.mock.method(catalogService, "refreshProductBySku", async () => ({}));
+    t.mock.method(catalogService, "getCatalogProductBySku", async () => ({ id: "product-1", sku: "TEST-123" }));
+    t.mock.method(catalogService, "getCatalogVendorProductByVendorAndSku", async () => null);
+    t.mock.method(catalogService, "getProductDetails", async () => ({
+      sku: "TEST-123", vendors: [{ id: "vendor-1", vendorProductId: "vp-1", quantity, builtToOrder }]
+    }));
+    t.mock.method(catalogService, "updateCatalogVendorProductQuantity", async () => assignment);
+    t.mock.method(catalogService, "clearCaches", () => {});
+    const enqueue = t.mock.method(queueService, "enqueueAvailabilitySync", async () => ({}));
+    const imported = t.mock.method(skunexus, "multipart", async (url, options) => {
+      assert.equal(url, "/vendors/vendor-1/products-import");
+      assert.equal(options.files[0].content,
+        `product_id,sku,quantity,price,status\nproduct-1,TEST-123,${quantity},0,1\n`);
+      return { imported_count: 1 };
+    });
+    t.mock.method(skunexus, "query", async () => ({ vendorProduct: { grid: { rows: [assignment] } } }));
+    const stockUpdate = t.mock.method(skunexus, "rest", async () => ({}));
+    const details = await productsService.assignProductVendor({ sku: "TEST-123", vendorId: "vendor-1" });
+    assert.equal(imported.mock.callCount(), 1);
+    assert.equal(refresh.mock.callCount(), 2);
+    assert.equal(details.vendors[0].quantity, quantity);
+    assert.equal(stockUpdate.mock.callCount(), builtToOrder ? 0 : 1);
+    assert.ok(enqueue.mock.calls.some(call => call.arguments[0].source === "vendor-assignment"));
+  });
+}
 
 async function withQueueFallbackMocks(
   { enqueue, remove, sync },
