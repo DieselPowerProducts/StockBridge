@@ -42,6 +42,7 @@ export function ProductsTable({
   showVendorEmailStatus = false
 }: ProductsTableProps) {
   return (
+    <div className="products-table-scroll">
     <table>
       <thead>
         <tr>
@@ -103,5 +104,6 @@ export function ProductsTable({
         )}
       </tbody>
     </table>
+    </div>
   );
 }

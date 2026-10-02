@@ -19,10 +19,22 @@ import type {
   InventoryAuditResolvedUpdate,
   PageName,
   ProductStockUpdate,
+  RoutePageName,
   VendorEmailSentUpdate
 } from "./types";
 
 const appVersionFocusRefreshMinMs = 60 * 60 * 1000;
+const pageLabels: Record<RoutePageName, string> = {
+  products: "Products",
+  "stock-check": "Stock Check",
+  vendors: "Vendors",
+  audit: "Audit",
+  "packing-lists": "Packing Lists",
+  "sheet-imports": "Sheet Imports",
+  notifications: "Notifications",
+  notes: "Notes",
+  "shopify-availability-sync": "Shopify Availability Sync"
+};
 
 function parseRoute(): AppRoute {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -296,6 +308,9 @@ export function App() {
 
       <div className="app-main-shell">
         <div className="app-topbar">
+          <div className="app-breadcrumb">
+            Workspace <span>/</span> <strong>{pageLabels[route.page]}</strong>
+          </div>
           <NotificationsMenu
             onOpenSku={setSelectedSku}
             onViewAll={() => setHashRoute("notifications")}

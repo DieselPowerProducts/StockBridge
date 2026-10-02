@@ -27,15 +27,23 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`} id="sidebar">
-      <button
-        id="sidebarToggle"
-        type="button"
-        aria-label="Toggle sidebar"
-        onClick={() => setCollapsed((value) => !value)}
-      >
-        Menu
-      </button>
+      <div className="sidebar-brand-row">
+        <div className="sidebar-brand">
+          <span className="sidebar-brand-mark" aria-hidden="true">S</span>
+          <span>StockBridge</span>
+        </div>
+        <button
+          id="sidebarToggle"
+          type="button"
+          aria-label="Toggle sidebar"
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          <span className="sidebar-toggle-icon" aria-hidden="true" />
+        </button>
+      </div>
 
+      <span className="sidebar-section-label">Workspace</span>
       <nav aria-label="Main navigation">
         <ul>
           {navItems.map((item) => (
