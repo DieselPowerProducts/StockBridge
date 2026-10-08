@@ -6,6 +6,7 @@ const router = express.Router();
 router.get("/products", productsController.listProducts);
 router.get("/products/details", productsController.getProductDetails);
 router.get("/products/stock-check", productsController.listStockCheckProducts);
+router.get("/products/stock-check/brands", productsController.listStockCheckVendorGroups);
 router.post("/products/details/refresh", productsController.refreshProductDetails);
 router.post("/products/vendors", productsController.assignProductVendor);
 router.put(

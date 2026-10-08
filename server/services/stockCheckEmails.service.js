@@ -79,8 +79,20 @@ async function initializeSchema() {
         CREATE INDEX IF NOT EXISTS stock_check_vendor_emails_vendor_idx
         ON stock_check_vendor_emails (vendor_id)
       `;
+      const messageIndex = await sql`
+        SELECT indexdef
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND tablename = 'stock_check_vendor_emails'
+          AND indexname = 'stock_check_vendor_emails_message_id_idx'
+      `;
+      if (/^CREATE UNIQUE INDEX/i.test(String(messageIndex[0]?.indexdef || ""))) {
+        await sql`
+          DROP INDEX stock_check_vendor_emails_message_id_idx
+        `;
+      }
       await sql`
-        CREATE UNIQUE INDEX IF NOT EXISTS stock_check_vendor_emails_message_id_idx
+        CREATE INDEX IF NOT EXISTS stock_check_vendor_emails_message_id_idx
         ON stock_check_vendor_emails (
           lower(regexp_replace(message_id, '[<>\\s]', '', 'g'))
         )
@@ -143,6 +155,30 @@ async function recordVendorEmail(
       ? new Date(rows[0].created_at).toISOString()
       : ""
   };
+}
+
+async function recordVendorEmails({ skus, vendorId, vendorName, recipientEmail, subject, messageId }, sender = {}) {
+  const uniqueSkus = Array.from(new Set((skus || []).map(normalizeSku).filter(Boolean)));
+  const safeRecipientEmail = normalizeEmail(assertRequiredText(recipientEmail, "Recipient email is required."));
+  if (uniqueSkus.length === 0 || !normalizeText(messageId)) {
+    throw new Error("Bulk stock-check emails require SKUs and a message ID.");
+  }
+  await initializeSchema();
+  const sql = getSql();
+  return sql.query(`
+    INSERT INTO stock_check_vendor_emails (
+      sku, vendor_id, vendor_name, recipient_email, subject, message_id,
+      sent_by_email, sent_by_name
+    )
+    SELECT sku, $2, $3, $4, $5, $6, $7, $8
+    FROM jsonb_array_elements_text($1::jsonb) AS item(sku)
+    RETURNING id::text, sku
+  `, [
+    JSON.stringify(uniqueSkus), normalizeText(vendorId), normalizeText(vendorName),
+    safeRecipientEmail, normalizeText(subject), normalizeText(messageId),
+    normalizeEmail(sender?.email) || null,
+    normalizeText(sender?.name || sender?.email) || null
+  ]);
 }
 
 function mapVendorEmailRow(row) {
@@ -272,6 +308,41 @@ async function findMatchingVendorEmail({
   return topKeys.size === 1 ? topCandidates[0].candidate : null;
 }
 
+async function findMatchingVendorEmails({ messageIds = [], senderEmail = "", subject = "" } = {}) {
+  await initializeSchema();
+  const safeMessageIds = Array.from(new Set(messageIds.map(normalizeMessageId).filter(Boolean)));
+  const sql = getSql();
+  if (safeMessageIds.length > 0) {
+    const rows = await sql.query(`
+      SELECT id::text, sku, vendor_id, vendor_name, recipient_email, subject,
+             message_id, created_at
+      FROM stock_check_vendor_emails
+      WHERE lower(regexp_replace(message_id, '[<>\\s]', '', 'g')) IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+      ORDER BY created_at DESC, id DESC
+    `, [JSON.stringify(safeMessageIds)]);
+    if (rows.length > 0) {
+      const latestMessageId = normalizeMessageId(rows[0].message_id);
+      return rows
+        .filter((row) => normalizeMessageId(row.message_id) === latestMessageId)
+        .map(mapVendorEmailRow);
+    }
+  }
+
+  const match = await findMatchingVendorEmail({ senderEmail, subject });
+  if (!match) return [];
+  if (!match.messageId) return [match];
+  const rows = await sql.query(`
+    SELECT id::text, sku, vendor_id, vendor_name, recipient_email, subject,
+           message_id, created_at
+    FROM stock_check_vendor_emails
+    WHERE lower(regexp_replace(message_id, '[<>\\s]', '', 'g')) = $1
+    ORDER BY created_at DESC, id DESC
+  `, [normalizeMessageId(match.messageId)]);
+  return rows.length > 0 ? rows.map(mapVendorEmailRow) : [match];
+}
+
 async function getEmailedSkuSetForSkus(skus) {
   const safeSkus = Array.from(
     new Set((skus || []).map(normalizeSku).filter(Boolean))
@@ -323,6 +394,8 @@ module.exports = {
   findMatchingVendorEmail,
   getEmailedSkuSetForSkus,
   recordVendorEmail,
+  recordVendorEmails,
+  findMatchingVendorEmails,
   _test: {
     normalizeMessageId,
     normalizeSubject,

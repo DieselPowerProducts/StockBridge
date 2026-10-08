@@ -101,7 +101,7 @@ function getTransporter() {
   return transporter;
 }
 
-async function sendVendorStockCheckEmail({ to, subject, body }) {
+async function sendVendorStockCheckEmail({ to, subject, body, messageId = "" }) {
   const safeTo = normalizeEmail(to);
   const safeSubject = assertRequiredText(subject, "Email subject is required.");
   const safeBody = assertRequiredText(body, "Email message is required.");
@@ -117,6 +117,7 @@ async function sendVendorStockCheckEmail({ to, subject, body }) {
     from: `${config.fromName} <${config.fromEmail}>`,
     to: safeTo,
     replyTo: config.fromEmail,
+    ...(messageId ? { messageId } : {}),
     subject: safeSubject,
     text: safeBody,
     html: textToHtml(safeBody)

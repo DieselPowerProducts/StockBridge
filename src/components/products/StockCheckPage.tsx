@@ -9,6 +9,7 @@ import type {
 } from "../../types";
 import { Pagination } from "./Pagination";
 import { ProductsTable } from "./ProductsTable";
+import { StockCheckBrandView } from "./StockCheckBrandView";
 import { applyProductStockUpdate } from "./productStockUpdates";
 
 type StockCheckPageProps = {
@@ -148,6 +149,7 @@ export function StockCheckPage({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [sort, setSort] = useState<StockCheckSort>("all");
+  const [viewMode, setViewMode] = useState<"sku" | "brand">("sku");
   const [refreshToken, setRefreshToken] = useState(0);
 
   function updateProducts(nextProducts: Product[]) {
@@ -266,46 +268,74 @@ export function StockCheckPage({
     <section className="page stock-check-page" aria-labelledby="stockCheckHeading">
       <div className="stock-check-toolbar">
         <h1 id="stockCheckHeading">Stock Check</h1>
-
-        <label className="stock-check-sort-control">
-          <span>Show</span>
-          <select
-            value={sort}
-            aria-label="Sort stock check products"
-            onChange={(event) => {
-              setSort(event.target.value as StockCheckSort);
-              setCurrentPage(1);
-            }}
-          >
-            {stockCheckSortOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="stock-check-header-controls">
+          <div className="stock-check-view-switch">
+            <span>Sort by</span>
+            <div className="stock-check-view-segments" role="group" aria-label="Stock Check view">
+              <button type="button" className={viewMode === "sku" ? "active" : ""}
+                aria-pressed={viewMode === "sku"} onClick={() => setViewMode("sku")}>SKU</button>
+              <button type="button" className={viewMode === "brand" ? "active" : ""}
+                aria-pressed={viewMode === "brand"} onClick={() => setViewMode("brand")}>Brand</button>
+            </div>
+          </div>
+          {viewMode === "sku" && (
+            <label className="stock-check-sort-control">
+              <span>Show</span>
+              <select
+                value={sort}
+                aria-label="Sort stock check products"
+                onChange={(event) => {
+                  setSort(event.target.value as StockCheckSort);
+                  setCurrentPage(1);
+                }}
+              >
+                {stockCheckSortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       </div>
-
-      {error && <p className="status-message error-message">{error}</p>}
-      <p className="status-message" role="status" style={{ minHeight: "1.5em" }}>
-        {isLoading ? "Loading stock check..." : "\u00a0"}
-      </p>
-
-      <div ref={tableRef} aria-busy={isLoading} style={{ minHeight: reservedHeight || undefined }}>
-        <ProductsTable
-          emptyMessage={emptyMessageBySort[sort]}
-          products={products}
+      {viewMode === "brand" ? (
+        <StockCheckBrandView
+          productStockUpdate={productStockUpdate}
+          followUpOverrides={followUpOverrides}
+          vendorEmailSentUpdate={vendorEmailSentUpdate}
           onOpenNotes={onOpenNotes}
-          showVendorEmailStatus
+          onBulkEmailSent={(skus) => {
+            skus.forEach((sku) => vendorEmailSentSkus.current.add(normalizeSku(sku)));
+            updateProducts(productsRef.current.map((product) =>
+              vendorEmailSentSkus.current.has(normalizeSku(product.sku))
+                ? { ...product, vendorEmailSent: true }
+                : product
+            ));
+          }}
         />
-      </div>
-
-      <Pagination
-        currentPage={currentPage}
-        limit={pageSize}
-        totalItems={totalItems}
-        onPageChange={setCurrentPage}
-      />
+      ) : (
+        <>
+          {error && <p className="status-message error-message">{error}</p>}
+          <p className="status-message" role="status" style={{ minHeight: "1.5em" }}>
+            {isLoading ? "Loading stock check..." : "\u00a0"}
+          </p>
+          <div ref={tableRef} aria-busy={isLoading} style={{ minHeight: reservedHeight || undefined }}>
+            <ProductsTable
+              emptyMessage={emptyMessageBySort[sort]}
+              products={products}
+              onOpenNotes={onOpenNotes}
+              showVendorEmailStatus
+            />
+          </div>
+          <Pagination
+            currentPage={currentPage}
+            limit={pageSize}
+            totalItems={totalItems}
+            onPageChange={setCurrentPage}
+          />
+        </>
+      )}
     </section>
   );
 }

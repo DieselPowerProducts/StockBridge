@@ -135,6 +135,17 @@ export type ProductsResponse = {
   isLastPage: boolean;
 };
 
+export type StockCheckBrandGroup = {
+  vendorId: string;
+  vendorName: string;
+  products: Product[];
+};
+
+export type StockCheckBrandResponse = {
+  groups: StockCheckBrandGroup[];
+  totalProducts: number;
+};
+
 export type PriceAuditItem = {
   vendorProductId: string;
   sku: string;

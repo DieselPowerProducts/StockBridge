@@ -22,6 +22,7 @@ import type {
   ShopifyAvailabilityModifier,
   ShopifyAvailabilitySyncResponse,
   ShopifyAvailabilityStatus,
+  StockCheckBrandResponse,
   StockCheckSort,
   VendorAutoInventorySettings,
   AutoInventoryVendorsResponse,
@@ -219,6 +220,31 @@ export function getStockCheckProducts({
   }
 
   return request<ProductsResponse>(`/products/stock-check?${params.toString()}`);
+}
+
+export function getStockCheckBrandGroups(bypassCache = false) {
+  const query = bypassCache ? "?bypassCache=1" : "";
+  return request<StockCheckBrandResponse>(`/products/stock-check/brands${query}`);
+}
+
+export function sendBulkVendorStockCheckEmail(input: {
+  vendorId: string;
+  skus: string[];
+  fromDate: string;
+  toDate: string;
+  includeUndated: boolean;
+  to: string;
+  subject: string;
+  message: string;
+}) {
+  return request<{ messageId: string; accepted: string[]; skus: string[] }>(
+    "/email/vendor-stock-check/bulk",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    }
+  );
 }
 
 export function getProductDetails(sku: string) {

@@ -27,6 +27,14 @@ async function listStockCheckProducts(req, res, next) {
   }
 }
 
+async function listStockCheckVendorGroups(req, res, next) {
+  try {
+    res.send(await productsService.listStockCheckVendorGroups(req.query));
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function updateProductFollowUp(req, res, next) {
   try {
     const result = await productsService.setProductFollowUp(req.body);
@@ -106,6 +114,7 @@ module.exports = {
   getProductDetails,
   listProducts,
   listStockCheckProducts,
+  listStockCheckVendorGroups,
   refreshProductDetails,
   updateProductBuiltToOrderLeadTime,
   updateProductFollowUp,

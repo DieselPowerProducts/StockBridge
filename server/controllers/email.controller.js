@@ -2,6 +2,7 @@ const emailService = require("../services/email.service");
 const emailTemplatesService = require("../services/emailTemplates.service");
 const stockCheckEmailsService = require("../services/stockCheckEmails.service");
 const vendorsService = require("../services/vendors.service");
+const stockCheckBulkEmailsService = require("../services/stockCheckBulkEmails.service");
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -70,8 +71,17 @@ async function sendVendorStockCheck(req, res, next) {
   }
 }
 
+async function sendBulkVendorStockCheck(req, res, next) {
+  try {
+    res.send(await stockCheckBulkEmailsService.sendBulkStockCheck(req.body, req.user));
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listTemplates,
   saveTemplate,
-  sendVendorStockCheck
+  sendVendorStockCheck,
+  sendBulkVendorStockCheck
 };

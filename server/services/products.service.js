@@ -258,6 +258,10 @@ async function listStockCheckProducts(queryParams) {
   return catalogService.listStockCheckProducts(queryParams);
 }
 
+async function listStockCheckVendorGroups(queryParams) {
+  return catalogService.listStockCheckVendorGroups(queryParams);
+}
+
 async function getProductDetails(sku) {
   return catalogService.getProductDetails(sku);
 }
@@ -876,6 +880,7 @@ module.exports = {
   getProductDetails,
   listProducts,
   listStockCheckProducts,
+  listStockCheckVendorGroups,
   refreshProductDetails,
   setProductBuiltToOrderLeadTime,
   setProductFollowUp,

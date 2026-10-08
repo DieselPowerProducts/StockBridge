@@ -2,6 +2,19 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { _test } = require("./inventoryAudit.service");
 
+test("assigns bulk replies only to explicitly named SKUs", () => {
+  const replies = _test.getBatchSkuResponses(
+    "PPE-123: in stock\nCan ship tomorrow\nPPE-1234: backordered\nETA 2 weeks",
+    ["PPE-123", "PPE-1234", "PPE-999"]
+  );
+  assert.deepEqual([...replies], [
+    ["PPE-123", "PPE-123: in stock\nCan ship tomorrow"],
+    ["PPE-1234", "PPE-1234: backordered\nETA 2 weeks"]
+  ]);
+  assert.equal(_test.getBatchSkuResponses("All in stock", ["PPE-123", "PPE-1234"]).size, 0);
+  assert.equal(_test.getBatchSkuResponses("PPE-1234: ready", ["PPE-123"]).size, 0);
+});
+
 test("collects normalized reply and reference message IDs", () => {
   assert.deepEqual(
     _test.collectMessageIds({

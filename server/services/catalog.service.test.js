@@ -2,6 +2,26 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { _test } = require("./catalog.service");
 
+test("groups stock checks by active vendor and retains unassigned SKUs", () => {
+  const products = [
+    { id: "1", sku: "PPE-1", followUpDate: "2026-10-08" },
+    { id: "2", sku: "NONE-1", followUpDate: "" }
+  ];
+  const vendorRows = [
+    { product_id: "1", vendor_id: "b", vendor_name: "PPE", status: 2 },
+    { product_id: "1", vendor_id: "a", vendor_name: "Alt Vendor", status: 2 },
+    { product_id: "1", vendor_id: "b", vendor_name: "PPE", status: 2 },
+    { product_id: "1", vendor_id: "old", vendor_name: "Inactive", status: 1 }
+  ];
+  const groups = _test.buildStockCheckVendorGroups(products, vendorRows, new Set(["PPE-1"]));
+  assert.deepEqual(groups.map((group) => [group.vendorName, group.products.map((p) => p.sku)]), [
+    ["Alt Vendor", ["PPE-1"]],
+    ["PPE", ["PPE-1"]],
+    ["Unassigned", ["NONE-1"]]
+  ]);
+  assert.equal(groups[1].products[0].vendorEmailSent, true);
+});
+
 test("BTO cleanup preserves dates and scopes to active non-overridden assignments", async (t) => {
   const neon = require("../db/neon");
   const servicePath = require.resolve("./catalog.service");

@@ -446,7 +446,7 @@ async function initializeSchema() {
       await sql`
         CREATE TABLE IF NOT EXISTS inventory_audits (
           id BIGSERIAL PRIMARY KEY,
-          gmail_message_id TEXT NOT NULL UNIQUE,
+          gmail_message_id TEXT NOT NULL,
           stock_check_email_id BIGINT NOT NULL,
           sku TEXT NOT NULL,
           vendor_id TEXT NOT NULL DEFAULT '',
@@ -459,6 +459,14 @@ async function initializeSchema() {
           received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+      `;
+      await sql`
+        ALTER TABLE inventory_audits
+        DROP CONSTRAINT IF EXISTS inventory_audits_gmail_message_id_key
+      `;
+      await sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS inventory_audits_message_email_idx
+        ON inventory_audits (gmail_message_id, stock_check_email_id)
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS inventory_audits_sku_idx
@@ -490,6 +498,32 @@ async function initializeSchema() {
   return schemaReady;
 }
 
+function getBatchSkuResponses(responseText, skus) {
+  const responses = new Map();
+  const safeSkus = Array.from(new Set(skus.map(normalizeSku).filter(Boolean)));
+  const matchers = safeSkus.map((sku) => ({
+    sku,
+    pattern: new RegExp(`(^|[^A-Z0-9_+()-])${sku.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^A-Z0-9_+()-])`, "i")
+  }));
+  let currentSku = "";
+
+  for (const rawLine of String(responseText || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const mentioned = matchers.filter(({ pattern }) => pattern.test(line));
+    if (mentioned.length > 1) {
+      currentSku = "";
+      continue;
+    }
+    if (mentioned.length === 1) currentSku = mentioned[0].sku;
+    if (currentSku) {
+      responses.set(currentSku, [...(responses.get(currentSku) || []), line]);
+    }
+  }
+
+  return new Map(Array.from(responses, ([sku, lines]) => [sku, lines.join("\n")]));
+}
+
 async function processStockCheckReplySource({ messageUid, source }) {
   const safeMessageUid = normalizeText(messageUid);
 
@@ -511,15 +545,20 @@ async function processStockCheckReplySource({ messageUid, source }) {
     return { imported: 0, matched: false };
   }
 
-  const sentEmail = await stockCheckEmailsService.findMatchingVendorEmail({
+  const sentEmails = await stockCheckEmailsService.findMatchingVendorEmails({
     messageIds,
     senderEmail: sender.email,
     subject
   });
 
-  if (!sentEmail) {
+  if (sentEmails.length === 0) {
     return { imported: 0, matched: false };
   }
+
+  const responses = sentEmails.length === 1
+    ? new Map([[normalizeSku(sentEmails[0].sku), responseText]])
+    : getBatchSkuResponses(responseText, sentEmails.map((email) => email.sku));
+  if (responses.size === 0) return { imported: 0, matched: false };
 
   await initializeSchema();
 
@@ -528,73 +567,58 @@ async function processStockCheckReplySource({ messageUid, source }) {
     parsed.date instanceof Date && !Number.isNaN(parsed.date.getTime())
       ? parsed.date
       : new Date();
-  const existingRows = await sql`
-    SELECT id::text, gmail_message_id, stock_check_email_id::text
-    FROM inventory_audits
-    WHERE gmail_message_id = ${safeMessageUid}
-       OR stock_check_email_id = ${sentEmail.id}
-    ORDER BY received_at DESC, id DESC
-    LIMIT 1
-  `;
-  const existing = existingRows[0] || null;
+  let imported = 0;
+  let updated = 0;
 
-  if (existing?.gmail_message_id === safeMessageUid) {
-    return {
-      imported: 0,
-      matched: true,
-      sku: normalizeSku(sentEmail.sku),
-      updated: 0
-    };
+  for (const sentEmail of sentEmails) {
+    const sku = normalizeSku(sentEmail.sku);
+    const skuResponse = responses.get(sku);
+    if (!skuResponse) continue;
+    const existingRows = await sql`
+      SELECT gmail_message_id
+      FROM inventory_audits
+      WHERE stock_check_email_id = ${sentEmail.id}
+      LIMIT 1
+    `;
+    const existing = existingRows[0] || null;
+    if (existing?.gmail_message_id === safeMessageUid) continue;
+
+    const rows = await sql`
+      INSERT INTO inventory_audits (
+        gmail_message_id, stock_check_email_id, sku, vendor_id, vendor_name,
+        recipient_email, sender_email, sender_name, subject, response_text, received_at
+      )
+      VALUES (
+        ${safeMessageUid}, ${sentEmail.id}, ${sku},
+        ${normalizeText(sentEmail.vendorId)}, ${normalizeText(sentEmail.vendorName)},
+        ${normalizeEmail(sentEmail.recipientEmail)}, ${sender.email}, ${sender.name},
+        ${subject}, ${skuResponse}, ${receivedAt}
+      )
+      ON CONFLICT (stock_check_email_id) DO UPDATE
+      SET gmail_message_id = EXCLUDED.gmail_message_id,
+          sku = EXCLUDED.sku,
+          vendor_id = EXCLUDED.vendor_id,
+          vendor_name = EXCLUDED.vendor_name,
+          recipient_email = EXCLUDED.recipient_email,
+          sender_email = EXCLUDED.sender_email,
+          sender_name = EXCLUDED.sender_name,
+          subject = EXCLUDED.subject,
+          response_text = EXCLUDED.response_text,
+          received_at = EXCLUDED.received_at
+      WHERE EXCLUDED.received_at >= inventory_audits.received_at
+      RETURNING id::text
+    `;
+    if (rows.length > 0) {
+      if (existing) updated += 1;
+      else imported += 1;
+    }
   }
 
-  const rows = await sql`
-    INSERT INTO inventory_audits (
-      gmail_message_id,
-      stock_check_email_id,
-      sku,
-      vendor_id,
-      vendor_name,
-      recipient_email,
-      sender_email,
-      sender_name,
-      subject,
-      response_text,
-      received_at
-    )
-    VALUES (
-      ${safeMessageUid},
-      ${sentEmail.id},
-      ${normalizeSku(sentEmail.sku)},
-      ${normalizeText(sentEmail.vendorId)},
-      ${normalizeText(sentEmail.vendorName)},
-      ${normalizeEmail(sentEmail.recipientEmail)},
-      ${sender.email},
-      ${sender.name},
-      ${subject},
-      ${responseText},
-      ${receivedAt}
-    )
-    ON CONFLICT (stock_check_email_id) DO UPDATE
-    SET gmail_message_id = EXCLUDED.gmail_message_id,
-        sku = EXCLUDED.sku,
-        vendor_id = EXCLUDED.vendor_id,
-        vendor_name = EXCLUDED.vendor_name,
-        recipient_email = EXCLUDED.recipient_email,
-        sender_email = EXCLUDED.sender_email,
-        sender_name = EXCLUDED.sender_name,
-        subject = EXCLUDED.subject,
-        response_text = EXCLUDED.response_text,
-        received_at = EXCLUDED.received_at
-    WHERE EXCLUDED.received_at >= inventory_audits.received_at
-    RETURNING id::text
-  `;
-  const updated = Boolean(existing) && rows.length > 0;
-
   return {
-    imported: existing ? 0 : rows.length,
+    imported,
     matched: true,
-    sku: normalizeSku(sentEmail.sku),
-    updated: updated ? 1 : 0
+    sku: sentEmails.length === 1 ? normalizeSku(sentEmails[0].sku) : "",
+    updated
   };
 }
 
@@ -712,6 +736,7 @@ module.exports = {
   processStockCheckReplySource,
   _test: {
     collectMessageIds,
+    getBatchSkuResponses,
     stripQuotedReply
   }
 };

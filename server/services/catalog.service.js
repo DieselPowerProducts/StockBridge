@@ -4157,6 +4157,54 @@ async function listStockCheckProducts(queryParams = {}) {
   };
 }
 
+function buildStockCheckVendorGroups(products, vendorRows, emailedSkus = new Set()) {
+  const groups = new Map();
+  const vendorsByProductId = new Map();
+
+  for (const row of vendorRows) {
+    if (!isActiveVendor(row) || !row.product_id || !row.vendor_id) continue;
+    const vendors = vendorsByProductId.get(row.product_id) || new Map();
+    vendors.set(String(row.vendor_id), String(row.vendor_name || row.vendor_id));
+    vendorsByProductId.set(row.product_id, vendors);
+  }
+
+  for (const product of products) {
+    const vendors = vendorsByProductId.get(product.id) || new Map([["", "Unassigned"]]);
+    for (const [vendorId, vendorName] of vendors) {
+      const key = vendorId || "unassigned";
+      if (!groups.has(key)) {
+        groups.set(key, { vendorId, vendorName, products: [] });
+      }
+      groups.get(key).products.push({
+        ...product,
+        vendorEmailSent: emailedSkus.has(String(product.sku || "").trim().toUpperCase())
+      });
+    }
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      products: group.products.sort(compareStockCheckProducts)
+    }))
+    .sort((left, right) => left.vendorName.localeCompare(right.vendorName, undefined, {
+      sensitivity: "base"
+    }));
+}
+
+async function listStockCheckVendorGroups({ bypassCache = false } = {}) {
+  const products = await getStockCheckProducts({ sort: "all", bypassCache });
+  const [vendorRows, emailedSkus] = await Promise.all([
+    queryVendorAvailabilityRows(products.map((product) => product.id)),
+    stockCheckEmailsService.getEmailedSkuSetForSkus(products.map((product) => product.sku))
+  ]);
+
+  return {
+    groups: buildStockCheckVendorGroups(products, vendorRows, emailedSkus),
+    totalProducts: products.length
+  };
+}
+
 function mapVendorSummary(row) {
   return {
     id: String(row?.vendor_id || "").trim(),
@@ -4417,6 +4465,7 @@ module.exports = {
   initializeCatalogSchema: initializeSchema,
   listProducts,
   listStockCheckProducts,
+  listStockCheckVendorGroups,
   listVendorProducts,
   listVendors,
   refreshProductBySku,
@@ -4431,6 +4480,7 @@ module.exports = {
   updateCatalogVendorProductQuantity,
   _test: {
     buildProductVendorAvailability,
+    buildStockCheckVendorGroups,
     getEffectiveAvailability,
     getEffectiveQtyAvailable,
     mapProductAvailabilityToShopifyStatus,
