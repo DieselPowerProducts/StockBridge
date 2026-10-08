@@ -1,7 +1,9 @@
 # StockBridge Standard Operating Procedure
 
 **Audience:** Diesel Power Products processing and inventory staff
+
 **Last reviewed against the app:** October 8, 2026
+
 **Purpose:** Use StockBridge to review product availability, follow up with vendors, process inventory sheets, and investigate packing lists. StockBridge is an operational view of SKU Nexus, Shopify, the DPP warehouse, and vendor communications. It is not a substitute for checking the underlying order or vendor portal when a result looks inconsistent.
 
 ## Before You Start
