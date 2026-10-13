@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { LoginPage } from "./components/auth/LoginPage";
 import { AuditPage } from "./components/audit/AuditPage";
+import { BrandsPage } from "./components/brands/BrandsPage";
 import { NotificationsMenu } from "./components/layout/NotificationsMenu";
 import { Sidebar } from "./components/layout/Sidebar";
 import { NotesModal } from "./components/notes/NotesModal";
@@ -33,12 +34,13 @@ function parseRoute(): AppRoute {
 
   if (page === "notes") {
     return routeValue
-      ? { page: "notes", sku: routeValue, vendor: "" }
-      : { page: "products", sku: "", vendor: "" };
+      ? { page: "notes", sku: routeValue, vendor: "", brand: "" }
+      : { page: "products", sku: "", vendor: "", brand: "" };
   }
 
   if (
     page === "vendors" ||
+    page === "brands" ||
     page === "products" ||
     page === "stock-check" ||
     page === "packing-lists" ||
@@ -47,14 +49,14 @@ function parseRoute(): AppRoute {
     page === "notifications" ||
     page === "shopify-availability-sync"
   ) {
-    return { page, sku: "", vendor: page === "vendors" ? routeValue : "" };
+    return { page, sku: "", vendor: page === "vendors" ? routeValue : "", brand: page === "brands" ? routeValue : "" };
   }
 
   if (page === "price-audit") {
-    return { page: "audit", sku: "", vendor: "" };
+    return { page: "audit", sku: "", vendor: "", brand: "" };
   }
 
-  return { page: "products", sku: "", vendor: "" };
+  return { page: "products", sku: "", vendor: "", brand: "" };
 }
 
 function setHashRoute(page: PageName, vendor = "") {
@@ -278,6 +280,7 @@ export function App() {
   const sidebarPage: PageName =
     route.page === "stock-check" ||
     route.page === "vendors" ||
+    route.page === "brands" ||
     route.page === "packing-lists" ||
     route.page === "audit" ||
     route.page === "sheet-imports" ||
@@ -315,6 +318,15 @@ export function App() {
               onBackToVendors={() => setHashRoute("vendors")}
               onOpenNotes={setSelectedSku}
               onSelectVendor={(vendorId) => setHashRoute("vendors", vendorId)}
+            />
+          )}
+
+          {route.page === "brands" && (
+            <BrandsPage
+              selectedBrand={route.brand}
+              onBackToBrands={() => setHashRoute("brands")}
+              onSelectBrand={(brandKey) => setHashRoute("brands", brandKey)}
+              onOpenNotes={setSelectedSku}
             />
           )}
 

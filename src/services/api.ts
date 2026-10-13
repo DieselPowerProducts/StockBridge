@@ -4,6 +4,8 @@ import type {
   AuthSession,
   AuthUser,
   BackordersResponse,
+  BrandsResponse,
+  BrandProductsResponse,
   EmailTemplate,
   InventoryAuditResponse,
   InventorySheetImport,
@@ -97,6 +99,21 @@ export function signOut() {
 
 export function getAppVersion() {
   return request<AppVersionStatus>("/status/version");
+}
+
+export function getBrands({ page = 1, limit = 30, search = "" } = {}) {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit), search });
+  return request<BrandsResponse>(`/brands?${params}`);
+}
+
+export function getBrandProducts({ brand, page = 1, limit = 30, search = "" }: {
+  brand: string;
+  page?: number;
+  limit?: number;
+  search?: string;
+}) {
+  const params = new URLSearchParams({ brand, page: String(page), limit: String(limit), search });
+  return request<BrandProductsResponse>(`/brands/products?${params}`);
 }
 
 export function createPackingListReport(input: {

@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { loadLocalEnv } = require("../config/env");
 const { getSql } = require("../db/neon");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
+const shopifyBrandsService = require("./shopifyBrands.service");
 
 loadLocalEnv();
 
@@ -1574,6 +1575,10 @@ async function getVariantAvailabilityStatePage({ after = "", first = 250 } = {})
           nodes {
             id
             sku
+            product {
+              id
+              vendor
+            }
             productAvailability: metafield(
               namespace: "custom"
               key: "product_availability"
@@ -1712,7 +1717,8 @@ function countAvailabilityRecords(records) {
 
 async function syncAvailabilityStateFromShopifyPage({
   after = "",
-  first = 250
+  first = 250,
+  brandScanId = ""
 } = {}) {
   const { variants, pageInfo } = await getVariantAvailabilityStatePage({
     after,
@@ -1721,6 +1727,15 @@ async function syncAvailabilityStateFromShopifyPage({
   const { records, skipped } = mergeVariantAvailabilityRecords(variants);
   const savedRecords =
     await shopifyAvailabilityStateService.setAvailabilityStatuses(records);
+  let brandSyncError = "";
+  if (brandScanId) {
+    try {
+      await shopifyBrandsService.saveScanPage(brandScanId, variants);
+    } catch (error) {
+      brandSyncError = String(error?.message || error);
+      console.error("Unable to cache Shopify brands for variant page.", error);
+    }
+  }
 
   try {
     require("./catalog.service").clearCaches();
@@ -1735,11 +1750,13 @@ async function syncAvailabilityStateFromShopifyPage({
     scannedVariantCount: variants.length,
     skippedCount: skipped.length,
     skippedSamples: skipped.slice(0, 25),
-    updatedCount: savedRecords.length
+    updatedCount: savedRecords.length,
+    ...(brandScanId ? { brandSyncError } : {})
   };
 }
 
 async function syncAllAvailabilityStateFromShopify({ first = 250 } = {}) {
+  const brandScanId = crypto.randomUUID();
   let cursor = "";
   let hasNextPage = true;
   const availabilityCounts = {};
@@ -1747,27 +1764,49 @@ async function syncAllAvailabilityStateFromShopify({ first = 250 } = {}) {
   let scannedVariantCount = 0;
   let skippedCount = 0;
   let updatedCount = 0;
+  let brandSyncError = "";
+  let brandSyncComplete = false;
 
-  while (hasNextPage) {
-    const result = await syncAvailabilityStateFromShopifyPage({
-      after: cursor,
-      first
-    });
+  try {
+    while (hasNextPage) {
+      const result = await syncAvailabilityStateFromShopifyPage({
+        after: cursor,
+        first,
+        brandScanId
+      });
 
-    pages += 1;
-    scannedVariantCount += result.scannedVariantCount;
-    skippedCount += result.skippedCount;
-    updatedCount += result.updatedCount;
+      pages += 1;
+      scannedVariantCount += result.scannedVariantCount;
+      skippedCount += result.skippedCount;
+      updatedCount += result.updatedCount;
+      brandSyncError ||= result.brandSyncError;
 
-    for (const [availability, count] of Object.entries(
-      result.availabilityCounts
-    )) {
-      availabilityCounts[availability] =
-        (availabilityCounts[availability] || 0) + Number(count || 0);
+      for (const [availability, count] of Object.entries(result.availabilityCounts)) {
+        availabilityCounts[availability] =
+          (availabilityCounts[availability] || 0) + Number(count || 0);
+      }
+
+      hasNextPage = result.hasNextPage;
+      cursor = result.nextCursor;
     }
 
-    hasNextPage = result.hasNextPage;
-    cursor = result.nextCursor;
+    if (!brandSyncError) {
+      try {
+        await shopifyBrandsService.completeScan(brandScanId);
+        brandSyncComplete = true;
+      } catch (error) {
+        brandSyncError = String(error?.message || error);
+        console.error("Unable to complete Shopify brand sync.", error);
+      }
+    }
+  } finally {
+    if (!brandSyncComplete) {
+      try {
+        await shopifyBrandsService.discardScan(brandScanId);
+      } catch (error) {
+        console.error("Unable to discard incomplete Shopify brand sync.", error);
+      }
+    }
   }
 
   return {
@@ -1775,8 +1814,40 @@ async function syncAllAvailabilityStateFromShopify({ first = 250 } = {}) {
     pages,
     scannedVariantCount,
     skippedCount,
-    updatedCount
+    updatedCount,
+    brandSync: {
+      complete: brandSyncComplete,
+      error: brandSyncError
+    }
   };
+}
+
+async function syncAllBrandsFromShopify({ first = 250 } = {}) {
+  const scanId = crypto.randomUUID();
+  let cursor = "";
+  let pages = 0;
+  let variantsScanned = 0;
+  let skusSaved = 0;
+  let completed = false;
+
+  try {
+    do {
+      const { variants, pageInfo } = await getVariantAvailabilityStatePage({ after: cursor, first });
+      skusSaved += await shopifyBrandsService.saveScanPage(scanId, variants);
+      variantsScanned += variants.length;
+      pages += 1;
+      if (pageInfo.hasNextPage && !pageInfo.endCursor) {
+        throw new Error("Shopify brand scan stopped without a next-page cursor.");
+      }
+      cursor = pageInfo.hasNextPage ? pageInfo.endCursor : "";
+    } while (cursor);
+
+    await shopifyBrandsService.completeScan(scanId);
+    completed = true;
+    return { pages, variantsScanned, skusSaved };
+  } finally {
+    if (!completed) await shopifyBrandsService.discardScan(scanId);
+  }
 }
 
 function metafieldValueMatches(expectedMetafield, verifiedMetafield) {
@@ -2493,6 +2564,7 @@ module.exports = {
   getQuickShipMetafieldStates,
   resolveOrder,
   syncAllAvailabilityStateFromShopify,
+  syncAllBrandsFromShopify,
   syncAvailabilityStateFromShopifyPage,
   syncCollectiveAvailabilityMetafields,
   syncVariantAvailabilityMetafields,

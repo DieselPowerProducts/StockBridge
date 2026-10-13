@@ -2,14 +2,14 @@
 
 **Audience:** Diesel Power Products processing and inventory staff
 
-**Last reviewed against the app:** October 8, 2026
+**Last reviewed against the app:** October 13, 2026
 
 **Purpose:** Use StockBridge to review product availability, follow up with vendors, process inventory sheets, and investigate packing lists. StockBridge is an operational view of SKU Nexus, Shopify, the DPP warehouse, and vendor communications. It is not a substitute for checking the underlying order or vendor portal when a result looks inconsistent.
 
 ## Before You Start
 
 1. Open the production StockBridge site and sign in with your authorized Google account.
-2. Use the left sidebar to open **Products**, **Stock Check**, **Packing Lists**, **Vendors**, **Audit**, or **Sheet Imports**. Browser middle-click or Ctrl-click opens a sidebar page in another tab.
+2. Use the left sidebar to open **Products**, **Stock Check**, **Packing Lists**, **Brands**, **Vendors**, **Audit**, or **Sheet Imports**. Browser middle-click or Ctrl-click opens a sidebar page in another tab.
 3. Confirm the SKU, vendor, and warehouse quantity before changing availability. A product may have more than one active vendor.
 4. Treat availability buttons, vendor stock controls, sheet **Submit**, price-audit **Confirm**, and email **Send** as live actions. They can write to SKU Nexus, Shopify, or the vendor mailbox.
 5. If a page has been open during a deployment, it may reload automatically when the new version is detected. Recheck any unsaved entry afterward.
@@ -57,6 +57,12 @@ Shopify updates can be queued after follow-up, stock, or lead-time edits. A brie
 3. The pencil menu's **BTO On/Off** switch overrides that vendor's BTO setting for this product only. If the vendor has a default build time, **Lead time** can set a product-specific time; clearing it returns to the vendor default.
 4. Vendor stock controls change that vendor assignment. Auto-inventory-managed stock rows are read-only; use the **Auto Inventory** control in the pencil menu to make an intentional per-product exception before manually controlling stock.
 5. The envelope on a vendor row opens a single-SKU stock-check email. Select an available contact, verify the recipient, subject, and message, then send. The vendor's configured default contact is selected when available. StockBridge excludes `shipping@dieselpowerproducts.com` from vendor contact choices.
+
+## Brands
+
+**Brands** groups active StockBridge products by the **Vendor** field on the matching Shopify product. Search for a brand, open it to see its SKUs, then select a SKU to open Notes. The count is the number of active StockBridge products, not Shopify variants or purchase orders. The page shows when the Shopify brand index was last refreshed.
+
+**Not in Shopify** lists StockBridge SKUs with no whole-SKU Shopify match (case-insensitive, preserving punctuation). **No Shopify vendor** lists matched products whose Shopify Vendor field is empty. **Conflicting Shopify vendors** lists a SKU used on Shopify products with different Vendor values. These groups help identify catalog data to review; the Brands page does not change Shopify or SKU Nexus. This is distinct from **Vendors**, which shows SKU Nexus vendor assignments, and from Stock Check's **Sort by Brand**, which groups by active assigned vendor for emailing.
 
 ## Stock Check
 

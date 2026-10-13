@@ -1,6 +1,7 @@
 export type PageName =
   | "products"
   | "stock-check"
+  | "brands"
   | "vendors"
   | "audit"
   | "packing-lists"
@@ -12,6 +13,7 @@ export type AppRoute = {
   page: RoutePageName;
   sku: string;
   vendor: string;
+  brand: string;
 };
 
 export type AuthUser = {
@@ -133,6 +135,36 @@ export type ProductsResponse = {
   total: number;
   totalPages: number;
   isLastPage: boolean;
+};
+
+export type BrandSummary = {
+  key: string;
+  name: string;
+  productCount: number;
+};
+
+export type BrandsResponse = {
+  data: BrandSummary[];
+  total: number;
+  totalProducts: number;
+  syncedAt: string;
+  ready: boolean;
+};
+
+export type BrandProduct = {
+  id: string;
+  sku: string;
+  name: string;
+  isKit: boolean;
+};
+
+export type BrandProductsResponse = {
+  data: BrandProduct[];
+  brandName: string;
+  total: number;
+  totalPages: number;
+  isLastPage: boolean;
+  syncedAt: string;
 };
 
 export type StockCheckBrandGroup = {

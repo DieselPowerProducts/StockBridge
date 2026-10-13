@@ -5,6 +5,7 @@ const apiRoutes = [
   "/audits",
   "/auth",
   "/backorders",
+  "/brands",
   "/email",
   "/status",
   "/import",
