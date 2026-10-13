@@ -69,3 +69,11 @@ test("routes the sheet import review API through Express", () => {
 
   assert.match(apiRoute.src, /inventory-sheet-imports/);
 });
+
+test("routes both Brands API endpoints through Express", () => {
+  const apiRoute = config.routes.find((route) => route.dest === "api/index.js");
+  const routePattern = new RegExp(`^${apiRoute.src}$`);
+
+  assert.equal(routePattern.test("/brands"), true);
+  assert.equal(routePattern.test("/brands/products"), true);
+});
