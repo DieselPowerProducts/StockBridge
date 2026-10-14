@@ -396,6 +396,10 @@ async function setProductFollowUp({ sku, followUpDate, followUpNoEta }) {
     result.sku || sku,
     "follow-up-update"
   );
+  const parentKitSkus = await catalogService.getParentKitSkusForSku(result.sku || sku);
+  for (const parentSku of parentKitSkus) {
+    await queueShopifyAvailabilitySync(parentSku, "kit-child-follow-up-update");
+  }
 
   return result;
 }

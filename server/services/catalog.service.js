@@ -1245,6 +1245,12 @@ async function queryParentKitsByChildSku(childSku) {
   `;
 }
 
+async function getParentKitSkusForSku(sku) {
+  await ensureCatalogReady();
+  const rows = await queryParentKitsByChildSku(normalizeRequiredString(sku, "Product SKU is required."));
+  return Array.from(new Set(rows.map((row) => row.sku).filter(Boolean)));
+}
+
 async function queryAllComponents() {
   const sql = getSql();
   return sql`
@@ -4460,6 +4466,7 @@ module.exports = {
   getCatalogVendorProductById: queryVendorProductById,
   getCatalogSyncStatus,
   getProductDetails,
+  getParentKitSkusForSku,
   getShopifyAvailabilityRecordsForSkus,
   getVendorDetails,
   initializeCatalogSchema: initializeSchema,

@@ -35,6 +35,7 @@ test("allows No ETA after all product vendor BTO switches are off", async (t) =>
   t.mock.method(inventoryAuditService, "clearInventoryAuditsForSku", async () => {});
   t.mock.method(stockCheckEmailsService, "clearVendorEmailsForSku", async () => {});
   t.mock.method(catalogService, "clearCaches", () => {});
+  t.mock.method(catalogService, "getParentKitSkusForSku", async () => []);
   const enqueue = t.mock.method(queueService, "enqueueAvailabilitySync", async () => ({}));
   assert.deepEqual(await productsService.setProductFollowUp(input), input);
   assert.equal(enqueue.mock.callCount(), 1);
@@ -54,6 +55,7 @@ test("clearing No ETA restores vendor BTO before queueing the Shopify update", a
   t.mock.method(inventoryAuditService, "clearInventoryAuditsForSku", async () => {});
   t.mock.method(stockCheckEmailsService, "clearVendorEmailsForSku", async () => {});
   t.mock.method(catalogService, "clearCaches", () => {});
+  t.mock.method(catalogService, "getParentKitSkusForSku", async () => []);
   t.mock.method(queueService, "enqueueAvailabilitySync", async () => {
     calls.push("queue");
     return {};
@@ -62,6 +64,27 @@ test("clearing No ETA restores vendor BTO before queueing the Shopify update", a
     sku: "FI-MCH1033", followUpDate: "2026-10-07", followUpNoEta: false
   });
   assert.deepEqual(calls, ["follow-up", "restore-bto", "queue"]);
+});
+
+test("changing a child follow-up also syncs its parent kits", async (t) => {
+  t.mock.method(followUpsService, "getFollowUpInfoForSku", async () => ({ followUpNoEta: false }));
+  t.mock.method(followUpsService, "setFollowUp", async () => ({
+    sku: "SYN-6410-02", followUpDate: "2026-12-02", followUpNoEta: false
+  }));
+  t.mock.method(inventoryAuditService, "clearInventoryAuditsForSku", async () => {});
+  t.mock.method(stockCheckEmailsService, "clearVendorEmailsForSku", async () => {});
+  t.mock.method(catalogService, "clearCaches", () => {});
+  t.mock.method(catalogService, "getParentKitSkusForSku", async () => ["SYN-8625-03"]);
+  const enqueue = t.mock.method(queueService, "enqueueAvailabilitySync", async () => ({}));
+
+  await productsService.setProductFollowUp({
+    sku: "SYN-6410-02", followUpDate: "2026-12-02", followUpNoEta: false
+  });
+
+  assert.deepEqual(enqueue.mock.calls.map(({ arguments: [input] }) => input), [
+    { sku: "SYN-6410-02", source: "follow-up-update" },
+    { sku: "SYN-8625-03", source: "kit-child-follow-up-update" }
+  ]);
 });
 
 for (const enabled of [true, false]) {
