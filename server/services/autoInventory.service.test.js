@@ -333,6 +333,51 @@ test("matches one vendor sheet SKU to every assigned product using that SKU", as
   }, vendorProducts);
 });
 
+test("matches an S&B sheet part to both S&B and SB-prefixed vendor SKUs", async () => {
+  const vendorProducts = [
+    {
+      id: "vendor-product-ampersand",
+      vendor_id: "vendor-1",
+      product_id: "product-ampersand",
+      product_sku: "S&B KF-1054",
+      sku: "S&B KF-1054",
+      label: "S&B KF-1054",
+      quantity: 0,
+      status: 1
+    },
+    {
+      id: "vendor-product-compact",
+      vendor_id: "vendor-1",
+      product_id: "product-compact",
+      product_sku: "SB-KF-1054",
+      sku: "SB-KF-1054",
+      label: "SB-KF-1054",
+      quantity: 0,
+      status: 1
+    }
+  ];
+
+  await withStagingHarness(async ({ staged, stageSheetAttachment }) => {
+    const result = await stageSheetAttachment({
+      settings: stagingSettings,
+      attachment: {
+        filename: "S&B inventory.csv",
+        contentType: "text/csv",
+        content: Buffer.from("Item,Available\nKF-1054,59\nKF-1054D,21\nKF-1054DA,0\n")
+      },
+      message: { uid: "gmail-sb", messageId: "message-sb" }
+    });
+
+    assert.equal(result.staged, 2);
+    assert.equal(staged[0].summary.missingSkuRows, 0);
+    assert.deepEqual(staged[0].rows.map((row) => row.productSku).sort(), [
+      "S&B KF-1054", "SB-KF-1054"
+    ]);
+    assert.equal(staged[0].rows.every((row) => row.sheetSku === "KF-1054"), true);
+    assert.equal(staged[0].summary.unmatchedRows, 2);
+  }, vendorProducts);
+});
+
 test("prefers an exact sheet SKU over a fuzzy lookalike row", async () => {
   const vendorProducts = [
     {

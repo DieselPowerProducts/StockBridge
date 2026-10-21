@@ -52,6 +52,13 @@ test("SKU matching tolerates vendor grouping dashes", () => {
   );
 });
 
+test("SKU matching recognizes the S&B brand prefix without merging nearby parts", () => {
+  const keys = getSkuMatchKeys("S&B KF-1054");
+
+  assert.equal(keys.includes("kf-1054"), true);
+  assert.equal(keys.includes("kf-1054d"), false);
+});
+
 test("SKU matching recognizes ATS application labels before colon-delimited SKUs", () => {
   const productSkuKeys = getSkuMatchKeys("ATS-309-914-8380");
   const sheetSkuKeys = getSkuMatchKeys("306-10 : 309-914-8380");

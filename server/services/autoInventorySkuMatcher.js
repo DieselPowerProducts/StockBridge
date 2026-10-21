@@ -5,6 +5,7 @@ function normalizeText(value) {
 function normalizeSkuKey(value) {
   return normalizeText(value)
     .toLowerCase()
+    .replace(/\bs\s*&\s*b\b/g, "sb")
     .replace(/&/g, "-")
     .replace(/['"]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
