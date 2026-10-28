@@ -8,6 +8,7 @@ loadLocalEnv();
 
 const DEFAULT_API_VERSION = "2025-10";
 const TOKEN_EXPIRY_SAFETY_MS = 60 * 1000;
+const MAX_SHOPIFY_TOKEN_RETRIES = 2;
 const DEFAULT_RESOLVE_CACHE_DAYS = 7;
 const MAX_SHOPIFY_GRAPHQL_RETRIES = 5;
 const metafieldNamespace = "custom";
@@ -455,7 +456,7 @@ function getAccessTokenCacheKey({ clientId, storeDomain }) {
   return `${storeDomain}:${clientId}`;
 }
 
-async function fetchShopifyAccessToken(profile = shopifyOrdersProfile) {
+async function fetchShopifyAccessToken(profile = shopifyOrdersProfile, attempt = 0) {
   const config = getShopifyConfig(profile);
   const cacheKey = getAccessTokenCacheKey(config);
   const cachedToken = accessTokenCache.get(cacheKey);
@@ -492,11 +493,28 @@ async function fetchShopifyAccessToken(profile = shopifyOrdersProfile) {
   }
 
   if (!response.ok || !payload?.access_token) {
+    const retryable = response.status === 429 || response.status >= 500;
+
+    if (retryable && attempt < MAX_SHOPIFY_TOKEN_RETRIES) {
+      const retryAfterSeconds = Number(response.headers.get("retry-after") || 0);
+      const retryDelayMs = retryAfterSeconds > 0
+        ? Math.min(retryAfterSeconds * 1000, 5000)
+        : 300 * 2 ** attempt;
+      await delay(retryDelayMs);
+      return fetchShopifyAccessToken(profile, attempt + 1);
+    }
+
+    console.error("[shopify] access token request rejected", {
+      profile,
+      status: response.status,
+      contentType: response.headers.get("content-type") || "",
+      requestId: response.headers.get("x-request-id") || ""
+    });
     throw createHttpError(
       502,
       payload?.error_description ||
         payload?.error ||
-        "Unable to authenticate with Shopify."
+        `Unable to authenticate with Shopify (HTTP ${response.status}).`
     );
   }
 
@@ -2571,6 +2589,7 @@ module.exports = {
   updateProductAvailability,
   updateQuickShipMetafields,
   _test: {
+    fetchShopifyAccessToken,
     hasDiscontinuedAvailability,
     isDiscontinuedAvailabilityValue,
     mergeVariantAvailabilityRecords
