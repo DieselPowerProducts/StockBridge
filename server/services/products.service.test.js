@@ -87,6 +87,36 @@ test("changing a child follow-up also syncs its parent kits", async (t) => {
   ]);
 });
 
+test("changing child vendor stock also syncs its parent kits", async (t) => {
+  const vendorProduct = {
+    vendor_id: "vendor-1",
+    vendor_product_id: "vp-1",
+    product_id: "product-1",
+    product_sku: "KRY-11KDG018",
+    sku: "11KDG018",
+    quantity: 1,
+    status: 1
+  };
+  t.mock.method(catalogService, "getCatalogVendorProductById", async () => vendorProduct);
+  t.mock.method(catalogService, "updateCatalogVendorProductQuantity", async () => vendorProduct);
+  t.mock.method(catalogService, "clearCaches", () => {});
+  t.mock.method(catalogService, "getParentKitSkusForSku", async () => ["KRY-ULTIMATE11"]);
+  t.mock.method(vendorSettingsService, "getVendorSettings", async () => ({ builtToOrder: false }));
+  t.mock.method(skunexus, "rest", async () => ({}));
+  const enqueue = t.mock.method(queueService, "enqueueAvailabilitySync", async () => ({}));
+
+  await productsService.setVendorProductQuantity({
+    vendorId: "vendor-1",
+    vendorProductId: "vp-1",
+    quantity: 0
+  });
+
+  assert.deepEqual(enqueue.mock.calls.map(({ arguments: [input] }) => input), [
+    { sku: "KRY-11KDG018", source: "vendor-inventory-update" },
+    { sku: "KRY-ULTIMATE11", source: "kit-child-inventory-update" }
+  ]);
+});
+
 for (const enabled of [true, false]) {
   test(`product BTO ${enabled ? "on clears No ETA" : "off preserves follow-up"} and queues Shopify`, async (t) => {
     const details = { sku: "TEST", vendors: [

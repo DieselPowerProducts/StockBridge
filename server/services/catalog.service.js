@@ -3492,13 +3492,9 @@ async function runFullSync({ reason = "manual" } = {}) {
         };
     const shopifyCollectiveInventory =
       await syncShopifyCollectiveInventoryAfterFullSync(reason);
-    const shopifyAvailabilityRead =
-      await syncShopifyAvailabilityStateAfterFullSync(reason);
     await clearBuiltToOrderNoEtas();
     const newProductShopifyAvailability =
       await syncShopifyAvailabilityForNewProducts(newProductSkus, reason);
-    const shopifyAvailabilityReconciliation =
-      await queueShopifyAvailabilityReconciliationAfterFullSync();
     await setSyncState("catalog_last_full_sync_at", syncStamp);
     await setSyncState("catalog_last_full_sync_reason", reason);
     if (didSyncWarehouse) {
@@ -3516,8 +3512,6 @@ async function runFullSync({ reason = "manual" } = {}) {
       warehouseProducts: warehouseStockRows.length,
       kitQuickShip,
       newProductShopifyAvailability,
-      shopifyAvailabilityRead,
-      shopifyAvailabilityReconciliation,
       shopifyCollectiveInventory
     };
   })();
@@ -4049,6 +4043,24 @@ async function syncShopifyAvailabilityStateAfterFullSync(reason) {
   }
 }
 
+async function runScheduledShopifyAvailabilityReconciliation() {
+  await initializeSchema();
+  const reason = "scheduled-shopify-availability-reconciliation";
+  const shopifyAvailabilityRead =
+    await syncShopifyAvailabilityStateAfterFullSync(reason);
+  const shopifyAvailabilityReconciliation =
+    await queueShopifyAvailabilityReconciliationAfterFullSync();
+
+  if (shopifyAvailabilityReconciliation.error) {
+    throw new Error(shopifyAvailabilityReconciliation.error);
+  }
+
+  return {
+    shopifyAvailabilityRead,
+    shopifyAvailabilityReconciliation
+  };
+}
+
 async function ensureBackorderFollowUpForSku(sku, followUpDate = "") {
   const safeSku = normalizeRequiredString(sku, "Product SKU is required.");
   const details = await getProductDetails(safeSku);
@@ -4478,6 +4490,7 @@ module.exports = {
   refreshProductBySku,
   runScheduledCatalogSync,
   runScheduledFullSync,
+  runScheduledShopifyAvailabilityReconciliation,
   runScheduledWarehouseSync,
   runFullSync,
   runWarehouseSync,

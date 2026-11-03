@@ -828,13 +828,18 @@ async function setVendorProductQuantity({
   }
 
   clearProductCaches();
+  const updatedSku = resolvedVendorProduct.product_sku || productSku;
   await queueShopifyAvailabilitySync(
-    resolvedVendorProduct.product_sku || productSku,
+    updatedSku,
     "vendor-inventory-update"
   );
+  const parentKitSkus = await catalogService.getParentKitSkusForSku(updatedSku);
+  for (const parentSku of parentKitSkus) {
+    await queueShopifyAvailabilitySync(parentSku, "kit-child-inventory-update");
+  }
 
   return {
-    sku: resolvedVendorProduct.product_sku || productSku,
+    sku: updatedSku,
     vendorId: safeVendorId,
     vendorProductId: safeVendorProductId,
     quantity: safeQuantity,

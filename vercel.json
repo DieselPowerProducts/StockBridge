@@ -12,6 +12,10 @@
       "includeFiles": "server/**",
       "maxDuration": 180
     },
+    "api/cron/catalog-shopify-reconciliation.js": {
+      "includeFiles": "server/**",
+      "maxDuration": 180
+    },
     "api/cron/catalog-warehouse-sync.js": {
       "includeFiles": "server/**",
       "maxDuration": 180
@@ -63,6 +67,10 @@
     {
       "path": "/api/cron/catalog-full-sync",
       "schedule": "15 10 * * *"
+    },
+    {
+      "path": "/api/cron/catalog-shopify-reconciliation",
+      "schedule": "20 10 * * *"
     },
     {
       "path": "/api/cron/auto-inventory",

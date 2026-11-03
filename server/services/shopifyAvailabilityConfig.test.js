@@ -22,6 +22,14 @@ test("keeps every existing non-availability cron schedule unchanged", () => {
     "0 * * * *"
   );
   assert.equal(schedulesByPath.get("/api/cron/gmail-watch"), "30 9 * * *");
+  assert.equal(
+    schedulesByPath.get("/api/cron/catalog-shopify-reconciliation"),
+    "20 10 * * *"
+  );
+  assert.equal(
+    config.functions["api/cron/catalog-shopify-reconciliation.js"].maxDuration,
+    180
+  );
 });
 
 test("runs the push consumer serially without the availability polling cron", () => {
