@@ -334,6 +334,54 @@ test("calculates kit inventory from components instead of parent vendor stock", 
   );
 });
 
+test("uses the latest backordered child date when a kit's own follow-up is stale", () => {
+  const productsBySku = new Map([
+    ["KIT-1", {
+      id: "kit-1", sku: "KIT-1", is_kit: true, qty_available: 3,
+      relatedProduct: [{ sku: "CHILD-1", qty: 1 }]
+    }],
+    ["CHILD-1", {
+      id: "child-1", sku: "CHILD-1", is_kit: false, qty_available: 0,
+      relatedProduct: []
+    }]
+  ]);
+  const productGraph = {
+    productsBySku,
+    availabilityCache: new Map()
+  };
+  const productVendorAvailability = {
+    builtToOrderBuildTimeByProductId: new Map(),
+    collectiveQuantityByProductId: new Map(),
+    productIdsWithActiveVendors: new Set(["kit-1", "child-1"]),
+    productIdsWithBuiltToOrderVendors: new Set(),
+    vendorQuantityByProductId: new Map([["kit-1", 999999], ["child-1", 0]])
+  };
+  const followUpInfoBySku = new Map([
+    ["KIT-1", { followUpDate: "2026-10-19", followUpNoEta: false }],
+    ["CHILD-1", { followUpDate: "2026-11-16", followUpNoEta: false }]
+  ]);
+  const input = {
+    product: { sku: "KIT-1", name: "Kit", availability: "Backorder" },
+    productGraph,
+    productVendorAvailability,
+    followUpInfo: followUpInfoBySku.get("KIT-1"),
+    followUpInfoBySku,
+    shopifyAvailabilityModifier: "",
+    shopifyAvailabilityStatus: "backordered",
+    shopifyAvailabilityBySku: new Map(),
+    buildToOrderLeadTimeBySku: new Map()
+  };
+
+  assert.equal(_test.getShopifyAvailabilityRecord(input).followUpDate, "2026-11-16");
+  assert.equal(
+    _test.getShopifyAvailabilityRecord({
+      ...input,
+      followUpInfo: { followUpDate: "2026-10-19", followUpNoEta: true }
+    }).followUpDate,
+    ""
+  );
+});
+
 test("backorders a kit when known child stock cannot fulfill one kit", () => {
   const productsBySku = new Map([
     [

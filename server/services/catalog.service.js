@@ -2145,7 +2145,10 @@ function getShopifyAvailabilityRecord({
   const followUpDate =
     availability === "backordered" && followUpInfo?.followUpNoEta
       ? ""
-      : followUpInfo?.followUpDate || kitBackorderFollowUpDate || "";
+      : [followUpInfo?.followUpDate || "", kitBackorderFollowUpDate]
+          .filter(Boolean)
+          .sort()
+          .at(-1) || "";
 
   return {
     sku: product.sku,
@@ -4503,6 +4506,7 @@ module.exports = {
     buildStockCheckVendorGroups,
     getEffectiveAvailability,
     getEffectiveQtyAvailable,
+    getShopifyAvailabilityRecord,
     mapProductAvailabilityToShopifyStatus,
     getOwnBuildToOrderLeadTime,
     isActiveVendorProduct,
