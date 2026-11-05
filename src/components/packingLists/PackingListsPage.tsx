@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import { createPackingListReport } from "../../services/api";
 import type { PackingListOrder, PackingListReport } from "../../types";
 
@@ -31,12 +31,6 @@ const reportGroups: ReportGroup[] = [
   }
 ];
 
-function getToday() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
-}
-
 function parsePurchaseOrders(value: string) {
   return value
     .split(/[\s,;/]+/)
@@ -56,6 +50,19 @@ function formatDate(value: string) {
         month: "numeric",
         day: "numeric",
         year: "numeric"
+      });
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString(undefined, {
+        month: "numeric",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
       });
 }
 
@@ -122,7 +129,7 @@ function downloadReportCsv(report: PackingListReport) {
     .replace(/^-|-$/g, "") || "vendor";
 
   link.href = url;
-  link.download = `packing-list-report-${vendor}-${report.receivedFrom}-${report.receivedTo}.csv`;
+  link.download = `packing-list-report-${vendor}-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -185,10 +192,7 @@ function OrderRows({ orders }: { orders: PackingListOrder[] }) {
 }
 
 export function PackingListsPage() {
-  const today = useMemo(getToday, []);
   const [purchaseOrders, setPurchaseOrders] = useState("");
-  const [receivedFrom, setReceivedFrom] = useState(today);
-  const [receivedTo, setReceivedTo] = useState(today);
   const [report, setReport] = useState<PackingListReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -202,9 +206,7 @@ export function PackingListsPage() {
 
     try {
       const result = await createPackingListReport({
-        purchaseOrders: parsePurchaseOrders(purchaseOrders),
-        receivedFrom,
-        receivedTo
+        purchaseOrders: parsePurchaseOrders(purchaseOrders)
       });
       setReport(result);
     } catch (err) {
@@ -223,7 +225,7 @@ export function PackingListsPage() {
         </div>
         {report ? (
           <span>
-            {report.parts.length} received SKU{report.parts.length === 1 ? "" : "s"}
+            {report.parts.length} stocked SKU{report.parts.length === 1 ? "" : "s"}
           </span>
         ) : null}
       </header>
@@ -235,24 +237,6 @@ export function PackingListsPage() {
             value={purchaseOrders}
             onChange={(event) => setPurchaseOrders(event.target.value)}
             placeholder="Enter PO numbers separated by commas, slashes, or new lines"
-            required
-          />
-        </label>
-        <label className="packing-list-from-field">
-          <span>Received from</span>
-          <input
-            type="date"
-            value={receivedFrom}
-            onChange={(event) => setReceivedFrom(event.target.value)}
-            required
-          />
-        </label>
-        <label className="packing-list-through-field">
-          <span>Received through</span>
-          <input
-            type="date"
-            value={receivedTo}
-            onChange={(event) => setReceivedTo(event.target.value)}
             required
           />
         </label>
@@ -283,7 +267,7 @@ export function PackingListsPage() {
           <section className="packing-list-receipts" aria-labelledby="packingListReceiptsHeading">
             <header>
               <h2 id="packingListReceiptsHeading">Receipts</h2>
-              <span>{formatDate(report.receivedFrom)} through {formatDate(report.receivedTo)}</span>
+              <span>{report.warehouseStockAsOf ? `Warehouse stock as of ${formatDateTime(report.warehouseStockAsOf)}` : "DPP Warehouse"}</span>
             </header>
             <div className="packing-list-table-wrap">
               <table>
@@ -291,7 +275,7 @@ export function PackingListsPage() {
                   <tr>
                     <th>PO</th>
                     <th>Vendor</th>
-                    <th>Received SKUs</th>
+                    <th>Stocked SKUs</th>
                     <th>Received Qty</th>
                   </tr>
                 </thead>
@@ -310,16 +294,17 @@ export function PackingListsPage() {
           </section>
 
           <details className="packing-list-parts">
-            <summary>Received parts ({report.parts.length})</summary>
+            <summary>Received parts with stock ({report.parts.length})</summary>
             <div className="packing-list-table-wrap">
               <table>
-                <thead><tr><th>SKU</th><th>Name</th><th>Qty</th><th>Source POs</th></tr></thead>
+                <thead><tr><th>SKU</th><th>Name</th><th>Received Qty</th><th>Warehouse Available</th><th>Source POs</th></tr></thead>
                 <tbody>
                   {report.parts.map((part) => (
                     <tr key={part.sku}>
                       <td>{part.sku}</td>
                       <td>{part.name}</td>
                       <td>{part.receivedQuantity}</td>
+                      <td>{part.warehouseAvailableQuantity}</td>
                       <td>{part.sources.map((source) => `${source.poNumber} (${source.quantity})`).join(", ")}</td>
                     </tr>
                   ))}

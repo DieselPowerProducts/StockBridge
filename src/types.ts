@@ -326,6 +326,7 @@ export type PackingListPart = {
   sku: string;
   name: string;
   receivedQuantity: number;
+  warehouseAvailableQuantity: number;
   sources: PackingListSource[];
 };
 
@@ -352,8 +353,7 @@ export type PackingListOrder = {
 
 export type PackingListReport = {
   vendors: string[];
-  receivedFrom: string;
-  receivedTo: string;
+  warehouseStockAsOf: string;
   purchaseOrders: Array<{
     id: string;
     poNumber: string;

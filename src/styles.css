@@ -1781,22 +1781,13 @@ th {
   display: grid;
   gap: 12px;
   grid-template-areas:
-    "purchase-orders purchase-orders purchase-orders purchase-orders"
-    "received-from received-through . submit";
-  grid-template-columns: minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(180px, 1fr) auto;
+    "purchase-orders submit";
+  grid-template-columns: minmax(0, 1fr) auto;
   padding-bottom: 18px;
 }
 
 .packing-list-po-field {
   grid-area: purchase-orders;
-}
-
-.packing-list-from-field {
-  grid-area: received-from;
-}
-
-.packing-list-through-field {
-  grid-area: received-through;
 }
 
 .packing-list-submit {
@@ -3675,8 +3666,6 @@ body:has(.notes-popup-page),
   .packing-lists-form {
     grid-template-areas:
       "purchase-orders"
-      "received-from"
-      "received-through"
       "submit";
     grid-template-columns: 1fr;
   }

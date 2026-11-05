@@ -118,8 +118,6 @@ export function getBrandProducts({ brand, page = 1, limit = 30, search = "" }: {
 
 export function createPackingListReport(input: {
   purchaseOrders: string[];
-  receivedFrom: string;
-  receivedTo: string;
 }) {
   return request<PackingListReport>("/packing-lists/report", {
     method: "POST",

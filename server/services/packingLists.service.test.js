@@ -5,6 +5,7 @@ const {
   _test: {
     buildPackingParts,
     classifyOrders,
+    filterPartsWithWarehouseStock,
     parsePurchaseOrderInput,
     parseReceiptEntries
   }
@@ -29,7 +30,7 @@ test("normalizes pasted purchase order lists", () => {
   );
 });
 
-test("parses receipt history and keeps only valid positive quantities", () => {
+test("parses positive receipt quantities even when a date is missing", () => {
   assert.deepEqual(
     parseReceiptEntries([
       {
@@ -46,6 +47,11 @@ test("parses receipt history and keeps only valid positive quantities", () => {
         date: "08/11/2026 09:18 am",
         dateKey: "2026-08-11",
         quantity: 2
+      },
+      {
+        date: "not a date",
+        dateKey: "",
+        quantity: 1
       }
     ]
   );
@@ -90,9 +96,7 @@ test("aggregates duplicate received SKUs across purchase orders", () => {
           ]
         }
       }
-    ],
-    "2026-08-08",
-    "2026-08-19"
+    ]
   );
 
   assert.equal(result.parts.length, 1);
@@ -101,6 +105,45 @@ test("aggregates duplicate received SKUs across purchase orders", () => {
     result.parts[0].sources.map((source) => source.poNumber),
     ["0000001", "0000002"]
   );
+});
+
+test("uses PO received quantity without requiring receipt timestamps", () => {
+  const result = buildPackingParts([{
+    id: "po-1",
+    label: "0000001",
+    vendor: { name: "Vendor" },
+    lineItems: { rows: [
+      { product: { sku: "ABC-123", name: "Part" }, received: 5, customValues: [] },
+      { product: { sku: "ABC-456", name: "Other" }, received: 0,
+        customValues: [{ custom_field_id: "date_received", value: '[{"qty":2,"date":"08/10/2026"}]' }] }
+    ] }
+  }]);
+
+  assert.deepEqual(result.parts.map((part) => [part.sku, part.receivedQuantity]), [["ABC-123", 5]]);
+});
+
+test("keeps all received quantity for a SKU with any warehouse stock", () => {
+  const parts = [{
+    sku: "ABC-123", name: "Part", receivedQuantity: 5,
+    sources: [{ poNumber: "0000001", quantity: 5, receivedDates: [] }]
+  }, {
+    sku: "ABC-456", name: "Other", receivedQuantity: 2,
+    sources: [{ poNumber: "0000001", quantity: 2, receivedDates: [] }]
+  }];
+  const purchaseOrders = [{
+    id: "po-1", poNumber: "0000001", vendorName: "Vendor",
+    receivedQuantity: 7, receivedSkuCount: 2, url: "/po-1"
+  }];
+  const result = filterPartsWithWarehouseStock(
+    parts, purchaseOrders,
+    new Map([["ABC-123", { quantity: 1, asOf: "2026-11-05T12:00:00Z" }]])
+  );
+
+  assert.deepEqual(result.parts.map((part) => [
+    part.sku, part.receivedQuantity, part.warehouseAvailableQuantity
+  ]), [["ABC-123", 5, 1]]);
+  assert.equal(result.purchaseOrders[0].receivedQuantity, 5);
+  assert.equal(result.purchaseOrders[0].receivedSkuCount, 1);
 });
 
 test("classifies warehouse, backorder, and missing tracking work", () => {

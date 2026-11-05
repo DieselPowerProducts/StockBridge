@@ -1,4 +1,5 @@
 const skunexus = require("./skunexus.service");
+const { getSql } = require("../db/neon");
 
 const activeOrderStates = [
   "open",
@@ -83,22 +84,6 @@ function parsePurchaseOrderInput(value) {
   return purchaseOrders;
 }
 
-function validateDate(value, label) {
-  const date = normalizeText(value);
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw createHttpError(400, `${label} is required.`);
-  }
-
-  const parsed = new Date(`${date}T00:00:00Z`);
-
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
-    throw createHttpError(400, `${label} is invalid.`);
-  }
-
-  return date;
-}
-
 function parseReceiptDate(value) {
   const match = normalizeText(value).match(
     /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+\d{1,2}:\d{2}\s*(?:am|pm))?$/i
@@ -140,17 +125,13 @@ function parseReceiptEntries(customValues) {
         dateKey: parseReceiptDate(entry?.date),
         quantity: Math.max(Number(entry?.qty || 0), 0)
       }))
-      .filter((entry) => entry.dateKey && entry.quantity > 0);
+      .filter((entry) => entry.quantity > 0);
   } catch {
     return [];
   }
 }
 
-function isDateInRange(date, fromDate, toDate) {
-  return date >= fromDate && date <= toDate;
-}
-
-function buildPackingParts(purchaseOrderDetails, fromDate, toDate) {
+function buildPackingParts(purchaseOrderDetails) {
   const parts = new Map();
   const purchaseOrders = [];
 
@@ -168,15 +149,16 @@ function buildPackingParts(purchaseOrderDetails, fromDate, toDate) {
         continue;
       }
 
-      const entries = parseReceiptEntries(lineItem.customValues).filter((entry) =>
-        isDateInRange(entry.dateKey, fromDate, toDate)
-      );
+      const entries = parseReceiptEntries(lineItem.customValues);
+      const recordedReceived = lineItem?.received;
+      const quantity = recordedReceived !== undefined && recordedReceived !== null && recordedReceived !== ""
+        ? Math.max(Number(recordedReceived) || 0, 0)
+        : entries.reduce((total, entry) => total + entry.quantity, 0);
 
-      if (entries.length === 0) {
+      if (quantity <= 0) {
         continue;
       }
 
-      const quantity = entries.reduce((total, entry) => total + entry.quantity, 0);
       const current = parts.get(normalizedSku) || {
         sku,
         name: normalizeText(lineItem?.product?.name),
@@ -211,6 +193,64 @@ function buildPackingParts(purchaseOrderDetails, fromDate, toDate) {
     ),
     purchaseOrders
   };
+}
+
+async function getWarehouseAvailableQuantities(skus) {
+  if (skus.length === 0) {
+    return new Map();
+  }
+
+  const sql = getSql();
+  const rows = await sql.query(
+    `
+      SELECT upper(product.sku) AS sku,
+             SUM(stock.qty_available) AS available_quantity,
+             MAX(stock.last_synced_at) AS stock_as_of
+      FROM catalog_products AS product
+      JOIN catalog_warehouse_stock AS stock
+        ON stock.product_id = product.product_id
+      WHERE upper(product.sku) IN (
+        SELECT jsonb_array_elements_text($1::jsonb)
+      )
+        AND lower(COALESCE(product.state, 'Active')) = 'active'
+        AND stock.warehouse_label = 'DPP Warehouse'
+        AND stock.stock_type = 'WAREHOUSE'
+      GROUP BY upper(product.sku)
+      HAVING SUM(stock.qty_available) > 0
+    `,
+    [JSON.stringify(skus.map(normalizeSku))]
+  );
+
+  return new Map(rows.map((row) => [row.sku, {
+    quantity: Number(row.available_quantity),
+    asOf: row.stock_as_of
+  }]));
+}
+
+function filterPartsWithWarehouseStock(parts, purchaseOrders, stockBySku) {
+  const stockedParts = parts
+    .filter((part) => stockBySku.has(normalizeSku(part.sku)))
+    .map((part) => ({
+      ...part,
+      warehouseAvailableQuantity: stockBySku.get(normalizeSku(part.sku)).quantity
+    }));
+  const summaryByPo = new Map(purchaseOrders.map((po) => [po.poNumber, {
+    ...po,
+    receivedQuantity: 0,
+    receivedSkuCount: 0
+  }]));
+
+  for (const part of stockedParts) {
+    for (const source of part.sources) {
+      const summary = summaryByPo.get(source.poNumber);
+      if (summary) {
+        summary.receivedQuantity += source.quantity;
+        summary.receivedSkuCount += 1;
+      }
+    }
+  }
+
+  return { parts: stockedParts, purchaseOrders: Array.from(summaryByPo.values()) };
 }
 
 function getSkuNexusUrl(path) {
@@ -1108,12 +1148,6 @@ function classifyOrders(orderDetails, packingParts, backorders, vendorProducts =
 
 async function createPackingListReport(input = {}) {
   const poNumbers = parsePurchaseOrderInput(input.purchaseOrders);
-  const receivedFrom = validateDate(input.receivedFrom, "Received from date");
-  const receivedTo = validateDate(input.receivedTo, "Received through date");
-
-  if (receivedFrom > receivedTo) {
-    throw createHttpError(400, "Received from date must be before the through date.");
-  }
 
   const purchaseOrders = await fetchPurchaseOrders(poNumbers);
   const purchaseOrdersByLabel = new Map(
@@ -1128,11 +1162,19 @@ async function createPackingListReport(input = {}) {
       .filter(Boolean)
   );
   const details = await fetchPurchaseOrderDetails(purchaseOrders);
-  const { parts, purchaseOrders: purchaseOrderSummary } = buildPackingParts(
-    details.filter(Boolean),
-    receivedFrom,
-    receivedTo
+  const received = buildPackingParts(details.filter(Boolean));
+  const stockBySku = await getWarehouseAvailableQuantities(
+    received.parts.map((part) => part.sku)
   );
+  const { parts, purchaseOrders: purchaseOrderSummary } = filterPartsWithWarehouseStock(
+    received.parts,
+    received.purchaseOrders,
+    stockBySku
+  );
+  const warehouseStockAsOf = Array.from(stockBySku.values())
+    .map((stock) => stock.asOf ? new Date(stock.asOf).toISOString() : "")
+    .sort()
+    .at(-1) || "";
   const warnings = [];
 
   if (missingPurchaseOrders.length > 0) {
@@ -1141,21 +1183,28 @@ async function createPackingListReport(input = {}) {
     );
   }
 
-  const noReceipts = purchaseOrderSummary
+  const noReceipts = received.purchaseOrders
     .filter((purchaseOrder) => purchaseOrder.receivedQuantity === 0)
     .map((purchaseOrder) => purchaseOrder.poNumber);
 
   if (noReceipts.length > 0) {
     warnings.push(
-      `No receipt entries were found in the selected date range for: ${noReceipts.join(", ")}.`
+      `No received items were found for: ${noReceipts.join(", ")}.`
     );
+  }
+
+  const noStock = purchaseOrderSummary
+    .filter((purchaseOrder) => purchaseOrder.receivedQuantity === 0 && !noReceipts.includes(purchaseOrder.poNumber))
+    .map((purchaseOrder) => purchaseOrder.poNumber);
+
+  if (noStock.length > 0) {
+    warnings.push(`No received items currently have DPP warehouse stock for: ${noStock.join(", ")}.`);
   }
 
   if (parts.length === 0) {
     return {
       vendors,
-      receivedFrom,
-      receivedTo,
+      warehouseStockAsOf,
       purchaseOrders: purchaseOrderSummary,
       parts,
       groups: {
@@ -1181,8 +1230,7 @@ async function createPackingListReport(input = {}) {
 
   return {
     vendors,
-    receivedFrom,
-    receivedTo,
+    warehouseStockAsOf,
     purchaseOrders: purchaseOrderSummary,
     parts,
     groups: classifyOrders(orderDetails, parts, backorders, vendorProducts),
@@ -1195,6 +1243,7 @@ module.exports = {
   _test: {
     buildPackingParts,
     classifyOrders,
+    filterPartsWithWarehouseStock,
     parsePurchaseOrderInput,
     parseReceiptDate,
     parseReceiptEntries
