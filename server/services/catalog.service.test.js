@@ -518,4 +518,16 @@ test("keeps a kit available when an unassigned component has no stock source", (
     ),
     "Available"
   );
+
+  assert.equal(
+    _test.getEffectiveAvailability(
+      "KIT-UNKNOWN",
+      productsBySku,
+      productVendorAvailability,
+      new Map(),
+      new Set(),
+      new Map([["UNASSIGNED", "backordered"]])
+    ),
+    "Backorder"
+  );
 });

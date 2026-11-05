@@ -523,6 +523,10 @@ function getEffectiveAvailability(
       return "Built to Order";
     }
 
+    if (childAvailability === "Backorder") {
+      return "Backorder";
+    }
+
     // A component with no inventory source remains informational. Once any
     // stock is known, an insufficient quantity is an actionable shortage.
     if (

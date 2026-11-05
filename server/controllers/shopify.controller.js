@@ -1,6 +1,7 @@
 const shopifyService = require("../services/shopify.service");
 const shopifyAvailabilityQueueService = require("../services/shopifyAvailabilityQueue.service");
 const productsService = require("../services/products.service");
+const catalogService = require("../services/catalog.service");
 
 async function assertBuiltToOrderAvailabilityAllowed(sku, availability) {
   const normalizedAvailability = String(availability || "")
@@ -71,6 +72,28 @@ async function updateProductAvailability(req, res, next) {
       await shopifyAvailabilityQueueService.removeAvailabilitySync(req.body.sku);
     } catch (error) {
       console.error("Unable to clear queued Shopify availability sync.", {
+        error,
+        sku: req.body.sku
+      });
+    }
+
+    try {
+      const parentKitSkus = await catalogService.getParentKitSkusForSku(req.body.sku);
+      for (const parentSku of parentKitSkus) {
+        try {
+          await shopifyAvailabilityQueueService.enqueueAvailabilitySync({
+            sku: parentSku,
+            source: "kit-child-manual-availability"
+          });
+        } catch (error) {
+          console.error("Unable to queue parent kit Shopify availability sync.", {
+            error,
+            sku: parentSku
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Unable to queue parent kit Shopify availability sync.", {
         error,
         sku: req.body.sku
       });

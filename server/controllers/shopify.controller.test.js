@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const products = require("../services/products.service");
 const shopify = require("../services/shopify.service");
 const queue = require("../services/shopifyAvailabilityQueue.service");
+const catalog = require("../services/catalog.service");
 const controller = require("./shopify.controller");
 
 const btoVendor = { stockSource: "vendor", builtToOrder: true, quantity: 999999 };
@@ -18,6 +19,7 @@ for (const scenario of [
     t.mock.method(products, "getProductDetails", async () => ({ qtyAvailable: scenario.qty, vendors: scenario.vendors }));
     const push = t.mock.method(shopify, "updateProductAvailability", async () => ({ ok: true }));
     const cleanup = t.mock.method(queue, "removeAvailabilitySync", async () => {});
+    t.mock.method(catalog, "getParentKitSkusForSku", async () => []);
     let error;
     let response;
     await controller.updateProductAvailability(
@@ -35,3 +37,25 @@ for (const scenario of [
     }
   });
 }
+
+test("manual child availability changes queue parent kit reconciliation", async (t) => {
+  t.mock.method(shopify, "updateProductAvailability", async () => ({ ok: true }));
+  t.mock.method(queue, "removeAvailabilitySync", async () => {});
+  t.mock.method(catalog, "getParentKitSkusForSku", async () => ["DDP-DIESELSTARTERPACK"]);
+  const enqueue = t.mock.method(queue, "enqueueAvailabilitySync", async () => ({}));
+  let response;
+  let error;
+
+  await controller.updateProductAvailability(
+    { body: { sku: "DPP001KC", availability: "backordered" } },
+    { send: (value) => { response = value; } },
+    (value) => { error = value; }
+  );
+
+  assert.equal(error, undefined);
+  assert.deepEqual(response, { ok: true });
+  assert.deepEqual(enqueue.mock.calls[0].arguments, [{
+    sku: "DDP-DIESELSTARTERPACK",
+    source: "kit-child-manual-availability"
+  }]);
+});
