@@ -483,10 +483,6 @@ function getProductAvailabilityFromShopifyStatus(
     return "Available";
   }
 
-  const hasAssignedVendor = Boolean(
-    productDetails?.vendors?.some((vendor) => vendor.stockSource === "vendor")
-  );
-
   switch (status) {
     case "in_stock":
       return "Available";
@@ -494,8 +490,9 @@ function getProductAvailabilityFromShopifyStatus(
       return "Built to Order";
     case "out_of_stock":
     case "backordered":
+      return "Backorder";
     case "discontinued":
-      return productDetails && !hasAssignedVendor ? "Available" : "Backorder";
+      return productDetails?.availability || "Backorder";
     default:
       return "";
   }
@@ -2227,10 +2224,16 @@ export function NotesModal({
           ? await handleAllVendorStockChange(true, { syncShopify: false })
           : await handleAllVendorStockChange(false, { syncShopify: false });
       const detailsForShopify = nextProductDetails || productDetails;
-      const effectiveAvailability = getEffectiveShopifyAvailability(
-        detailsForShopify,
-        shopifyAvailabilityModifier
+      const hasAssignedVendor = detailsForShopify.vendors.some(
+        (vendor) => vendor.stockSource === "vendor"
       );
+      const effectiveAvailability = !shopifyAvailabilityModifier &&
+        (!hasAssignedVendor || availability === "backordered")
+          ? availability
+          : getEffectiveShopifyAvailability(
+              detailsForShopify,
+              shopifyAvailabilityModifier
+            );
 
       await saveShopifyAvailability(
         detailsForShopify,

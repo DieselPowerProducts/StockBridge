@@ -262,8 +262,6 @@ function getProductAvailabilityOverride(
   shopifyAvailabilityBySku = new Map(),
   {
     buildToOrderLeadTime = "",
-    hasActiveVendor = true,
-    hasBuiltToOrderVendor = false,
     qtyAvailable = 0
   } = {}
 ) {
@@ -282,10 +280,6 @@ function getProductAvailabilityOverride(
     savedAvailability === "in_stock"
       ? ""
       : mapShopifyAvailabilityToProductAvailability(savedAvailability);
-
-  if (availability === "Backorder" && !hasActiveVendor && !hasBuiltToOrderVendor) {
-    return "";
-  }
 
   if (availability) {
     return availability;
@@ -465,11 +459,6 @@ function getEffectiveAvailability(
     safeSku,
     shopifyAvailabilityBySku,
     {
-      hasActiveVendor: productHasActiveVendor,
-      hasBuiltToOrderVendor: hasBuiltToOrderVendor(
-        product,
-        productVendorAvailability
-      ),
       buildToOrderLeadTime: buildToOrderLeadTimeBySku.get(safeSku) || "",
       qtyAvailable
     }
@@ -1891,8 +1880,6 @@ function mapProduct(
       )
     : getProductAvailabilityOverride(sku, shopifyAvailabilityBySku, {
         buildToOrderLeadTime: buildToOrderLeadTimeBySku.get(sku) || "",
-        hasActiveVendor,
-        hasBuiltToOrderVendor,
         qtyAvailable
       }) ||
       mapAvailability(qtyAvailable, hasActiveVendor, hasBuiltToOrderVendor);
@@ -4320,7 +4307,6 @@ async function listVendorProducts(vendorId, queryParams = {}) {
                 buildToOrderLeadTimeBySku.get(
                   row.product_sku || row.sku || row.label || ""
                 ) || "",
-              hasBuiltToOrderVendor: builtToOrderProductIds.has(row.product_id),
               qtyAvailable
             }
           ) ||

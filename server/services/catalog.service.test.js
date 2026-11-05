@@ -223,6 +223,52 @@ test("uses backorder when an unavailable product has no lower modifier", () => {
   );
 });
 
+test("keeps the no-vendor default available but honors an explicit backorder", () => {
+  const product = {
+    id: "unassigned-1",
+    sku: "DPP001KC",
+    qty_available: 0,
+    is_kit: false,
+    relatedProduct: []
+  };
+  const productsBySku = new Map([[product.sku, product]]);
+  const vendorAvailability = {
+    collectiveQuantityByProductId: new Map(),
+    productIdsWithActiveVendors: new Set(),
+    productIdsWithBuiltToOrderVendors: new Set(),
+    vendorQuantityByProductId: new Map()
+  };
+
+  assert.equal(
+    _test.getEffectiveAvailability(product.sku, productsBySku, vendorAvailability),
+    "Available"
+  );
+  assert.equal(
+    _test.getEffectiveAvailability(
+      product.sku,
+      productsBySku,
+      vendorAvailability,
+      new Map(),
+      new Set(),
+      new Map([[product.sku, "backordered"]])
+    ),
+    "Backorder"
+  );
+
+  product.qty_available = 1;
+  assert.equal(
+    _test.getEffectiveAvailability(
+      product.sku,
+      productsBySku,
+      vendorAvailability,
+      new Map(),
+      new Set(),
+      new Map([[product.sku, "backordered"]])
+    ),
+    "Available"
+  );
+});
+
 test("keeps a product stocked when another active vendor or warehouse has stock", () => {
   const vendorAvailability = _test.buildProductVendorAvailability([
     { product_id: "product-1", vendor_id: "vendor-zero", quantity: 0, status: 2 },
