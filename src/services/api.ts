@@ -242,6 +242,17 @@ export function getStockCheckBrandGroups(bypassCache = false) {
   return request<StockCheckBrandResponse>(`/products/stock-check/brands${query}`);
 }
 
+export function updateProductStockCheckHidden(sku: string, hidden: boolean) {
+  return request<{ sku: string; hiddenFromStockCheck: boolean }>(
+    "/products/stock-check/hidden",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sku, hidden })
+    }
+  );
+}
+
 export function sendBulkVendorStockCheckEmail(input: {
   vendorId: string;
   skus: string[];

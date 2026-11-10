@@ -185,6 +185,15 @@ test("excludes discontinued products from Stock Check", () => {
   );
 });
 
+test("shows hidden stock checks only in the Hidden filter", () => {
+  const visible = { sku: "VISIBLE", hiddenFromStockCheck: false };
+  const hidden = { sku: "HIDDEN", hiddenFromStockCheck: true };
+  assert.equal(_test.matchesStockCheckVisibility(visible, "all"), true);
+  assert.equal(_test.matchesStockCheckVisibility(hidden, "all"), false);
+  assert.equal(_test.matchesStockCheckVisibility(visible, "hidden"), false);
+  assert.equal(_test.matchesStockCheckVisibility(hidden, "hidden"), true);
+});
+
 test("keeps stock authoritative over optional Shopify availability modifiers", () => {
   assert.equal(
     _test.mapProductAvailabilityToShopifyStatus(

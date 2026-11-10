@@ -129,7 +129,8 @@ export function StockCheckBrandView({
           ) ? followUpOverrides[product.sku.toUpperCase()] || "" : product.followUpDate,
           vendorEmailSent: product.vendorEmailSent || emailedSkus.has(product.sku.toUpperCase())
         }))
-        .filter((product) => product.availability !== "Available" || Boolean(product.followUpDate))
+        .filter((product) => !product.hiddenFromStockCheck &&
+          (product.availability !== "Available" || Boolean(product.followUpDate)))
     })), [groups, search, productStockUpdate, followUpOverrides, emailedSkus]);
 
   function updateFilter(vendorId: string, patch: Partial<DateFilter>) {

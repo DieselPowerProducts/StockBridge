@@ -95,7 +95,7 @@ export type StockCheckSort =
   | "yesterday"
   | "today"
   | "tomorrow"
-  | "no-follow-up"
+  | "hidden"
   | "all";
 
 export type Product = {
@@ -108,6 +108,7 @@ export type Product = {
   followUpDate: string;
   isKit: boolean;
   vendorEmailSent?: boolean;
+  hiddenFromStockCheck?: boolean;
 };
 
 export type VendorEmailSentUpdate = {
@@ -126,6 +127,7 @@ export type ProductStockUpdate = {
   availability: ProductAvailability;
   followUpDate?: string;
   followUpSaved?: boolean;
+  hiddenFromStockCheck?: boolean;
 };
 
 export type FollowUpOverrides = Record<string, string>;
@@ -490,6 +492,7 @@ export type ProductDetails = {
   isKit: boolean;
   followUpDate: string;
   followUpNoEta: boolean;
+  hiddenFromStockCheck: boolean;
   shopifyAvailabilityStatus: ShopifyAvailabilityStatus | "";
   shopifyAvailabilityModifier: ShopifyAvailabilityModifier | "";
   builtToOrderLeadTime: string;

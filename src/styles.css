@@ -2726,6 +2726,30 @@ body:has(.notes-popup-page),
   justify-content: flex-end;
 }
 
+.stock-check-visibility-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  color: var(--workspace-text, #eef3f2);
+  background: #263237;
+  border: 1px solid #52636a;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.stock-check-visibility-button[aria-pressed="true"] {
+  color: #f2bd72;
+  border-color: #8b693b;
+}
+
+.stock-check-visibility-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .notes-panel-header h3 {
   margin-bottom: 4px;
 }

@@ -27,6 +27,7 @@ import {
   updateProductVendorBuiltToOrder,
   updateShopifyProductAvailability,
   updateProductFollowUp,
+  updateProductStockCheckHidden,
   updateProductVendorStock,
   updateNote
 } from "../../services/api";
@@ -295,7 +296,8 @@ function getProductStockUpdate(
       sku: productDetails.sku,
       qtyAvailable: productDetails.qtyAvailable,
       availability: productDetails.availability,
-      followUpDate: productDetails.followUpDate
+      followUpDate: productDetails.followUpDate,
+      hiddenFromStockCheck: productDetails.hiddenFromStockCheck
     };
   }
 
@@ -309,7 +311,8 @@ function getProductStockUpdate(
     qtyAvailable,
     availability:
       qtyAvailable > 0 ? "Available" : getUnavailableAvailability(vendors),
-    followUpDate: productDetails.followUpDate
+    followUpDate: productDetails.followUpDate,
+    hiddenFromStockCheck: productDetails.hiddenFromStockCheck
   };
 }
 
@@ -320,7 +323,8 @@ function getProductDetailsStockUpdate(
     sku: productDetails.sku,
     qtyAvailable: productDetails.qtyAvailable,
     availability: productDetails.availability,
-    followUpDate: productDetails.followUpDate
+    followUpDate: productDetails.followUpDate,
+    hiddenFromStockCheck: productDetails.hiddenFromStockCheck
   };
 }
 
@@ -636,6 +640,7 @@ export function NotesModal({
   const [isFollowUpSaving, setIsFollowUpSaving] = useState(false);
   const [isProductDetailsLoading, setIsProductDetailsLoading] = useState(false);
   const [isProductRefreshing, setIsProductRefreshing] = useState(false);
+  const [isStockCheckVisibilitySaving, setIsStockCheckVisibilitySaving] = useState(false);
   const [pendingVendorStock, setPendingVendorStock] = useState<
     Record<string, boolean>
   >({});
@@ -1348,6 +1353,28 @@ export function NotesModal({
       );
     } finally {
       setIsProductRefreshing(false);
+    }
+  }
+
+  async function handleToggleStockCheckVisibility() {
+    if (!productDetails || isStockCheckVisibilitySaving) return;
+    setDetailsError("");
+    setIsStockCheckVisibilitySaving(true);
+    try {
+      const result = await updateProductStockCheckHidden(
+        productDetails.sku,
+        !productDetails.hiddenFromStockCheck
+      );
+      const nextDetails = {
+        ...productDetails,
+        hiddenFromStockCheck: result.hiddenFromStockCheck
+      };
+      setProductDetails(nextDetails);
+      onProductStockChanged?.(getProductDetailsStockUpdate(nextDetails));
+    } catch (err) {
+      setDetailsError(err instanceof Error ? err.message : "Unable to update Stock Check visibility.");
+    } finally {
+      setIsStockCheckVisibilitySaving(false);
     }
   }
 
@@ -3030,6 +3057,35 @@ export function NotesModal({
                     Kit Component
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="stock-check-visibility-button"
+                  disabled={!productDetails || isStockCheckVisibilitySaving}
+                  aria-label={productDetails?.hiddenFromStockCheck
+                    ? "Show in Stock Check"
+                    : "Hide from Stock Check"}
+                  title={productDetails?.hiddenFromStockCheck
+                    ? "Show in Stock Check"
+                    : "Hide from Stock Check"}
+                  aria-pressed={Boolean(productDetails?.hiddenFromStockCheck)}
+                  onClick={handleToggleStockCheckVisibility}
+                >
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    {productDetails?.hiddenFromStockCheck ? (
+                      <>
+                        <path d="M10.6 5.1A10.8 10.8 0 0 1 12 5c5.5 0 9.5 7 9.5 7a15.5 15.5 0 0 1-3 3.7" />
+                        <path d="M6.2 6.2C3.6 8 2.5 12 2.5 12s4 7 9.5 7a9.2 9.2 0 0 0 4.1-.9" />
+                        <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+                        <path d="M3 3l18 18" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M2.5 12S6.5 5 12 5s9.5 7 9.5 7-4 7-9.5 7-9.5-7-9.5-7Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </>
+                    )}
+                  </svg>
+                </button>
                 <button
                   type="button"
                   className="follow-up-button"

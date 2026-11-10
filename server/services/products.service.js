@@ -5,6 +5,7 @@ const inventoryAuditService = require("./inventoryAudit.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 const shopifyAvailabilityQueueService = require("./shopifyAvailabilityQueue.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
+const stockCheckVisibilityService = require("./stockCheckVisibility.service");
 const vendorAutoInventoryProductUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorSettingsService = require("./vendorSettings.service");
@@ -256,6 +257,14 @@ async function listProducts(queryParams) {
 
 async function listStockCheckProducts(queryParams) {
   return catalogService.listStockCheckProducts(queryParams);
+}
+
+async function setProductStockCheckHidden({ sku, hidden }) {
+  const safeSku = normalizeRequiredString(sku, 'Product SKU is required.');
+  await catalogService.getProductDetails(safeSku);
+  const result = await stockCheckVisibilityService.setHidden(safeSku, hidden);
+  catalogService.clearCaches();
+  return result;
 }
 
 async function listStockCheckVendorGroups(queryParams) {
@@ -889,6 +898,7 @@ module.exports = {
   getProductDetails,
   listProducts,
   listStockCheckProducts,
+  setProductStockCheckHidden,
   listStockCheckVendorGroups,
   refreshProductDetails,
   setProductBuiltToOrderLeadTime,

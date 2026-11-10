@@ -24,7 +24,7 @@ const stockCheckSortOptions: Array<{ value: StockCheckSort; label: string }> = [
   { value: "yesterday", label: "Yesterday" },
   { value: "today", label: "Today" },
   { value: "tomorrow", label: "Tomorrow" },
-  { value: "no-follow-up", label: "No follow up" },
+  { value: "hidden", label: "Hidden" },
   { value: "all", label: "All" }
 ];
 
@@ -56,12 +56,16 @@ function matchesStockCheckFilter(product: Product, sort: StockCheckSort) {
     return false;
   }
 
-  if (sort === "all") {
-    return true;
+  if (sort === "hidden") {
+    return Boolean(product.hiddenFromStockCheck);
   }
 
-  if (sort === "no-follow-up") {
-    return !followUpDate;
+  if (product.hiddenFromStockCheck) {
+    return false;
+  }
+
+  if (sort === "all") {
+    return true;
   }
 
   const offsetBySort: Record<"yesterday" | "today" | "tomorrow", number> = {
@@ -176,6 +180,8 @@ export function StockCheckPage({
       !previous ||
       previous.availability !== productStockUpdate.availability ||
       previous.qtyAvailable !== productStockUpdate.qtyAvailable ||
+      (productStockUpdate.hiddenFromStockCheck !== undefined &&
+        previous.hiddenFromStockCheck !== productStockUpdate.hiddenFromStockCheck) ||
       (productStockUpdate.followUpDate !== undefined &&
         previous.followUpDate !== productStockUpdate.followUpDate)
     );
@@ -260,7 +266,7 @@ export function StockCheckPage({
     yesterday: "No stock check products with follow-up dates from yesterday.",
     today: "No stock check products with follow-up dates from today.",
     tomorrow: "No stock check products with follow-up dates from tomorrow.",
-    "no-follow-up": "No stock check products without follow-up dates.",
+    hidden: "No hidden stock checks.",
     all: "No backordered or follow-up products found."
   };
 

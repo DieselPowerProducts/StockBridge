@@ -6,6 +6,7 @@ const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.serv
 const shopifyCollectiveInventoryService = require("./shopifyCollectiveInventory.service");
 const skunexus = require("./skunexus.service");
 const stockCheckEmailsService = require("./stockCheckEmails.service");
+const stockCheckVisibilityService = require("./stockCheckVisibility.service");
 const autoInventoryProductUpdatesService = require("./vendorAutoInventoryProductUpdates.service");
 const vendorAutoInventorySettingsService = require("./vendorAutoInventorySettings.service");
 const vendorSettingsService = require("./vendorSettings.service");
@@ -29,7 +30,7 @@ const stockCheckSortValues = new Set([
   "yesterday",
   "today",
   "tomorrow",
-  "no-follow-up"
+  "hidden"
 ]);
 const productSelectionFields = `
   id
@@ -596,12 +597,6 @@ function filterStockCheckProducts(products, sort, referenceDate) {
     return [...products].sort(compareStockCheckProducts);
   }
 
-  if (sort === "no-follow-up") {
-    return products
-      .filter((product) => !product.followUpDate)
-      .sort(compareStockCheckProducts);
-  }
-
   const offsetBySort = {
     yesterday: -1,
     today: 0,
@@ -612,6 +607,12 @@ function filterStockCheckProducts(products, sort, referenceDate) {
   return products
     .filter((product) => product.followUpDate === targetDate)
     .sort(compareStockCheckProducts);
+}
+
+function matchesStockCheckVisibility(product, sort) {
+  return sort === 'hidden'
+    ? Boolean(product.hiddenFromStockCheck)
+    : !product.hiddenFromStockCheck;
 }
 
 function getTimeZoneDateParts(date, timeZone) {
@@ -3737,13 +3738,15 @@ async function getProductDetails(sku) {
     vendorProducts,
     warehouseStock,
     followUpInfo,
-    parentKits
+    parentKits,
+    hiddenFromStockCheck
   ] = await Promise.all([
     buildProductGraph([product]),
     queryVendorProductsByProductId(product.id),
     queryWarehouseStockByProductId(product.id),
     followUpsService.getFollowUpInfoForSku(safeSku),
-    getProductParentKitsForSku(safeSku)
+    getProductParentKitsForSku(safeSku),
+    stockCheckVisibilityService.isHidden(safeSku)
   ]);
   const productNode =
     productGraph.productsBySku.get(product.sku || safeSku) || normalizeProductNode(product);
@@ -3916,6 +3919,7 @@ async function getProductDetails(sku) {
     isKit: Boolean(productNode?.is_kit),
     followUpDate: followUpInfo.followUpDate,
     followUpNoEta: followUpInfo.followUpNoEta,
+    hiddenFromStockCheck,
     shopifyAvailabilityStatus,
     shopifyAvailabilityModifier,
     builtToOrderLeadTime,
@@ -3943,9 +3947,10 @@ async function getStockCheckProducts({
     return cached.data;
   }
 
-  const [{ rows, graph }, followUpsBySku] = await Promise.all([
+  const [{ rows, graph }, followUpsBySku, hiddenSkus] = await Promise.all([
     buildFullProductGraph(),
-    followUpsService.getAllFollowUps()
+    followUpsService.getAllFollowUps(),
+    stockCheckVisibilityService.getHiddenSkuSet()
   ]);
   const productVendorAvailability = await getProductVendorAvailabilityInfo(
     getProductGraphProductIds(graph)
@@ -3983,10 +3988,15 @@ async function getStockCheckProducts({
       (product) =>
         product.availability !== "Available" || Boolean(product.followUpDate)
     )
+    .map((product) => ({
+      ...product,
+      hiddenFromStockCheck: hiddenSkus.has(String(product.sku || '').trim().toUpperCase())
+    }))
+    .filter((product) => matchesStockCheckVisibility(product, cleanSort))
     .filter((product) => matchesProductSearch(product, cleanSearch));
   const filteredData = filterStockCheckProducts(
     data,
-    cleanSort,
+    cleanSort === 'hidden' ? 'all' : cleanSort,
     cleanReferenceDate
   );
 
@@ -4098,12 +4108,12 @@ async function ensureMissingBackorderFollowUps(followUpDate = "") {
     normalizeDateText(followUpDate) ||
     getTimeZoneDateParts(new Date(), syncTimezone).localDate;
   const products = await getStockCheckProducts({
-    sort: "no-follow-up",
+    sort: "all",
     bypassCache: true
   });
   const inserted = await followUpsService.setMissingFollowUps(
     products
-      .filter((product) => product.availability === "Backorder")
+      .filter((product) => product.availability === "Backorder" && !product.followUpDate)
       .map((product) => ({
         sku: product.sku,
         followUpDate: effectiveFollowUpDate
@@ -4502,6 +4512,7 @@ module.exports = {
     isActiveVendorProduct,
     shouldIncludeBuiltToOrderProductInStockCheck,
     shouldIncludeNonCollectiveProductInStockCheck,
-    shouldIncludeNonDiscontinuedProductInStockCheck
+    shouldIncludeNonDiscontinuedProductInStockCheck,
+    matchesStockCheckVisibility
   }
 };

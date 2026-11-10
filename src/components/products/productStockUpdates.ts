@@ -17,7 +17,11 @@ export function applyProductStockUpdate(
           followUpDate:
             productStockUpdate.followUpDate === undefined
               ? product.followUpDate
-              : productStockUpdate.followUpDate
+              : productStockUpdate.followUpDate,
+          hiddenFromStockCheck:
+            productStockUpdate.hiddenFromStockCheck === undefined
+              ? product.hiddenFromStockCheck
+              : productStockUpdate.hiddenFromStockCheck
         }
       : product
   );
