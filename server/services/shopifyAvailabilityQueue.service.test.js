@@ -50,14 +50,13 @@ test("commits a debounced SKU row before publishing its targeted wake", async ()
     const queueService = require(servicePath);
     const result = await queueService.enqueueAvailabilitySync({
       sku: " DPP-123 ",
-      source: "follow-up-update",
-      delaySeconds: 30
+      source: "follow-up-update"
     });
 
     assert.deepEqual(order, ["database", "publish"]);
     assert.deepEqual(publishCalls, [
       {
-        delaySeconds: 30,
+        delaySeconds: 15,
         revision: 9,
         sku: "DPP-123",
         source: "follow-up-update"

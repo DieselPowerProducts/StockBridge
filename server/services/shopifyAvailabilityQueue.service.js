@@ -2,7 +2,7 @@ const { getSql } = require("../db/neon");
 const shopifyAvailabilityEventsService = require("./shopifyAvailabilityEvents.service");
 const shopifyAvailabilityStateService = require("./shopifyAvailabilityState.service");
 
-const defaultDelaySeconds = 30;
+const defaultDelaySeconds = 15;
 const defaultProcessLimit = 100;
 const leaseSeconds = 240;
 const maximumRetryDelaySeconds = 60 * 60;

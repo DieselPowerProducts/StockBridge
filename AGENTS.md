@@ -261,7 +261,7 @@ Availability button rules:
   lead time exists.
 - Shopify pushes from follow-up, inventory, and BTO lead-time edits are debounced
   through the database-backed `shopify_availability_sync_queue`. Each new change
-  resets that SKU's 30-second quiet period and publishes a delayed Vercel Queue
+  resets that SKU's 15-second quiet period and publishes a delayed Vercel Queue
   message. Vercel invokes the push consumer when a message is ready; there is no
   polling cron. The authenticated cron-style endpoint remains available for
   manual recovery. Closing the Notes modal does not cancel the update.
