@@ -143,8 +143,9 @@ Shopify Collective inventory is pulled during the nightly full catalog sync:
 
 - Code lives in `server/services/shopifyCollectiveInventory.service.js` and the
   Shopify reader lives in `server/services/shopify.service.js`.
-- Active products must have the exact `Shopify Collective` Shopify tag and
-  tracked variant inventory to be managed by this sync.
+- Products in any Shopify status (Active, Draft, or Archived) must have the exact
+  `Shopify Collective` Shopify tag and tracked variant inventory to be managed
+  by this sync. A status change alone must not remove a product from the sync.
 - Shopify inventory is authoritative for managed SKUs. Positive inventory maps
   to `In Stock`; zero inventory with `CONTINUE` maps to `Backorder`; zero
   inventory with `DENY` maps to `Out of Stock`.

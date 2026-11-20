@@ -87,10 +87,25 @@ test("combines duplicate SKUs and keeps mixed policy SKUs sellable", () => {
   assert.equal(records[0].variantIds.length, 2);
 });
 
-test("ignores products that are not active tracked Collective products", () => {
+test("includes draft and archived tracked Collective products", () => {
+  const records = aggregateTrackedCollectiveInventoryVariants([
+    variant({ id: "draft", sku: "SKU-2", quantity: 2, status: "DRAFT" }),
+    variant({ id: "archived", sku: "SKU-4", quantity: 3, status: "ARCHIVED" })
+  ]);
+
+  assert.deepEqual(records.map(({ sku, inventoryQuantity, availability }) => ({
+    sku,
+    inventoryQuantity,
+    availability
+  })), [
+    { sku: "SKU-2", inventoryQuantity: 2, availability: "in_stock" },
+    { sku: "SKU-4", inventoryQuantity: 3, availability: "in_stock" }
+  ]);
+});
+
+test("ignores untracked and non-Collective products", () => {
   const records = aggregateTrackedCollectiveInventoryVariants([
     variant({ id: "untracked", sku: "SKU-1", quantity: 2, tracked: false }),
-    variant({ id: "draft", sku: "SKU-2", quantity: 2, status: "DRAFT" }),
     variant({ id: "ordinary", sku: "SKU-3", quantity: 2, tags: ["Supplier"] }),
     variant({ id: "missing-sku", sku: "", quantity: 2 })
   ]);

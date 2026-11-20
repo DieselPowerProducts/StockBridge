@@ -782,7 +782,6 @@ function aggregateTrackedCollectiveInventoryVariants(variants) {
     if (
       !sku ||
       !isCollectiveProduct ||
-      variant?.product?.status !== "ACTIVE" ||
       variant?.inventoryItem?.tracked !== true
     ) {
       continue;
@@ -893,7 +892,7 @@ async function getTrackedCollectiveInventory() {
       `,
       {
         after,
-        query: `tag:"${shopifyCollectiveTag}" status:active`
+        query: `tag:"${shopifyCollectiveTag}" status:any`
       },
       shopifyAvailabilityProfile
     );
