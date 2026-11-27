@@ -2265,7 +2265,47 @@ async function updateProductAvailability({
   }
 
   const safeSku = normalizeSku(sku);
-  const productMatch = await findProductBySku(safeSku, { productName });
+  let productMatch;
+
+  try {
+    productMatch = await findProductBySku(safeSku, { productName });
+  } catch (error) {
+    if (error?.statusCode !== 404 || error?.message !== "No Shopify product matched this SKU.") {
+      throw error;
+    }
+
+    const catalogService = require("./catalog.service");
+    const parentKitSkus = await catalogService.getParentKitSkusForSku(safeSku);
+
+    if (parentKitSkus.length === 0) {
+      throw error;
+    }
+
+    const savedAvailabilityState = await shopifyAvailabilityStateService.setAvailabilityStatus({
+      sku: safeSku,
+      availability: requestedStatus,
+      availabilityModifier,
+      buildToOrderLeadTime:
+        requestedStatus === "built_to_order" ? buildToOrderLeadTime : undefined
+    });
+    catalogService.clearCaches();
+
+    return {
+      availability: savedAvailabilityState.availability || requestedStatus,
+      availabilityModifier: savedAvailabilityState.availabilityModifier || "",
+      availabilityText: availabilityValues[requestedStatus],
+      duplicateSkuMatchCount: 0,
+      handle: "",
+      localOnly: true,
+      matchedSku: safeSku,
+      matchedVariantId: "",
+      productId: "",
+      productStatus: "",
+      productTitle: productName || safeSku,
+      updatedInventoryPolicyCount: 0,
+      updatedMetafieldOwnerCount: 0
+    };
+  }
   const variants = await getProductVariants(productMatch.productId);
   const variantsToUpdate = variants.filter(
     (variant) => normalizeSku(variant?.sku) === safeSku

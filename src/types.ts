@@ -397,6 +397,7 @@ export type ShopifyAvailabilityResponse = {
   availabilityText: string;
   duplicateSkuMatchCount: number;
   handle: string;
+  localOnly?: boolean;
   matchedSku: string;
   matchedVariantId: string;
   productId: string;

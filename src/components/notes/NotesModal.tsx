@@ -2209,7 +2209,9 @@ export function NotesModal({
       result.availabilityModifier
     );
     setShopifyAvailabilityStatus(
-      `Shopify set to ${result.availabilityText} on ${
+      result.localOnly
+        ? `StockBridge set to ${result.availabilityText} for this kit component. No matching Shopify variant exists; the parent kit will be updated separately.`
+        : `Shopify set to ${result.availabilityText} on ${
         result.productTitle || result.matchedSku
       } for ${result.updatedMetafieldOwnerCount} variant${
         result.updatedMetafieldOwnerCount === 1 ? "" : "s"
